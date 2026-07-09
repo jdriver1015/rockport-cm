@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Westcreek Construction Manager
 
-## Getting Started
+Internal tool for tracking multifamily construction projects across the Westcreek portfolio: underwriting budgets, GL file intake reconciled to the internal chart of accounts, scope and unit-turn tracking with stage pipelines, photos, and drillable budget-vs-actual reporting.
 
-First, run the development server:
+Replaces the per-property Excel construction trackers (baseline: *Retreat at Westpark — Construction Tracker.xlsx*).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Next.js 16 + TypeScript** (App Router, `src/` layout) — UI, API routes, and server-side GL parsing in one codebase
+- **Tailwind CSS v4 + shadcn/ui** — UI components
+- **Postgres via Supabase**, **Drizzle ORM** — schema in [`src/db/schema.ts`](src/db/schema.ts)
+- **Supabase Auth** (email/password + magic links) and **Supabase Storage** (photos, GL files)
+- **SheetJS (`xlsx`)** for GL import parsing; **exceljs** for formatted Excel exports
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Getting started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. `npm install`
+2. Create a Supabase project, then copy `.env.example` to `.env.local` and fill in the values
+3. `npm run db:push` — create tables (or `db:generate` + `db:migrate` for versioned migrations)
+4. `npm run db:seed` — load the master chart of accounts (Cost Code Bank)
+5. `npm run dev`
 
-## Learn More
+## Domain model (short version)
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Chart of accounts** is portfolio-level master data: `cost_categories` (4-digit lender codes, 1000–4000) → `cost_codes` (`1100-0001 Roofing Repair`). The 4000-series is flagged `is_interior` and tracks at the unit-turn level; everything else tracks at the scope level.
+- **Projects** move through seven gated stages: setup → bidding → mobilization → in_progress → punch_walk → final_completion → closed. Stage changes are recorded in `project_stage_events`.
+- **Money is a three-way view:** `budget_lines.uw_amount` (underwriting) → `scopes.committed_cost` (approved bids) → posted `gl_transactions` (JTD actual). Left-to-invoice and variance are derived, never stored.
+- **GL intake** is the only way actuals enter: upload file → `import_batches` → rows staged as `gl_transactions` → auto-mapped via `mapping_rules` (GL account / vendor / keyword → cost code) → review queue → posted. Every transaction keeps its source file row for drill-back.
+- **Unit turns** run their own pipeline (planned → vacant_ready → in_progress → punch → complete → invoiced → leased) with stage timestamps driving days-to-complete; rent fields drive trade-out and ROI analytics.
+- **Attachments** (photos, invoices, lien waivers) attach to projects, scopes, unit turns, punch items, or transactions and are always tagged with the stage at upload time.
