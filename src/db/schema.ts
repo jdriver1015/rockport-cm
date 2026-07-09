@@ -8,6 +8,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -165,22 +166,26 @@ export const projectStageEvents = pgTable("project_stage_events", {
 // Budget (underwriting) — one line per project per cost code
 // ---------------------------------------------------------------------------
 
-export const budgetLines = pgTable("budget_lines", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id")
-    .notNull()
-    .references(() => projects.id),
-  costCodeId: integer("cost_code_id")
-    .notNull()
-    .references(() => costCodes.id),
-  /** Total underwritten amount for this code on this project */
-  uwAmount: numeric("uw_amount", { precision: 12, scale: 2 }).notNull().default("0"),
-  /** Interior codes: budget per unit; uwAmount = perUnitAmount × plannedUnits */
-  perUnitAmount: numeric("per_unit_amount", { precision: 12, scale: 2 }),
-  plannedUnits: integer("planned_units"),
-  note: text("note"),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const budgetLines = pgTable(
+  "budget_lines",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id),
+    costCodeId: integer("cost_code_id")
+      .notNull()
+      .references(() => costCodes.id),
+    /** Total underwritten amount for this code on this project */
+    uwAmount: numeric("uw_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    /** Interior codes: budget per unit; uwAmount = perUnitAmount × plannedUnits */
+    perUnitAmount: numeric("per_unit_amount", { precision: 12, scale: 2 }),
+    plannedUnits: integer("planned_units"),
+    note: text("note"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("budget_lines_project_code_uq").on(t.projectId, t.costCodeId)],
+);
 
 // ---------------------------------------------------------------------------
 // Vendors
