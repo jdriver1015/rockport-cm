@@ -42,6 +42,9 @@ export default function RootLayout({
               <Link href="/" className="transition-colors hover:text-white">
                 Portfolio
               </Link>
+              <Link href="/settings" className="transition-colors hover:text-white">
+                Settings
+              </Link>
             </nav>
           </div>
         </header>
