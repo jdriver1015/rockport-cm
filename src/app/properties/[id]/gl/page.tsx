@@ -14,6 +14,7 @@ import {
 import { GlReviewQueue } from "@/components/gl-review-queue";
 import { GlUpload } from "@/components/gl-upload";
 import { PropertyNav } from "@/components/property-nav";
+import { UnpostButton } from "@/components/unpost-button";
 import { fmtDate, money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -196,6 +197,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
                     <TableHead>Cost code</TableHead>
                     <TableHead>Project</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -215,6 +217,9 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
                       </TableCell>
                       <TableCell className="text-xs">{project?.name ?? "—"}</TableCell>
                       <TableCell className="text-right tabular-nums">{money(txn.amount)}</TableCell>
+                      <TableCell className="text-right">
+                        <UnpostButton transactionId={txn.id} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

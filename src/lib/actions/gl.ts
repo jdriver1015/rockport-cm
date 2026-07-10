@@ -106,7 +106,12 @@ export async function restoreTransaction(transactionId: number) {
   await revalidateProperty(txn.propertyId);
 }
 
-async function advanceGlThru(propertyId: number) {
+/**
+ * Recompute the property's "GL updated thru" from its posted rows. Runs after
+ * posting AND un-posting, so the date walks backward when the latest posted
+ * transaction is pulled back (or to null when nothing remains posted).
+ */
+async function recomputeGlThru(propertyId: number) {
   const [row] = await db()
     .select({ maxDate: sql<string | null>`max(${schema.glTransactions.txnDate})` })
     .from(schema.glTransactions)
@@ -116,12 +121,10 @@ async function advanceGlThru(propertyId: number) {
         eq(schema.glTransactions.status, "posted"),
       ),
     );
-  if (row?.maxDate) {
-    await db()
-      .update(schema.properties)
-      .set({ glUpdatedThru: row.maxDate })
-      .where(eq(schema.properties.id, propertyId));
-  }
+  await db()
+    .update(schema.properties)
+    .set({ glUpdatedThru: row?.maxDate ?? null })
+    .where(eq(schema.properties.id, propertyId));
 }
 
 export async function postTransaction(transactionId: number) {
@@ -134,7 +137,43 @@ export async function postTransaction(transactionId: number) {
     .update(schema.glTransactions)
     .set({ status: "posted", postedAt: new Date() })
     .where(eq(schema.glTransactions.id, transactionId));
-  await advanceGlThru(txn.propertyId);
+  await recomputeGlThru(txn.propertyId);
+  await revalidateProperty(txn.propertyId);
+}
+
+/**
+ * Un-post a posted transaction: move it back into the review queue (keeping its
+ * cost code and project so re-posting is one click) and recompute the property's
+ * GL-updated-thru so JTD reverts everywhere. Reopens its batch if it was closed.
+ */
+export async function unpostTransaction(transactionId: number) {
+  const txn = await db().query.glTransactions.findFirst({
+    where: eq(schema.glTransactions.id, transactionId),
+  });
+  if (!txn) throw new Error("Transaction not found");
+  if (txn.status !== "posted") return;
+
+  await db()
+    .update(schema.glTransactions)
+    .set({
+      status: txn.costCodeId !== null ? "staged" : "needs_review",
+      postedAt: null,
+    })
+    .where(eq(schema.glTransactions.id, transactionId));
+
+  if (txn.batchId !== null) {
+    await db()
+      .update(schema.importBatches)
+      .set({ status: "in_review" })
+      .where(
+        and(
+          eq(schema.importBatches.id, txn.batchId),
+          eq(schema.importBatches.status, "posted"),
+        ),
+      );
+  }
+
+  await recomputeGlThru(txn.propertyId);
   await revalidateProperty(txn.propertyId);
 }
 
@@ -151,7 +190,7 @@ export async function postAllReady(propertyId: number) {
       ),
     )
     .returning({ id: schema.glTransactions.id });
-  await advanceGlThru(propertyId);
+  await recomputeGlThru(propertyId);
   await revalidateProperty(propertyId);
   return result.length;
 }
@@ -192,7 +231,7 @@ export async function postBatch(batchId: number) {
       .where(eq(schema.importBatches.id, batchId));
   }
 
-  await advanceGlThru(batch.propertyId);
+  await recomputeGlThru(batch.propertyId);
   await revalidateProperty(batch.propertyId);
   return result.length;
 }
