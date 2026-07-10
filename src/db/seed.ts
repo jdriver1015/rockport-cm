@@ -90,7 +90,7 @@ const CODES: { code: string; name: string }[] = [
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set (.env.local)");
-  const client = postgres(url, { prepare: false });
+  const client = postgres(url, { prepare: false, ssl: "require" });
   const db = drizzle(client);
 
   const insertedCategories = await db

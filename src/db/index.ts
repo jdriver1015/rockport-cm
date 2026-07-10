@@ -10,8 +10,8 @@ function createDb() {
   if (!url) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.");
   }
-  // Supabase pooled connections require prepare: false
-  const client = postgres(url, { prepare: false });
+  // Supabase pooled connections require prepare: false and TLS
+  const client = postgres(url, { prepare: false, ssl: "require" });
   return drizzle(client, { schema });
 }
 

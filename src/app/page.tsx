@@ -41,7 +41,9 @@ export default async function PortfolioPage() {
             All active construction projects
           </p>
         </div>
-        <Button render={<Link href="/projects/new" />}>New project</Button>
+        <Button render={<Link href="/projects/new" />} nativeButton={false}>
+          New project
+        </Button>
       </div>
 
       {projects.length === 0 ? (
