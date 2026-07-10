@@ -59,7 +59,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       <BudgetImport propertyId={property.id} />
 
       <Card>
-        <CardHeader className="flex-row items-baseline justify-between">
+        <CardHeader className="flex flex-row items-baseline justify-between">
           <CardTitle className="text-base text-[#1b355d]">UW Budget</CardTitle>
           <span className="text-lg font-semibold tabular-nums text-[#1b355d]">
             {money(grandTotal)}

@@ -94,7 +94,7 @@ export default async function PropertyOverviewPage({
       </div>
 
       <Card>
-        <CardHeader className="flex-row items-baseline justify-between">
+        <CardHeader className="flex flex-row items-baseline justify-between">
           <CardTitle className="text-base text-[#1b355d]">
             Projects by stage
           </CardTitle>

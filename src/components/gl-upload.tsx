@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export function GlUpload({ propertyId }: { propertyId: number }) {
+export function GlUpload({
+  propertyId,
+  onDone,
+}: {
+  propertyId: number;
+  /** Called after a successful upload (e.g. to close a containing dialog) */
+  onDone?: () => void;
+}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -32,6 +39,9 @@ export function GlUpload({ propertyId }: { propertyId: number }) {
       ];
       if (data.duplicates) bits.push(`${data.duplicates} possible duplicates`);
       toast.success(`Imported ${file.name}: ${bits.join(", ")}`);
+      onDone?.();
+      // Land on the new batch's reconciliation detail
+      router.push(`/properties/${propertyId}/gl/${data.batchId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -72,7 +82,7 @@ export function GlUpload({ propertyId }: { propertyId: number }) {
         {busy ? "Reading GL file…" : "Drop a GL export here"}
       </p>
       <p className="text-sm text-muted-foreground">
-        or click to browse — rows are auto-mapped to cost codes, then reviewed below
+        or click to browse — rows are auto-mapped to cost codes, then reviewed
       </p>
     </div>
   );

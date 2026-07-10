@@ -17,6 +17,7 @@ import { money, fmtDate } from "@/lib/format";
 import {
   excludeTransaction,
   postAllReady,
+  postBatch,
   postTransaction,
   restoreTransaction,
   updateTransaction,
@@ -40,11 +41,14 @@ type Project = { id: number; name: string; kind: string; costCodeId: number | nu
 
 export function GlReviewQueue({
   propertyId,
+  batchId,
   transactions,
   costCodes,
   projects,
 }: {
   propertyId: number;
+  /** When set, the bulk action posts only this batch's ready rows */
+  batchId?: number;
   transactions: Txn[];
   costCodes: CostCode[];
   projects: Project[];
@@ -83,7 +87,7 @@ export function GlReviewQueue({
           disabled={pending || readyCount === 0}
           onClick={() =>
             run(async () => {
-              const n = await postAllReady(propertyId);
+              const n = batchId ? await postBatch(batchId) : await postAllReady(propertyId);
               toast.success(`Posted ${n} transaction${n === 1 ? "" : "s"}`);
             })
           }
