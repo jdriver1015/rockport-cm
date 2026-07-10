@@ -1,0 +1,198 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { db, schema } from "@/db";
+
+async function revalidateProperty(propertyId: number) {
+  revalidatePath(`/properties/${propertyId}/gl`);
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/projects`);
+  revalidatePath(`/properties/${propertyId}/budget`);
+  revalidatePath("/");
+}
+
+/**
+ * Learn a vendor rule from a manual correction so the queue shrinks over time.
+ * Only adds one when the vendor isn't already mapped, to avoid noise.
+ */
+async function learnVendorRule(vendorRaw: string | null, costCodeId: number) {
+  if (!vendorRaw) return;
+  const pattern = vendorRaw.toLowerCase().trim();
+  if (!pattern) return;
+  const existing = await db()
+    .select({ id: schema.mappingRules.id })
+    .from(schema.mappingRules)
+    .where(
+      and(
+        eq(schema.mappingRules.matchType, "vendor"),
+        eq(schema.mappingRules.pattern, pattern),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) return;
+  await db()
+    .insert(schema.mappingRules)
+    .values({ matchType: "vendor", pattern, costCodeId, priority: 90 });
+}
+
+const updateSchema = z.object({
+  transactionId: z.coerce.number().int().positive(),
+  costCodeId: z.coerce.number().int().positive().nullable().optional(),
+  projectId: z.coerce.number().int().positive().nullable().optional(),
+});
+
+export async function updateTransaction(input: {
+  transactionId: number;
+  costCodeId?: number | null;
+  projectId?: number | null;
+}) {
+  const parsed = updateSchema.parse(input);
+  const txn = await db().query.glTransactions.findFirst({
+    where: eq(schema.glTransactions.id, parsed.transactionId),
+  });
+  if (!txn) throw new Error("Transaction not found");
+
+  const nextCostCode = parsed.costCodeId ?? null;
+
+  await db()
+    .update(schema.glTransactions)
+    .set({
+      costCodeId: nextCostCode,
+      projectId: parsed.projectId ?? null,
+      // A mapped, non-excluded row becomes ready to post
+      status:
+        txn.status === "excluded"
+          ? "excluded"
+          : nextCostCode !== null
+            ? "staged"
+            : "needs_review",
+    })
+    .where(eq(schema.glTransactions.id, parsed.transactionId));
+
+  if (nextCostCode !== null && txn.costCodeId !== nextCostCode) {
+    await learnVendorRule(txn.vendorRaw, nextCostCode);
+  }
+
+  await revalidateProperty(txn.propertyId);
+}
+
+export async function excludeTransaction(transactionId: number, reason?: string) {
+  const txn = await db().query.glTransactions.findFirst({
+    where: eq(schema.glTransactions.id, transactionId),
+  });
+  if (!txn) throw new Error("Transaction not found");
+  await db()
+    .update(schema.glTransactions)
+    .set({ status: "excluded", excludeReason: reason ?? "Excluded by reviewer", postedAt: null })
+    .where(eq(schema.glTransactions.id, transactionId));
+  await revalidateProperty(txn.propertyId);
+}
+
+/** Move an excluded row back into the review queue */
+export async function restoreTransaction(transactionId: number) {
+  const txn = await db().query.glTransactions.findFirst({
+    where: eq(schema.glTransactions.id, transactionId),
+  });
+  if (!txn) throw new Error("Transaction not found");
+  await db()
+    .update(schema.glTransactions)
+    .set({
+      status: txn.costCodeId !== null ? "staged" : "needs_review",
+      excludeReason: null,
+    })
+    .where(eq(schema.glTransactions.id, transactionId));
+  await revalidateProperty(txn.propertyId);
+}
+
+async function advanceGlThru(propertyId: number) {
+  const [row] = await db()
+    .select({ maxDate: sql<string | null>`max(${schema.glTransactions.txnDate})` })
+    .from(schema.glTransactions)
+    .where(
+      and(
+        eq(schema.glTransactions.propertyId, propertyId),
+        eq(schema.glTransactions.status, "posted"),
+      ),
+    );
+  if (row?.maxDate) {
+    await db()
+      .update(schema.properties)
+      .set({ glUpdatedThru: row.maxDate })
+      .where(eq(schema.properties.id, propertyId));
+  }
+}
+
+export async function postTransaction(transactionId: number) {
+  const txn = await db().query.glTransactions.findFirst({
+    where: eq(schema.glTransactions.id, transactionId),
+  });
+  if (!txn) throw new Error("Transaction not found");
+  if (txn.costCodeId === null) throw new Error("Assign a cost code before posting");
+  await db()
+    .update(schema.glTransactions)
+    .set({ status: "posted", postedAt: new Date() })
+    .where(eq(schema.glTransactions.id, transactionId));
+  await advanceGlThru(txn.propertyId);
+  await revalidateProperty(txn.propertyId);
+}
+
+/** Post every ready (staged, cost-coded) row across a property */
+export async function postAllReady(propertyId: number) {
+  const result = await db()
+    .update(schema.glTransactions)
+    .set({ status: "posted", postedAt: new Date() })
+    .where(
+      and(
+        eq(schema.glTransactions.propertyId, propertyId),
+        eq(schema.glTransactions.status, "staged"),
+        sql`${schema.glTransactions.costCodeId} is not null`,
+      ),
+    )
+    .returning({ id: schema.glTransactions.id });
+  await advanceGlThru(propertyId);
+  await revalidateProperty(propertyId);
+  return result.length;
+}
+
+/** Post every ready (staged, cost-coded) row in a batch */
+export async function postBatch(batchId: number) {
+  const batch = await db().query.importBatches.findFirst({
+    where: eq(schema.importBatches.id, batchId),
+  });
+  if (!batch) throw new Error("Batch not found");
+
+  const result = await db()
+    .update(schema.glTransactions)
+    .set({ status: "posted", postedAt: new Date() })
+    .where(
+      and(
+        eq(schema.glTransactions.batchId, batchId),
+        eq(schema.glTransactions.status, "staged"),
+        sql`${schema.glTransactions.costCodeId} is not null`,
+      ),
+    )
+    .returning({ id: schema.glTransactions.id });
+
+  // Close the batch if nothing remains to review
+  const [{ remaining }] = await db()
+    .select({ remaining: sql<number>`count(*)::int` })
+    .from(schema.glTransactions)
+    .where(
+      and(
+        eq(schema.glTransactions.batchId, batchId),
+        sql`${schema.glTransactions.status} in ('staged','needs_review')`,
+      ),
+    );
+  if (remaining === 0) {
+    await db()
+      .update(schema.importBatches)
+      .set({ status: "posted" })
+      .where(eq(schema.importBatches.id, batchId));
+  }
+
+  await advanceGlThru(batch.propertyId);
+  await revalidateProperty(batch.propertyId);
+  return result.length;
+}

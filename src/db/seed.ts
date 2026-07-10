@@ -9,8 +9,9 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { drizzle } from "drizzle-orm/postgres-js";
+import { sql } from "drizzle-orm";
 import postgres from "postgres";
-import { costCategories, costCodes } from "./schema";
+import { costCategories, costCodes, mappingRules } from "./schema";
 
 const CATEGORIES: { code: string; name: string }[] = [
   { code: "1000", name: "Exterior Paint / Carpentry" },
@@ -87,6 +88,52 @@ const CODES: { code: string; name: string }[] = [
   { code: "4000-0009", name: "Miscellaneous" },
 ];
 
+/**
+ * Starter mapping rules. matchType keyword|vendor|gl_account; lower priority
+ * wins. Keyword rules from the description are the most reliable signal — a
+ * single vendor (e.g. Texas Painting) spans several codes, so keywords like
+ * "cabinet" / "backsplash" must out-rank the vendor and the generic "paint".
+ * More rules accrue automatically as reviewers correct the queue.
+ */
+const RULES: { matchType: "keyword" | "vendor" | "gl_account"; pattern: string; code: string; priority: number }[] = [
+  // Highly specific keywords (priority 10)
+  { matchType: "keyword", pattern: "exterior paint", code: "1000-0001", priority: 10 },
+  { matchType: "keyword", pattern: "backsplash", code: "4000-0005", priority: 10 },
+  { matchType: "keyword", pattern: "cabinet", code: "4000-0006", priority: 10 },
+  { matchType: "keyword", pattern: "countertop", code: "4000-0004", priority: 10 },
+  { matchType: "keyword", pattern: "dog park", code: "1900-0006", priority: 10 },
+  { matchType: "keyword", pattern: "save water", code: "2000-0003", priority: 10 },
+  { matchType: "keyword", pattern: "elkay", code: "2000-0006", priority: 10 },
+  { matchType: "keyword", pattern: "leasing center", code: "1600-0001", priority: 10 },
+  { matchType: "keyword", pattern: "leasing impressions", code: "1600-0001", priority: 10 },
+  { matchType: "keyword", pattern: "monument", code: "1700-0001", priority: 10 },
+  { matchType: "keyword", pattern: "sign package", code: "1700-0001", priority: 10 },
+  { matchType: "keyword", pattern: "butterfly", code: "2000-0007", priority: 10 },
+  { matchType: "keyword", pattern: "smart tech", code: "2000-0007", priority: 10 },
+  { matchType: "keyword", pattern: "workout", code: "1600-0003", priority: 10 },
+  { matchType: "keyword", pattern: "fitness", code: "1600-0003", priority: 10 },
+  // General keywords (priority 30)
+  { matchType: "keyword", pattern: "roof", code: "1100-0001", priority: 30 },
+  { matchType: "keyword", pattern: "gutter", code: "1100-0002", priority: 30 },
+  { matchType: "keyword", pattern: "foundation", code: "1300-0010", priority: 30 },
+  { matchType: "keyword", pattern: "flooring", code: "4000-0002", priority: 30 },
+  { matchType: "keyword", pattern: "appliance", code: "4000-0003", priority: 30 },
+  { matchType: "keyword", pattern: "fixture", code: "4000-0007", priority: 30 },
+  { matchType: "keyword", pattern: "led", code: "1400-0001", priority: 30 },
+  { matchType: "keyword", pattern: "lighting", code: "1400-0001", priority: 30 },
+  { matchType: "keyword", pattern: "signage", code: "1700-0001", priority: 30 },
+  { matchType: "keyword", pattern: "pool", code: "1800-0001", priority: 30 },
+  { matchType: "keyword", pattern: "landscap", code: "1900-0001", priority: 30 },
+  { matchType: "keyword", pattern: "power wash", code: "1900-0001", priority: 30 },
+  { matchType: "keyword", pattern: "paint", code: "4000-0001", priority: 50 },
+  { matchType: "keyword", pattern: "tile surround", code: "4000-0009", priority: 50 },
+  // Vendor fallbacks (priority 80) — used only when no keyword matched
+  { matchType: "vendor", pattern: "sherwin williams", code: "4000-0001", priority: 80 },
+  { matchType: "vendor", pattern: "ram jack", code: "1300-0010", priority: 80 },
+  { matchType: "vendor", pattern: "the lighting girl", code: "1400-0001", priority: 80 },
+  { matchType: "vendor", pattern: "dodd creative", code: "1700-0001", priority: 80 },
+];
+
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set (.env.local)");
@@ -116,6 +163,22 @@ async function main() {
     .onConflictDoNothing({ target: costCodes.code })
     .returning();
   console.log(`Cost codes: ${insertedCodes.length} inserted, ${CODES.length - insertedCodes.length} already present`);
+
+  // Mapping rules — only seed when the table is empty so learned rules survive re-runs
+  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(mappingRules);
+  if (count === 0) {
+    const allCodes = await db.select().from(costCodes);
+    const codeIdByCode = new Map(allCodes.map((c) => [c.code, c.id]));
+    const ruleRows = RULES.map((r) => {
+      const costCodeId = codeIdByCode.get(r.code);
+      if (!costCodeId) throw new Error(`No cost code ${r.code} for mapping rule "${r.pattern}"`);
+      return { matchType: r.matchType, pattern: r.pattern, costCodeId, priority: r.priority };
+    });
+    await db.insert(mappingRules).values(ruleRows);
+    console.log(`Mapping rules: ${ruleRows.length} inserted`);
+  } else {
+    console.log(`Mapping rules: ${count} already present, skipping`);
+  }
 
   await client.end();
 }
