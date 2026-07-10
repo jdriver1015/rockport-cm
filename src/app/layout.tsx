@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
+import { createClient } from "@/lib/supabase/server";
+import { db, schema } from "@/db";
+import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,11 +23,27 @@ export const metadata: Metadata = {
   description: "Portfolio construction tracking: budgets, GL intake, unit turns",
 };
 
-export default function RootLayout({
+const ROLE_LABEL: Record<string, string> = {
+  admin: "Admin",
+  cm: "Construction Manager",
+  site: "Site staff",
+  viewer: "Viewer",
+};
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const profile = user
+    ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
+    : null;
+
   return (
     <html
       lang="en"
@@ -39,12 +59,29 @@ export default function RootLayout({
               </span>
             </Link>
             <nav className="ml-auto flex items-center gap-6 text-sm text-[#c6d5e6]">
-              <Link href="/" className="transition-colors hover:text-white">
-                Portfolio
-              </Link>
-              <Link href="/settings" className="transition-colors hover:text-white">
-                Settings
-              </Link>
+              {user ? (
+                <>
+                  <Link href="/" className="transition-colors hover:text-white">
+                    Portfolio
+                  </Link>
+                  <Link href="/settings" className="transition-colors hover:text-white">
+                    Settings
+                  </Link>
+                  <span className="text-xs text-[#8fa8c4]">
+                    {profile?.fullName ?? user.email}
+                    {profile?.role ? ` · ${ROLE_LABEL[profile.role] ?? profile.role}` : ""}
+                  </span>
+                  <form action={signOut}>
+                    <button type="submit" className="transition-colors hover:text-white">
+                      Sign out
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <Link href="/sign-in" className="transition-colors hover:text-white">
+                  Sign in
+                </Link>
+              )}
             </nav>
           </div>
         </header>
