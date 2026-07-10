@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "budget_lines_project_code_uq" ON "budget_lines" USING btree ("project_id","cost_code_id");

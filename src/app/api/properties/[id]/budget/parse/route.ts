@@ -5,15 +5,15 @@ import { parseBudgetWorkbook } from "@/lib/budget-import";
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const projectId = Number(id);
-  if (!Number.isInteger(projectId)) {
-    return NextResponse.json({ error: "Invalid project id" }, { status: 400 });
+  const propertyId = Number(id);
+  if (!Number.isInteger(propertyId)) {
+    return NextResponse.json({ error: "Invalid property id" }, { status: 400 });
   }
 
-  const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, projectId),
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, propertyId),
   });
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!property) return NextResponse.json({ error: "Property not found" }, { status: 404 });
 
   const formData = await req.formData();
   const file = formData.get("file");
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       uwAmount: schema.budgetLines.uwAmount,
     })
     .from(schema.budgetLines)
-    .where(eq(schema.budgetLines.projectId, projectId));
+    .where(eq(schema.budgetLines.propertyId, propertyId));
   const existingByCode = new Map(existing.map((e) => [e.costCodeId, parseFloat(e.uwAmount)]));
 
   return NextResponse.json({

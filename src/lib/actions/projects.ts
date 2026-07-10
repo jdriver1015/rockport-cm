@@ -2,43 +2,85 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_STAGES } from "@/lib/stages";
 
 const createProjectSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  entity: z.string().trim().optional(),
-  city: z.string().trim().optional(),
-  state: z.string().trim().optional(),
-  unitCount: z.coerce.number().int().positive().optional(),
-  pmSystem: z.string().trim().optional(),
+  propertyId: z.coerce.number().int().positive(),
+  kind: z.enum(["unit", "common"]),
+  name: z.string().trim().min(1).optional(),
+  costCodeId: z.coerce.number().int().positive().optional(),
+  unitNumber: z.string().trim().min(1).optional(),
+  budgetAmount: z.coerce.number().nonnegative().optional(),
+  startDate: z.string().trim().optional(),
 });
 
 export async function createProject(formData: FormData) {
   const parsed = createProjectSchema.parse({
-    name: formData.get("name"),
-    entity: formData.get("entity") || undefined,
-    city: formData.get("city") || undefined,
-    state: formData.get("state") || undefined,
-    unitCount: formData.get("unitCount") || undefined,
-    pmSystem: formData.get("pmSystem") || undefined,
+    propertyId: formData.get("propertyId"),
+    kind: formData.get("kind"),
+    name: formData.get("name") || undefined,
+    costCodeId: formData.get("costCodeId") || undefined,
+    unitNumber: formData.get("unitNumber") || undefined,
+    budgetAmount: formData.get("budgetAmount") || undefined,
+    startDate: formData.get("startDate") || undefined,
   });
+
+  let unitId: number | undefined;
+  let name = parsed.name;
+
+  if (parsed.kind === "unit") {
+    if (!parsed.unitNumber) throw new Error("Unit number is required for a unit project");
+    // Upsert the unit inventory row and link it
+    const existing = await db().query.units.findFirst({
+      where: and(
+        eq(schema.units.propertyId, parsed.propertyId),
+        eq(schema.units.unitNumber, parsed.unitNumber),
+      ),
+    });
+    if (existing) {
+      unitId = existing.id;
+    } else {
+      const [unit] = await db()
+        .insert(schema.units)
+        .values({ propertyId: parsed.propertyId, unitNumber: parsed.unitNumber })
+        .returning();
+      unitId = unit.id;
+    }
+    name ??= `Unit ${parsed.unitNumber} Interior`;
+  } else {
+    if (!parsed.costCodeId) throw new Error("Cost code is required for a common project");
+    if (!name) {
+      const code = await db().query.costCodes.findFirst({
+        where: eq(schema.costCodes.id, parsed.costCodeId),
+      });
+      name = code?.name ?? "Project";
+    }
+  }
 
   const [project] = await db()
     .insert(schema.projects)
-    .values(parsed)
+    .values({
+      propertyId: parsed.propertyId,
+      kind: parsed.kind,
+      name: name!,
+      costCodeId: parsed.kind === "common" ? parsed.costCodeId : undefined,
+      unitId,
+      budgetAmount: (parsed.budgetAmount ?? 0).toFixed(2),
+      startDate: parsed.startDate || undefined,
+    })
     .returning();
 
   await db().insert(schema.projectStageEvents).values({
     projectId: project.id,
-    toStage: "setup",
+    toStage: "planned",
     note: "Project created",
   });
 
-  revalidatePath("/");
-  redirect(`/projects/${project.id}`);
+  revalidatePath(`/properties/${parsed.propertyId}`);
+  redirect(`/properties/${parsed.propertyId}/projects/${project.id}`);
 }
 
 const stageKeys = PROJECT_STAGES.map((s) => s.key) as [string, ...string[]];
@@ -62,18 +104,31 @@ export async function setProjectStage(formData: FormData) {
   if (!project) throw new Error("Project not found");
   if (project.stage === parsed.toStage) return;
 
+  const toStage = parsed.toStage as typeof project.stage;
+
   await db()
     .update(schema.projects)
-    .set({ stage: parsed.toStage as typeof project.stage })
+    .set({
+      stage: toStage,
+      // Stage timestamps drive days-to-complete analytics.
+      // toLocaleDateString("en-CA") = YYYY-MM-DD in server-local time, not UTC.
+      ...(toStage === "in_progress" && !project.startDate
+        ? { startDate: new Date().toLocaleDateString("en-CA") }
+        : {}),
+      ...(toStage === "complete" && !project.completeDate
+        ? { completeDate: new Date().toLocaleDateString("en-CA") }
+        : {}),
+    })
     .where(eq(schema.projects.id, parsed.projectId));
 
   await db().insert(schema.projectStageEvents).values({
     projectId: parsed.projectId,
     fromStage: project.stage,
-    toStage: parsed.toStage as typeof project.stage,
+    toStage,
     note: parsed.note,
   });
 
-  revalidatePath(`/projects/${parsed.projectId}`);
+  revalidatePath(`/properties/${project.propertyId}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
   revalidatePath("/");
 }

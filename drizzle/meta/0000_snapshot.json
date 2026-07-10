@@ -1,5 +1,5 @@
 {
-  "id": "79a98477-b464-4895-85b1-e4cd6970f5ad",
+  "id": "10c9fa6c-6d41-4eb7-b8ad-349cb111b451",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -14,20 +14,14 @@
           "primaryKey": true,
           "notNull": true
         },
-        "project_id": {
-          "name": "project_id",
+        "property_id": {
+          "name": "property_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unit_turn_id": {
-          "name": "unit_turn_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -92,38 +86,25 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "attachments_property_id_properties_id_fk": {
+          "name": "attachments_property_id_properties_id_fk",
+          "tableFrom": "attachments",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "attachments_project_id_projects_id_fk": {
           "name": "attachments_project_id_projects_id_fk",
           "tableFrom": "attachments",
           "tableTo": "projects",
           "columnsFrom": [
             "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "attachments_scope_id_scopes_id_fk": {
-          "name": "attachments_scope_id_scopes_id_fk",
-          "tableFrom": "attachments",
-          "tableTo": "scopes",
-          "columnsFrom": [
-            "scope_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "attachments_unit_turn_id_unit_turns_id_fk": {
-          "name": "attachments_unit_turn_id_unit_turns_id_fk",
-          "tableFrom": "attachments",
-          "tableTo": "unit_turns",
-          "columnsFrom": [
-            "unit_turn_id"
           ],
           "columnsTo": [
             "id"
@@ -187,8 +168,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "scope_id": {
-          "name": "scope_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -234,12 +215,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "bids_scope_id_scopes_id_fk": {
-          "name": "bids_scope_id_scopes_id_fk",
+        "bids_project_id_projects_id_fk": {
+          "name": "bids_project_id_projects_id_fk",
           "tableFrom": "bids",
-          "tableTo": "scopes",
+          "tableTo": "projects",
           "columnsFrom": [
-            "scope_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -277,8 +258,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "project_id": {
-          "name": "project_id",
+        "property_id": {
+          "name": "property_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -322,14 +303,36 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "budget_lines_property_code_uq": {
+          "name": "budget_lines_property_code_uq",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "cost_code_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "budget_lines_project_id_projects_id_fk": {
-          "name": "budget_lines_project_id_projects_id_fk",
+        "budget_lines_property_id_properties_id_fk": {
+          "name": "budget_lines_property_id_properties_id_fk",
           "tableFrom": "budget_lines",
-          "tableTo": "projects",
+          "tableTo": "properties",
           "columnsFrom": [
-            "project_id"
+            "property_id"
           ],
           "columnsTo": [
             "id"
@@ -486,8 +489,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "project_id": {
-          "name": "project_id",
+        "property_id": {
+          "name": "property_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -504,14 +507,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unit_turn_id": {
-          "name": "unit_turn_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -619,12 +616,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "gl_transactions_project_id_projects_id_fk": {
-          "name": "gl_transactions_project_id_projects_id_fk",
+        "gl_transactions_property_id_properties_id_fk": {
+          "name": "gl_transactions_property_id_properties_id_fk",
           "tableFrom": "gl_transactions",
-          "tableTo": "projects",
+          "tableTo": "properties",
           "columnsFrom": [
-            "project_id"
+            "property_id"
           ],
           "columnsTo": [
             "id"
@@ -658,25 +655,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "gl_transactions_scope_id_scopes_id_fk": {
-          "name": "gl_transactions_scope_id_scopes_id_fk",
+        "gl_transactions_project_id_projects_id_fk": {
+          "name": "gl_transactions_project_id_projects_id_fk",
           "tableFrom": "gl_transactions",
-          "tableTo": "scopes",
+          "tableTo": "projects",
           "columnsFrom": [
-            "scope_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "gl_transactions_unit_turn_id_unit_turns_id_fk": {
-          "name": "gl_transactions_unit_turn_id_unit_turns_id_fk",
-          "tableFrom": "gl_transactions",
-          "tableTo": "unit_turns",
-          "columnsFrom": [
-            "unit_turn_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -714,8 +698,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "project_id": {
-          "name": "project_id",
+        "property_id": {
+          "name": "property_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -783,12 +767,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "import_batches_project_id_projects_id_fk": {
-          "name": "import_batches_project_id_projects_id_fk",
+        "import_batches_property_id_properties_id_fk": {
+          "name": "import_batches_property_id_properties_id_fk",
           "tableFrom": "import_batches",
-          "tableTo": "projects",
+          "tableTo": "properties",
           "columnsFrom": [
-            "project_id"
+            "property_id"
           ],
           "columnsTo": [
             "id"
@@ -1038,45 +1022,35 @@
           "primaryKey": true,
           "notNull": true
         },
+        "property_id": {
+          "name": "property_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "entity": {
-          "name": "entity",
-          "type": "text",
+        "kind": {
+          "name": "kind",
+          "type": "project_kind",
+          "typeSchema": "public",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'common'"
         },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "city": {
-          "name": "city",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unit_count": {
-          "name": "unit_count",
+        "cost_code_id": {
+          "name": "cost_code_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
-        "pm_system": {
-          "name": "pm_system",
-          "type": "text",
+        "unit_id": {
+          "name": "unit_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -1086,206 +1060,14 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'setup'"
+          "default": "'planned'"
         },
-        "start_date": {
-          "name": "start_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "target_completion": {
-          "name": "target_completion",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "gl_updated_thru": {
-          "name": "gl_updated_thru",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
+        "budget_amount": {
+          "name": "budget_amount",
+          "type": "numeric(12, 2)",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.punch_items": {
-      "name": "punch_items",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "unit_turn_id": {
-          "name": "unit_turn_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "punch_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "punch_items_project_id_projects_id_fk": {
-          "name": "punch_items_project_id_projects_id_fk",
-          "tableFrom": "punch_items",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "punch_items_unit_turn_id_unit_turns_id_fk": {
-          "name": "punch_items_unit_turn_id_unit_turns_id_fk",
-          "tableFrom": "punch_items",
-          "tableTo": "unit_turns",
-          "columnsFrom": [
-            "unit_turn_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "punch_items_scope_id_scopes_id_fk": {
-          "name": "punch_items_scope_id_scopes_id_fk",
-          "tableFrom": "punch_items",
-          "tableTo": "scopes",
-          "columnsFrom": [
-            "scope_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.scopes": {
-      "name": "scopes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_code_id": {
-          "name": "cost_code_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "group": {
-          "name": "group",
-          "type": "scope_group",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "scope_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'not_started'"
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_date": {
-          "name": "start_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "complete_date": {
-          "name": "complete_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
+          "default": "'0'"
         },
         "committed_cost": {
           "name": "committed_cost",
@@ -1294,176 +1076,11 @@
           "notNull": true,
           "default": "'0'"
         },
-        "percent_complete": {
-          "name": "percent_complete",
+        "vendor_id": {
+          "name": "vendor_id",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "scopes_project_id_projects_id_fk": {
-          "name": "scopes_project_id_projects_id_fk",
-          "tableFrom": "scopes",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "scopes_cost_code_id_cost_codes_id_fk": {
-          "name": "scopes_cost_code_id_cost_codes_id_fk",
-          "tableFrom": "scopes",
-          "tableTo": "cost_codes",
-          "columnsFrom": [
-            "cost_code_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "scopes_vendor_id_vendors_id_fk": {
-          "name": "scopes_vendor_id_vendors_id_fk",
-          "tableFrom": "scopes",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.turn_stage_events": {
-      "name": "turn_stage_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "turn_id": {
-          "name": "turn_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_stage": {
-          "name": "from_stage",
-          "type": "turn_stage",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "to_stage": {
-          "name": "to_stage",
-          "type": "turn_stage",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "turn_stage_events_turn_id_unit_turns_id_fk": {
-          "name": "turn_stage_events_turn_id_unit_turns_id_fk",
-          "tableFrom": "turn_stage_events",
-          "tableTo": "unit_turns",
-          "columnsFrom": [
-            "turn_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "turn_stage_events_user_id_profiles_id_fk": {
-          "name": "turn_stage_events_user_id_profiles_id_fk",
-          "tableFrom": "turn_stage_events",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.unit_turns": {
-      "name": "unit_turns",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "unit_id": {
-          "name": "unit_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stage": {
-          "name": "stage",
-          "type": "turn_stage",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'planned'"
         },
         "start_date": {
           "name": "start_date",
@@ -1517,9 +1134,35 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "unit_turns_unit_id_units_id_fk": {
-          "name": "unit_turns_unit_id_units_id_fk",
-          "tableFrom": "unit_turns",
+        "projects_property_id_properties_id_fk": {
+          "name": "projects_property_id_properties_id_fk",
+          "tableFrom": "projects",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "projects_cost_code_id_cost_codes_id_fk": {
+          "name": "projects_cost_code_id_cost_codes_id_fk",
+          "tableFrom": "projects",
+          "tableTo": "cost_codes",
+          "columnsFrom": [
+            "cost_code_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "projects_unit_id_units_id_fk": {
+          "name": "projects_unit_id_units_id_fk",
+          "tableFrom": "projects",
           "tableTo": "units",
           "columnsFrom": [
             "unit_id"
@@ -1530,9 +1173,149 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "unit_turns_project_id_projects_id_fk": {
-          "name": "unit_turns_project_id_projects_id_fk",
-          "tableFrom": "unit_turns",
+        "projects_vendor_id_vendors_id_fk": {
+          "name": "projects_vendor_id_vendors_id_fk",
+          "tableFrom": "projects",
+          "tableTo": "vendors",
+          "columnsFrom": [
+            "vendor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.properties": {
+      "name": "properties",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity": {
+          "name": "entity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unit_count": {
+          "name": "unit_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pm_system": {
+          "name": "pm_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gl_updated_thru": {
+          "name": "gl_updated_thru",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.punch_items": {
+      "name": "punch_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "punch_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "punch_items_project_id_projects_id_fk": {
+          "name": "punch_items_project_id_projects_id_fk",
+          "tableFrom": "punch_items",
           "tableTo": "projects",
           "columnsFrom": [
             "project_id"
@@ -1560,8 +1343,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "project_id": {
-          "name": "project_id",
+        "property_id": {
+          "name": "property_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -1606,14 +1389,36 @@
           "default": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "units_property_number_uq": {
+          "name": "units_property_number_uq",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "unit_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "units_project_id_projects_id_fk": {
-          "name": "units_project_id_projects_id_fk",
+        "units_property_id_properties_id_fk": {
+          "name": "units_property_id_properties_id_fk",
           "tableFrom": "units",
-          "tableTo": "projects",
+          "tableTo": "properties",
           "columnsFrom": [
-            "project_id"
+            "property_id"
           ],
           "columnsTo": [
             "id"
@@ -1724,16 +1529,25 @@
         "keyword"
       ]
     },
+    "public.project_kind": {
+      "name": "project_kind",
+      "schema": "public",
+      "values": [
+        "unit",
+        "common"
+      ]
+    },
     "public.project_stage": {
       "name": "project_stage",
       "schema": "public",
       "values": [
-        "setup",
+        "planned",
         "bidding",
-        "mobilization",
+        "ready",
         "in_progress",
-        "punch_walk",
-        "final_completion",
+        "punch",
+        "complete",
+        "invoiced",
         "closed"
       ]
     },
@@ -1743,42 +1557,6 @@
       "values": [
         "open",
         "resolved"
-      ]
-    },
-    "public.scope_group": {
-      "name": "scope_group",
-      "schema": "public",
-      "values": [
-        "exterior",
-        "landscape",
-        "amenity",
-        "mep",
-        "interior",
-        "contingency_fee"
-      ]
-    },
-    "public.scope_status": {
-      "name": "scope_status",
-      "schema": "public",
-      "values": [
-        "not_started",
-        "bidding",
-        "in_progress",
-        "complete",
-        "deferred"
-      ]
-    },
-    "public.turn_stage": {
-      "name": "turn_stage",
-      "schema": "public",
-      "values": [
-        "planned",
-        "vacant_ready",
-        "in_progress",
-        "punch",
-        "complete",
-        "invoiced",
-        "leased"
       ]
     },
     "public.txn_status": {

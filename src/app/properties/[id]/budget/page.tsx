@@ -11,21 +11,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BudgetImport } from "@/components/budget-import";
-import { ProjectNav } from "@/components/project-nav";
-import { StagePipeline } from "@/components/stage-pipeline";
+import { PropertyNav } from "@/components/property-nav";
 import { money, moneyExact, num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function BudgetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const projectId = Number(id);
-  if (!Number.isInteger(projectId)) notFound();
+  const propertyId = Number(id);
+  if (!Number.isInteger(propertyId)) notFound();
 
-  const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, projectId),
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, propertyId),
   });
-  if (!project) notFound();
+  if (!property) notFound();
 
   const categories = await db()
     .select()
@@ -41,7 +40,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   const lines = await db()
     .select()
     .from(schema.budgetLines)
-    .where(eq(schema.budgetLines.projectId, projectId));
+    .where(eq(schema.budgetLines.propertyId, propertyId));
 
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
   const grandTotal = lines.reduce((s, l) => s + num(l.uwAmount), 0);
@@ -49,18 +48,19 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[#1b355d]">{project.name}</h1>
-        <p className="text-sm text-muted-foreground">Underwriting budget by cost code</p>
+        <h1 className="text-2xl font-semibold text-[#1b355d]">{property.name}</h1>
+        <p className="text-sm text-muted-foreground">
+          Underwriting budget — benchmarks by cost code; projects roll up under these lines
+        </p>
       </div>
 
-      <StagePipeline current={project.stage} />
-      <ProjectNav projectId={project.id} />
+      <PropertyNav propertyId={property.id} />
 
-      <BudgetImport projectId={project.id} />
+      <BudgetImport propertyId={property.id} />
 
       <Card>
         <CardHeader className="flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-[#1b355d]">Budget</CardTitle>
+          <CardTitle className="text-base text-[#1b355d]">UW Budget</CardTitle>
           <span className="text-lg font-semibold tabular-nums text-[#1b355d]">
             {money(grandTotal)}
           </span>

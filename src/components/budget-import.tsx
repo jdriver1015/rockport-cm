@@ -34,7 +34,7 @@ type Preview = {
   fileName: string;
 };
 
-export function BudgetImport({ projectId }: { projectId: number }) {
+export function BudgetImport({ propertyId }: { propertyId: number }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -46,7 +46,7 @@ export function BudgetImport({ projectId }: { projectId: number }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(`/api/projects/${projectId}/budget/parse`, {
+      const res = await fetch(`/api/properties/${propertyId}/budget/parse`, {
         method: "POST",
         body: fd,
       });
@@ -65,7 +65,7 @@ export function BudgetImport({ projectId }: { projectId: number }) {
     if (!preview) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/budget/commit`, {
+      const res = await fetch(`/api/properties/${propertyId}/budget/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

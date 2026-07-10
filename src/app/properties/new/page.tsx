@@ -1,18 +1,18 @@
-import { createProject } from "@/lib/actions/projects";
+import { createProperty } from "@/lib/actions/properties";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function NewProjectPage() {
+export default function NewPropertyPage() {
   return (
     <div className="mx-auto max-w-xl">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[#1b355d]">New project</CardTitle>
+          <CardTitle className="text-[#1b355d]">New property</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={createProject} className="space-y-4">
+          <form action={createProperty} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="name">Property name</Label>
               <Input id="name" name="name" required placeholder="Retreat at Westpark" />
@@ -42,7 +42,7 @@ export default function NewProjectPage() {
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="submit">Create project</Button>
+              <Button type="submit">Create property</Button>
             </div>
           </form>
         </CardContent>

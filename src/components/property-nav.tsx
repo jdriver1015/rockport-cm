@@ -6,17 +6,19 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "", label: "Overview" },
+  { href: "/projects", label: "Projects" },
   { href: "/budget", label: "Budget" },
 ];
 
-export function ProjectNav({ projectId }: { projectId: number }) {
+export function PropertyNav({ propertyId }: { propertyId: number }) {
   const pathname = usePathname();
-  const base = `/projects/${projectId}`;
+  const base = `/properties/${propertyId}`;
   return (
     <nav className="flex gap-1 border-b">
       {tabs.map((t) => {
         const href = `${base}${t.href}`;
-        const active = pathname === href;
+        const active =
+          t.href === "" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
             key={t.href}

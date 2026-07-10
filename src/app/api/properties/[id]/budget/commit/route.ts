@@ -20,9 +20,9 @@ const bodySchema = z.object({
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const projectId = Number(id);
-  if (!Number.isInteger(projectId)) {
-    return NextResponse.json({ error: "Invalid project id" }, { status: 400 });
+  const propertyId = Number(id);
+  if (!Number.isInteger(propertyId)) {
+    return NextResponse.json({ error: "Invalid property id" }, { status: 400 });
   }
 
   const parsed = bodySchema.safeParse(await req.json());
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   const values = parsed.data.rows.map((r) => ({
-    projectId,
+    propertyId,
     costCodeId: r.costCodeId,
     uwAmount: r.uwAmount.toFixed(2),
     perUnitAmount: r.perUnitAmount?.toFixed(2),
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .insert(schema.budgetLines)
     .values(values)
     .onConflictDoUpdate({
-      target: [schema.budgetLines.projectId, schema.budgetLines.costCodeId],
+      target: [schema.budgetLines.propertyId, schema.budgetLines.costCodeId],
       set: {
         uwAmount: sql`excluded.uw_amount`,
         perUnitAmount: sql`excluded.per_unit_amount`,
@@ -53,8 +53,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
 
-  revalidatePath(`/projects/${projectId}/budget`);
-  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/properties/${propertyId}/budget`);
+  revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/");
 
   return NextResponse.json({ ok: true, count: values.length });
