@@ -44,7 +44,7 @@ export default async function PortfolioPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1b355d]">Portfolio</h1>
+          <h1 className="font-serif text-2xl font-semibold text-navy">Portfolio</h1>
           <p className="text-sm text-muted-foreground">All properties with active construction</p>
         </div>
         <Button render={<Link href="/properties/new" />} nativeButton={false}>
@@ -69,7 +69,7 @@ export default async function PortfolioPage() {
               <Link key={p.id} href={`/properties/${p.id}`} className="group">
                 <Card className="h-full transition-shadow group-hover:shadow-md">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base text-[#1b355d]">{p.name}</CardTitle>
+                    <CardTitle className="text-base text-navy">{p.name}</CardTitle>
                     <p className="text-xs text-muted-foreground">
                       {[p.city, p.state].filter(Boolean).join(", ") || "—"}
                       {p.unitCount ? ` · ${p.unitCount} units` : ""}
@@ -90,9 +90,9 @@ export default async function PortfolioPage() {
                         {counts ? `${counts.done} / ${counts.total} complete` : "—"}
                       </span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-[#e8edf2]">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-paper">
                       <div
-                        className="h-full rounded-full bg-[#1457a5]"
+                        className="h-full rounded-full bg-gold"
                         style={{ width: `${Math.min(pct, 100)}%` }}
                       />
                     </div>

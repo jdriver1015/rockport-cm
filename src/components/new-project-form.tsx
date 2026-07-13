@@ -60,11 +60,11 @@ export function NewProjectForm({
               className={cn(
                 "rounded-md border p-3 text-left text-sm transition-colors",
                 kind === opt.key
-                  ? "border-[#1b355d] bg-[#e8edf2]"
+                  ? "border-navy bg-paper"
                   : "border-input hover:bg-muted/50",
               )}
             >
-              <span className="block font-medium text-[#1b355d]">{opt.label}</span>
+              <span className="block font-medium text-navy">{opt.label}</span>
               <span className="text-xs text-muted-foreground">{opt.hint}</span>
             </button>
           ))}

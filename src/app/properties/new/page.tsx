@@ -6,7 +6,7 @@ export default function NewPropertyPage() {
     <div className="mx-auto max-w-xl">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[#1b355d]">New property</CardTitle>
+          <CardTitle className="text-navy">New property</CardTitle>
         </CardHeader>
         <CardContent>
           <NewPropertyForm />

@@ -67,11 +67,11 @@ export default async function ProjectDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm">
-            <Link href={`/properties/${propertyId}/projects`} className="text-[#1457a5] hover:underline">
+            <Link href={`/properties/${propertyId}/projects`} className="text-gold-link hover:underline">
               ← All projects
             </Link>
           </p>
-          <h1 className="mt-1 text-2xl font-semibold text-[#1b355d]">{project.name}</h1>
+          <h1 className="mt-1 font-serif text-2xl font-semibold text-navy">{project.name}</h1>
           <p className="text-sm text-muted-foreground">
             {costCode ? (
               <>
@@ -112,7 +112,7 @@ export default async function ProjectDetailPage({
                 {kpi.label}
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold tabular-nums text-[#1b355d]">
+            <CardContent className="font-serif text-2xl font-semibold tabular-nums text-navy">
               {kpi.value}
             </CardContent>
           </Card>
@@ -122,7 +122,7 @@ export default async function ProjectDetailPage({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-[#1b355d]">Details</CardTitle>
+            <CardTitle className="text-base text-navy">Details</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -154,7 +154,7 @@ export default async function ProjectDetailPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-[#1b355d]">Stage history</CardTitle>
+            <CardTitle className="text-base text-navy">Stage history</CardTitle>
           </CardHeader>
           <CardContent>
             {stageHistory.length === 0 ? (

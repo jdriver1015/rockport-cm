@@ -48,7 +48,7 @@ export default async function ChartOfAccountsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-[#1b355d]">Chart of accounts</CardTitle>
+          <CardTitle className="text-base text-navy">Chart of accounts</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -66,11 +66,11 @@ export default async function ChartOfAccountsPage() {
               {categories.map((cat) => {
                 const catCodes = codes.filter((c) => c.categoryId === cat.id);
                 return [
-                  <TableRow key={`cat-${cat.id}`} className="bg-[#e8edf2]/60 hover:bg-[#e8edf2]/60">
-                    <TableCell className="font-mono text-xs font-semibold text-[#1b355d]">
+                  <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
+                    <TableCell className="font-mono text-xs font-semibold text-navy">
                       {cat.code}
                     </TableCell>
-                    <TableCell className="font-semibold text-[#1b355d]" colSpan={5}>
+                    <TableCell className="font-semibold text-navy" colSpan={5}>
                       {cat.name}
                     </TableCell>
                   </TableRow>,

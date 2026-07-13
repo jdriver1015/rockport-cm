@@ -39,7 +39,7 @@ export function SignUpForm() {
   if (confirmEmail) {
     return (
       <p className="text-sm text-muted-foreground">
-        Check <span className="font-medium text-[#1b355d]">{confirmEmail}</span> for a confirmation
+        Check <span className="font-medium text-navy">{confirmEmail}</span> for a confirmation
         link to finish creating your account.
       </p>
     );

@@ -47,7 +47,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[#1b355d]">{property.name}</h1>
+        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
         <p className="text-sm text-muted-foreground">
           Underwriting budget — benchmarks by cost code; projects roll up under these lines
         </p>
@@ -57,8 +57,8 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-[#1b355d]">UW Budget</CardTitle>
-          <span className="text-lg font-semibold tabular-nums text-[#1b355d]">
+          <CardTitle className="text-base text-navy">UW Budget</CardTitle>
+          <span className="text-lg font-semibold tabular-nums text-navy">
             {money(grandTotal)}
           </span>
         </CardHeader>
@@ -87,14 +87,14 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
                   if (catLines.length === 0) return null;
                   const catTotal = catLines.reduce((s, x) => s + num(x.line!.uwAmount), 0);
                   return [
-                    <TableRow key={`cat-${cat.id}`} className="bg-[#e8edf2]/60 hover:bg-[#e8edf2]/60">
-                      <TableCell className="font-mono text-xs font-semibold text-[#1b355d]">
+                    <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
+                      <TableCell className="font-mono text-xs font-semibold text-navy">
                         {cat.code}
                       </TableCell>
-                      <TableCell className="font-semibold text-[#1b355d]">{cat.name}</TableCell>
+                      <TableCell className="font-semibold text-navy">{cat.name}</TableCell>
                       <TableCell />
                       <TableCell />
-                      <TableCell className="text-right font-semibold tabular-nums text-[#1b355d]">
+                      <TableCell className="text-right font-semibold tabular-nums text-navy">
                         {money(catTotal)}
                       </TableCell>
                     </TableRow>,

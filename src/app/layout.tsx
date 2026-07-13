@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Playfair_Display, Mulish, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
@@ -8,9 +8,18 @@ import { db, schema } from "@/db";
 import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Display serif — wordmark, page titles, and large currency values only.
+const playfair = Playfair_Display({
+  variable: "--font-serif",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+// UI / body sans — all navigation, labels, tables, and body copy.
+const mulish = Mulish({
+  variable: "--font-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 const geistMono = Geist_Mono({
@@ -19,7 +28,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Westcreek Construction Manager",
+  title: "Rockport Construction Manager",
   description: "Portfolio construction tracking: budgets, GL intake, unit turns",
 };
 
@@ -47,18 +56,18 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${playfair.variable} ${mulish.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <header className="bg-[#1b355d] text-white">
-          <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-8 px-6">
-            <Link href="/" className="flex items-baseline gap-2">
-              <span className="text-lg font-semibold tracking-[0.18em]">westcreek</span>
-              <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-[#a3c6e1]">
+        <header className="bg-navy text-white">
+          <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-8 px-6">
+            <Link href="/" className="flex items-baseline gap-3">
+              <span className="font-serif text-[22px] font-semibold leading-none">Rockport</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8FA0BA]">
                 construction manager
               </span>
             </Link>
-            <nav className="ml-auto flex items-center gap-6 text-sm text-[#c6d5e6]">
+            <nav className="ml-auto flex items-center gap-6 text-sm text-[#CBD5E4]">
               {user ? (
                 <>
                   <Link href="/" className="transition-colors hover:text-white">
@@ -67,12 +76,15 @@ export default async function RootLayout({
                   <Link href="/settings" className="transition-colors hover:text-white">
                     Settings
                   </Link>
-                  <span className="text-xs text-[#8fa8c4]">
+                  <span className="text-xs text-[#8FA0BA]">
                     {profile?.fullName ?? user.email}
                     {profile?.role ? ` · ${ROLE_LABEL[profile.role] ?? profile.role}` : ""}
                   </span>
                   <form action={signOut}>
-                    <button type="submit" className="transition-colors hover:text-white">
+                    <button
+                      type="submit"
+                      className="rounded-[5px] border border-gold px-3.5 py-1.5 text-xs font-bold uppercase tracking-[0.08em] text-gold-soft transition-colors hover:bg-gold hover:text-white"
+                    >
                       Sign out
                     </button>
                   </form>

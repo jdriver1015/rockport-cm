@@ -31,7 +31,7 @@ export default async function NewProjectPage({ params }: { params: Promise<{ id:
     <div className="mx-auto max-w-xl">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[#1b355d]">New project — {property.name}</CardTitle>
+          <CardTitle className="text-navy">New project — {property.name}</CardTitle>
         </CardHeader>
         <CardContent>
           <NewProjectForm

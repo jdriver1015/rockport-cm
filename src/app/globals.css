@@ -8,8 +8,25 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-serif);
+  /* Rockport brand + status tokens */
+  --color-navy: var(--navy);
+  --color-navy-deep: var(--navy-deep);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-gold-link: var(--gold-link);
+  --color-paper: var(--paper);
+  --color-divider: var(--divider);
+  --color-text-body: var(--text-body);
+  --color-text-faint: var(--text-faint);
+  --color-positive: var(--positive);
+  --color-positive-bg: var(--positive-bg);
+  --color-pending: var(--pending);
+  --color-pending-bg: var(--pending-bg);
+  --color-alert: var(--alert);
+  --color-alert-bg: var(--alert-bg);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -128,18 +145,49 @@
     @apply font-sans;
   }
 }
-/* Westcreek brand overrides (see anthropic-skills:westcreek-brand) */
+/* Rockport brand — navy + gold on white (see Rockport Brand Style Guide) */
 :root {
-  --primary: #1b355d;
+  /* Surfaces & text */
+  --background: #ffffff;
+  --foreground: #1c2b42;
+  --card: #ffffff;
+  --card-foreground: #1c2b42;
+  --popover: #ffffff;
+  --popover-foreground: #1c2b42;
+  /* Gold is the primary intent color (CTAs) */
+  --primary: #c1932f;
   --primary-foreground: #ffffff;
-  --ring: #1457a5;
-  --chart-1: #1b355d;
-  --chart-2: #1457a5;
-  --chart-3: #a3c6e1;
-}
+  /* Secondary = white surface with a navy outline (set per-button) */
+  --secondary: #ffffff;
+  --secondary-foreground: #1c2b42;
+  /* Warm paper for recessed panels / labels */
+  --muted: #f7f6f3;
+  --muted-foreground: #5e6675;
+  --accent: #f7f6f3;
+  --accent-foreground: #1c2b42;
+  --destructive: #b23b3b;
+  --border: #e7e5e0;
+  --input: #e7e5e0;
+  --ring: #e4c877;
+  --radius: 0.75rem;
+  --chart-1: #1c2b42;
+  --chart-2: #c1932f;
+  --chart-3: #e4c877;
 
-.dark {
-  --primary: #a3c6e1;
-  --primary-foreground: #14243f;
-  --ring: #6aa5e0;
+  /* Brand + status extensions */
+  --navy: #1c2b42;
+  --navy-deep: #16233a;
+  --gold: #c1932f;
+  --gold-soft: #e4c877;
+  --gold-link: #b98a2c;
+  --paper: #f7f6f3;
+  --divider: #edebe6;
+  --text-body: #3c4557;
+  --text-faint: #8a8f99;
+  --positive: #1a7f4b;
+  --positive-bg: #e6f4ea;
+  --pending: #a15c00;
+  --pending-bg: #fdf2e3;
+  --alert: #b23b3b;
+  --alert-bg: #fbecec;
 }

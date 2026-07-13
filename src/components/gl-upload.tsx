@@ -52,7 +52,7 @@ export function GlUpload({
     <div
       className={cn(
         "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
-        dragging ? "border-[#1457a5] bg-[#e8edf2]" : "border-muted-foreground/25 hover:bg-muted/50",
+        dragging ? "border-gold bg-paper" : "border-muted-foreground/25 hover:bg-muted/50",
       )}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => {
@@ -78,7 +78,7 @@ export function GlUpload({
           e.target.value = "";
         }}
       />
-      <p className="font-medium text-[#1b355d]">
+      <p className="font-medium text-navy">
         {busy ? "Reading GL file…" : "Drop a GL export here"}
       </p>
       <p className="text-sm text-muted-foreground">

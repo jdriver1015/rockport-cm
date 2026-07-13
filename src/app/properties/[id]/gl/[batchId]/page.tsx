@@ -110,14 +110,14 @@ export default async function BatchDetailPage({
         <p className="text-sm">
           <Link
             href={`/properties/${propertyId}/gl`}
-            className="text-[#1457a5] hover:underline"
+            className="text-gold-link hover:underline"
           >
             ← Import history
           </Link>
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold text-[#1b355d]">{batch.fileName}</h1>
-          <Badge variant={batch.status === "posted" ? "secondary" : "outline"}>{batch.status}</Badge>
+          <h1 className="font-serif text-2xl font-semibold text-navy">{batch.fileName}</h1>
+          <Badge variant={batch.status === "posted" ? "positive" : "pending"}>{batch.status}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           {batch.sourceSystem ? `${batch.sourceSystem} · ` : ""}
@@ -130,7 +130,7 @@ export default async function BatchDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-[#1b355d]">Review queue</CardTitle>
+          <CardTitle className="text-base text-navy">Review queue</CardTitle>
         </CardHeader>
         <CardContent>
           <GlReviewQueue
@@ -145,7 +145,7 @@ export default async function BatchDetailPage({
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-[#1b355d]">Posted transactions</CardTitle>
+          <CardTitle className="text-base text-navy">Posted transactions</CardTitle>
           <span className="text-sm text-muted-foreground">
             {postedAgg.count} posted · {money(postedAgg.total)}
           </span>
@@ -175,7 +175,7 @@ export default async function BatchDetailPage({
                         {fmtDate(txn.txnDate)}
                       </TableCell>
                       <TableCell className="max-w-xs">
-                        <div className="font-medium text-[#1b355d]">{txn.vendorRaw ?? "—"}</div>
+                        <div className="font-medium text-navy">{txn.vendorRaw ?? "—"}</div>
                         <div className="truncate text-xs text-muted-foreground">
                           {txn.description ?? ""}
                         </div>

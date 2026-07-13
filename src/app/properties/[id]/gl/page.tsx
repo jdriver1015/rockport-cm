@@ -58,7 +58,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[#1b355d]">{property.name}</h1>
+        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
         <p className="text-sm text-muted-foreground">
           GL intake — each import reconciles a GL export to cost codes
           {property.glUpdatedThru ? ` · GL updated thru ${fmtDate(property.glUpdatedThru)}` : ""}
@@ -69,7 +69,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-[#1b355d]">Import history</CardTitle>
+          <CardTitle className="text-base text-navy">Import history</CardTitle>
           <AddGlDialog propertyId={property.id} />
         </CardHeader>
         <CardContent>
@@ -100,7 +100,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
                         <TableCell>
                           <Link
                             href={`/properties/${property.id}/gl/${b.id}`}
-                            className="font-medium text-[#1457a5] hover:underline"
+                            className="font-medium text-gold-link hover:underline"
                           >
                             {b.fileName}
                           </Link>
@@ -121,7 +121,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{c.posted}</TableCell>
                         <TableCell>
-                          <Badge variant={b.status === "posted" ? "secondary" : "outline"}>
+                          <Badge variant={b.status === "posted" ? "positive" : "pending"}>
                             {b.status === "posted"
                               ? "posted"
                               : c.queue > 0

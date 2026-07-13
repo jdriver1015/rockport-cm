@@ -67,7 +67,7 @@ export default async function ProjectsPage({ params }: { params: Promise<{ id: s
                   <TableCell>
                     <Link
                       href={`/properties/${propertyId}/projects/${project.id}`}
-                      className="font-medium text-[#1457a5] hover:underline"
+                      className="font-medium text-gold-link hover:underline"
                     >
                       {project.name}
                     </Link>
@@ -103,7 +103,7 @@ export default async function ProjectsPage({ params }: { params: Promise<{ id: s
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1b355d]">{property.name}</h1>
+          <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
           <p className="text-sm text-muted-foreground">Work projects and their stage</p>
         </div>
         <Button

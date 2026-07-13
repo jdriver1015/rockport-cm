@@ -8,7 +8,7 @@ export default function SignInPage() {
     <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[#1b355d]">Sign in</CardTitle>
+          <CardTitle className="text-navy">Sign in</CardTitle>
           <p className="text-sm text-muted-foreground">Westcreek Construction Manager</p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -17,7 +17,7 @@ export default function SignInPage() {
           </Suspense>
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href="/sign-up" className="text-[#1457a5] hover:underline">
+            <Link href="/sign-up" className="text-gold-link hover:underline">
               Sign up
             </Link>
           </p>

@@ -32,7 +32,7 @@ export function ForgotPasswordForm() {
   if (sentTo) {
     return (
       <p className="text-sm text-muted-foreground">
-        Check <span className="font-medium text-[#1b355d]">{sentTo}</span> for a link to reset your
+        Check <span className="font-medium text-navy">{sentTo}</span> for a link to reset your
         password.
       </p>
     );

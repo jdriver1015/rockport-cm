@@ -38,7 +38,7 @@ export default async function UsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-[#1b355d]">Users &amp; roles</CardTitle>
+          <CardTitle className="text-base text-navy">Users &amp; roles</CardTitle>
         </CardHeader>
         <CardContent>
           {users.length === 0 ? (
@@ -58,7 +58,7 @@ export default async function UsersPage() {
               <TableBody>
                 {users.map((u) => (
                   <TableRow key={u.id}>
-                    <TableCell className="font-medium text-[#1b355d]">
+                    <TableCell className="font-medium text-navy">
                       {u.fullName ?? "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{u.email}</TableCell>

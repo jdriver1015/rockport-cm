@@ -127,7 +127,7 @@ export function GlReviewQueue({
                     {fmtDate(t.txnDate)}
                   </TableCell>
                   <TableCell className="max-w-xs">
-                    <div className="font-medium text-[#1b355d]">{t.vendorRaw ?? "—"}</div>
+                    <div className="font-medium text-navy">{t.vendorRaw ?? "—"}</div>
                     <div className="truncate text-xs text-muted-foreground">
                       {t.description ?? ""}
                       {t.unitLabel ? ` · ${t.unitLabel}` : ""}

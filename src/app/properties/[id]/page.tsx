@@ -61,7 +61,7 @@ export default async function PropertyOverviewPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[#1b355d]">{property.name}</h1>
+        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
         <p className="text-sm text-muted-foreground">
           {[property.entity, [property.city, property.state].filter(Boolean).join(", ")]
             .filter(Boolean)
@@ -86,7 +86,7 @@ export default async function PropertyOverviewPage({
                 {kpi.label}
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold tabular-nums text-[#1b355d]">
+            <CardContent className="font-serif text-2xl font-semibold tabular-nums text-navy">
               {kpi.value}
             </CardContent>
           </Card>
@@ -95,12 +95,12 @@ export default async function PropertyOverviewPage({
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-[#1b355d]">
+          <CardTitle className="text-base text-navy">
             Projects by stage
           </CardTitle>
           <Link
             href={`/properties/${property.id}/projects`}
-            className="text-sm text-[#1457a5] hover:underline"
+            className="text-sm text-gold-link hover:underline"
           >
             View all {agg.total} →
           </Link>

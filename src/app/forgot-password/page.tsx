@@ -7,13 +7,13 @@ export default function ForgotPasswordPage() {
     <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[#1b355d]">Reset your password</CardTitle>
+          <CardTitle className="text-navy">Reset your password</CardTitle>
           <p className="text-sm text-muted-foreground">Westcreek Construction Manager</p>
         </CardHeader>
         <CardContent className="space-y-4">
           <ForgotPasswordForm />
           <p className="text-center text-sm text-muted-foreground">
-            <Link href="/sign-in" className="text-[#1457a5] hover:underline">
+            <Link href="/sign-in" className="text-gold-link hover:underline">
               Back to sign in
             </Link>
           </p>
