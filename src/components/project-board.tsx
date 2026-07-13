@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { Fragment, useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { differenceInCalendarDays } from "date-fns";
@@ -391,39 +391,50 @@ function ProjectLink({
 // ---------------------------------------------------------------------------
 
 function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number }) {
+  const router = useRouter();
   const shown = groups.filter((g) => g.projects.length > 0);
   if (shown.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">No projects match.</p>;
   }
+  // One fixed-layout table with full-width group-header rows so every group's
+  // columns line up. `table-fixed` + explicit header widths keep them aligned.
   return (
-    <div className="space-y-6">
-      {shown.map((g) => (
-        <div key={g.key} className="overflow-x-auto rounded-md border">
-          <div className="flex items-baseline justify-between border-b bg-paper px-4 py-2">
-            <h3 className="text-sm font-bold text-navy">{g.label}</h3>
-            <span className="text-xs text-muted-foreground">{g.projects.length}</span>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Project</TableHead>
-                <TableHead>UW line item</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead className="text-right">Budget</TableHead>
-                <TableHead className="text-right">Committed</TableHead>
-                <TableHead className="text-right">JTD</TableHead>
+    <div className="overflow-x-auto rounded-md border">
+      <Table className="table-fixed">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[26%]">Project</TableHead>
+            <TableHead className="w-[28%]">UW line item</TableHead>
+            <TableHead className="w-[14%]">Stage</TableHead>
+            <TableHead className="w-[11%] text-right">Budget</TableHead>
+            <TableHead className="w-[11%] text-right">Committed</TableHead>
+            <TableHead className="w-[10%] text-right">JTD</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {shown.map((g) => (
+            <Fragment key={g.key}>
+              <TableRow className="bg-paper hover:bg-paper">
+                <TableCell colSpan={5} className="font-bold text-navy">
+                  {g.label}
+                </TableCell>
+                <TableCell className="text-right text-xs text-muted-foreground">
+                  {g.projects.length}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
               {g.projects.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>
+                <TableRow
+                  key={p.id}
+                  onClick={() => router.push(`/properties/${propertyId}/projects/${p.id}`)}
+                  className="cursor-pointer hover:bg-muted/50"
+                >
+                  <TableCell className="truncate">
                     <ProjectLink project={p} propertyId={propertyId} />
                     {p.unitLabel && (
                       <span className="ml-2 text-xs text-muted-foreground">{p.unitLabel}</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="truncate text-muted-foreground">
                     <span className="font-mono text-xs">{p.lineItem}</span>
                   </TableCell>
                   <TableCell>
@@ -436,10 +447,10 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
                   <TableCell className="text-right tabular-nums">{money(p.jtd)}</TableCell>
                 </TableRow>
               ))}
-            </TableBody>
-          </Table>
-        </div>
-      ))}
+            </Fragment>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
