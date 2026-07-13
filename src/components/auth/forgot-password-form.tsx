@@ -16,7 +16,11 @@ export function ForgotPasswordForm() {
     const fd = new FormData(e.currentTarget);
     setBusy(true);
     try {
-      await requestPasswordReset(fd);
+      const result = await requestPasswordReset(fd);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setSentTo(String(fd.get("email")));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send reset link");

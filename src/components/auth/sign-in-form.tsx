@@ -33,7 +33,11 @@ export function SignInForm() {
     e.preventDefault();
     setBusy(true);
     try {
-      await signIn(new FormData(e.currentTarget));
+      const result = await signIn(new FormData(e.currentTarget));
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.push(next);
       router.refresh();
     } catch (err) {

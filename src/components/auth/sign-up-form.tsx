@@ -19,6 +19,10 @@ export function SignUpForm() {
     setBusy(true);
     try {
       const result = await signUp(fd);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       if (result.needsConfirmation) {
         setConfirmEmail(String(fd.get("email")));
       } else {

@@ -21,7 +21,11 @@ export function ResetPasswordForm() {
     }
     setBusy(true);
     try {
-      await updatePassword(fd);
+      const result = await updatePassword(fd);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("Password updated");
       router.push("/");
       router.refresh();
