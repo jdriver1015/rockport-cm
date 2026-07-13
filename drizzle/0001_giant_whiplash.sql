@@ -1,0 +1,1 @@
+ALTER TABLE "cost_categories" ADD COLUMN "division" text;

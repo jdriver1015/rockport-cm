@@ -8,6 +8,13 @@
       "when": 1783647439818,
       "tag": "0000_hot_sharon_ventura",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783968763858,
+      "tag": "0001_giant_whiplash",
+      "breakpoints": true
     }
   ]
 }

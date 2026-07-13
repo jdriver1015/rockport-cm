@@ -101,6 +101,8 @@ export const costCategories = pgTable("cost_categories", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  /** High-level board grouping: exterior | amenities | interiors | fees (see src/lib/divisions.ts) */
+  division: text("division"),
 });
 
 export const costCodes = pgTable("cost_codes", {

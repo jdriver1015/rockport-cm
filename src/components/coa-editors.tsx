@@ -14,10 +14,55 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createCategory, createCostCode, deleteCostCode, updateCostCode } from "@/lib/actions/settings";
+import { useTransition } from "react";
+import {
+  createCategory,
+  createCostCode,
+  deleteCostCode,
+  setCategoryDivision,
+  updateCostCode,
+} from "@/lib/actions/settings";
 import type { ActionResult } from "@/lib/action-result";
+import { DIVISIONS } from "@/lib/divisions";
 
 type Category = { id: number; code: string; name: string };
+
+export function CategoryDivisionSelect({
+  id,
+  division,
+}: {
+  id: number;
+  division: string | null;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <select
+      disabled={pending}
+      value={division ?? ""}
+      onChange={(e) => {
+        const value = e.target.value || null;
+        startTransition(async () => {
+          const result = await setCategoryDivision(id, value);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          router.refresh();
+        });
+      }}
+      className="h-7 rounded-md border border-input bg-transparent px-2 text-xs text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+    >
+      <option value="">Unassigned</option>
+      {DIVISIONS.map((d) => (
+        <option key={d.key} value={d.key}>
+          {d.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function AddCategoryDialog() {
   const router = useRouter();

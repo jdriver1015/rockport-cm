@@ -67,7 +67,7 @@ export default async function ProjectDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm">
-            <Link href={`/properties/${propertyId}/projects`} className="text-gold-link hover:underline">
+            <Link href={`/properties/${propertyId}`} className="text-gold-link hover:underline">
               ← All projects
             </Link>
           </p>

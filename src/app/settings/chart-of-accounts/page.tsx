@@ -10,7 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AddCategoryDialog, AddCostCodeDialog, EditCostCodeDialog } from "@/components/coa-editors";
+import {
+  AddCategoryDialog,
+  AddCostCodeDialog,
+  CategoryDivisionSelect,
+  EditCostCodeDialog,
+} from "@/components/coa-editors";
 
 export const dynamic = "force-dynamic";
 
@@ -70,8 +75,11 @@ export default async function ChartOfAccountsPage() {
                     <TableCell className="font-mono text-xs font-semibold text-navy">
                       {cat.code}
                     </TableCell>
-                    <TableCell className="font-semibold text-navy" colSpan={5}>
+                    <TableCell className="font-semibold text-navy" colSpan={4}>
                       {cat.name}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <CategoryDivisionSelect id={cat.id} division={cat.division} />
                     </TableCell>
                   </TableRow>,
                   ...catCodes.map((c) => (

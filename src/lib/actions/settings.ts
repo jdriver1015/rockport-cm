@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { DIVISION_KEYS } from "@/lib/divisions";
 
 // ---------------------------------------------------------------------------
 // Chart of accounts
@@ -48,6 +49,22 @@ export async function renameCategory(id: number, name: string): Promise<ActionRe
   await db()
     .update(schema.costCategories)
     .set({ name: trimmed })
+    .where(eq(schema.costCategories.id, id));
+  revalidateCoa();
+  return { ok: true };
+}
+
+export async function setCategoryDivision(
+  id: number,
+  division: string | null,
+): Promise<ActionResult> {
+  const value = division === "" ? null : division;
+  if (value !== null && !DIVISION_KEYS.includes(value as (typeof DIVISION_KEYS)[number])) {
+    return { ok: false, error: "Invalid division" };
+  }
+  await db()
+    .update(schema.costCategories)
+    .set({ division: value })
     .where(eq(schema.costCategories.id, id));
   revalidateCoa();
   return { ok: true };
