@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { PropertyNav } from "@/components/property-nav";
 import { ProjectBoard, type BoardProject } from "@/components/project-board";
-import { money, num } from "@/lib/format";
+import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,26 +25,6 @@ export default async function PropertyBoardPage({
     where: eq(schema.properties.id, propertyId),
   });
   if (!property) notFound();
-
-  const [budget] = await db()
-    .select({ total: sql<string>`coalesce(sum(${schema.budgetLines.uwAmount}), 0)` })
-    .from(schema.budgetLines)
-    .where(eq(schema.budgetLines.propertyId, propertyId));
-
-  const [agg] = await db()
-    .select({
-      committed: sql<string>`coalesce(sum(${schema.projects.committedCost}), 0)`,
-      projectBudget: sql<string>`coalesce(sum(${schema.projects.budgetAmount}), 0)`,
-    })
-    .from(schema.projects)
-    .where(eq(schema.projects.propertyId, propertyId));
-
-  const [jtd] = await db()
-    .select({ total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)` })
-    .from(schema.glTransactions)
-    .where(
-      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted'`,
-    );
 
   // Board rows — projects joined to their UW line item + category (division).
   const rows = await db()
@@ -113,13 +92,6 @@ export default async function PropertyBoardPage({
     };
   });
 
-  const kpis = [
-    { label: "UW Budget", value: money(num(budget.total)) },
-    { label: "Project Budgets", value: money(num(agg.projectBudget)) },
-    { label: "Committed", value: money(num(agg.committed)) },
-    { label: "JTD Actual", value: money(num(jtd.total)) },
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -139,21 +111,6 @@ export default async function PropertyBoardPage({
       </div>
 
       <PropertyNav propertyId={property.id} />
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((kpi) => (
-          <Card key={kpi.label} className="bg-paper">
-            <CardContent className="px-7 py-6">
-              <div className="text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                {kpi.label}
-              </div>
-              <div className="mt-2.5 font-serif text-3xl font-medium tabular-nums text-navy">
-                {kpi.value}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
 
       <ProjectBoard
         projects={projects}
