@@ -108,7 +108,7 @@ export default async function ProjectDetailPage({
                 {kpi.label}
               </CardTitle>
             </CardHeader>
-            <CardContent className="font-serif text-2xl font-semibold tabular-nums text-navy">
+            <CardContent className="text-2xl font-semibold tabular-nums text-navy">
               {kpi.value}
             </CardContent>
           </Card>

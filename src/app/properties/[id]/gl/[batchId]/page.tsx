@@ -116,7 +116,7 @@ export default async function BatchDetailPage({
           </Link>
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="font-serif text-2xl font-semibold text-navy">{batch.fileName}</h1>
+          <h1 className="text-2xl font-semibold text-navy">{batch.fileName}</h1>
           <Badge variant={batch.status === "posted" ? "positive" : "pending"}>{batch.status}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
