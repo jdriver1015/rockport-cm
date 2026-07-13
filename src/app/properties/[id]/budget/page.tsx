@@ -1,17 +1,10 @@
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { PropertyNav } from "@/components/property-nav";
-import { money, moneyExact, num } from "@/lib/format";
+import { BudgetView, type BudgetCategory } from "@/components/budget-view";
+import { money, num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +34,63 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     .from(schema.budgetLines)
     .where(eq(schema.budgetLines.propertyId, propertyId));
 
+  // JTD committed per cost code — contracted amounts on projects coded to the line.
+  const committedRows = await db()
+    .select({
+      costCodeId: schema.projects.costCodeId,
+      total: sql<string>`coalesce(sum(${schema.projects.committedCost}), 0)`,
+    })
+    .from(schema.projects)
+    .where(
+      sql`${schema.projects.propertyId} = ${propertyId} and ${schema.projects.costCodeId} is not null`,
+    )
+    .groupBy(schema.projects.costCodeId);
+  const committedByCode = new Map(committedRows.map((r) => [r.costCodeId, num(r.total)]));
+
+  // JTD completed per cost code — posted GL actuals.
+  const completedRows = await db()
+    .select({
+      costCodeId: schema.glTransactions.costCodeId,
+      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+    })
+    .from(schema.glTransactions)
+    .where(
+      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null`,
+    )
+    .groupBy(schema.glTransactions.costCodeId);
+  const completedByCode = new Map(completedRows.map((r) => [r.costCodeId, num(r.total)]));
+
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
   const grandTotal = lines.reduce((s, l) => s + num(l.uwAmount), 0);
+
+  // Build the category → lines tree the view renders. Only categories with at
+  // least one budgeted line appear (matches the prior page behavior).
+  const budgetCategories: BudgetCategory[] = categories
+    .map((cat) => {
+      const catCodes = codes.filter((c) => c.categoryId === cat.id);
+      const catLines = catCodes
+        .map((c) => ({ code: c, line: lineByCode.get(c.id) }))
+        .filter((x) => x.line);
+      if (catLines.length === 0) return null;
+
+      const lineRows = catLines.map(({ code, line }) => ({
+        code: code.code,
+        name: code.name,
+        budget: num(line!.uwAmount),
+        committed: committedByCode.get(code.id) ?? 0,
+        completed: completedByCode.get(code.id) ?? 0,
+      }));
+
+      return {
+        code: cat.code,
+        name: cat.name,
+        budget: lineRows.reduce((s, l) => s + l.budget, 0),
+        committed: lineRows.reduce((s, l) => s + l.committed, 0),
+        completed: lineRows.reduce((s, l) => s + l.completed, 0),
+        lines: lineRows,
+      } satisfies BudgetCategory;
+    })
+    .filter((c): c is BudgetCategory => c !== null);
 
   return (
     <div className="space-y-6">
@@ -57,67 +105,11 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-navy">UW Budget</CardTitle>
-          <span className="text-lg font-semibold tabular-nums text-navy">
-            {money(grandTotal)}
-          </span>
+          <CardTitle className="text-base text-navy">Budget</CardTitle>
+          <span className="text-lg font-semibold tabular-nums text-navy">{money(grandTotal)}</span>
         </CardHeader>
         <CardContent>
-          {lines.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No budget loaded yet.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Per unit</TableHead>
-                  <TableHead className="text-right">Units</TableHead>
-                  <TableHead className="text-right">UW Budget</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {categories.map((cat) => {
-                  const catCodes = codes.filter((c) => c.categoryId === cat.id);
-                  const catLines = catCodes
-                    .map((c) => ({ code: c, line: lineByCode.get(c.id) }))
-                    .filter((x) => x.line);
-                  if (catLines.length === 0) return null;
-                  const catTotal = catLines.reduce((s, x) => s + num(x.line!.uwAmount), 0);
-                  return [
-                    <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
-                      <TableCell className="font-mono text-xs font-semibold text-navy">
-                        {cat.code}
-                      </TableCell>
-                      <TableCell className="font-semibold text-navy">{cat.name}</TableCell>
-                      <TableCell />
-                      <TableCell />
-                      <TableCell className="text-right font-semibold tabular-nums text-navy">
-                        {money(catTotal)}
-                      </TableCell>
-                    </TableRow>,
-                    ...catLines.map(({ code, line }) => (
-                      <TableRow key={code.id}>
-                        <TableCell className="pl-6 font-mono text-xs">{code.code}</TableCell>
-                        <TableCell>{code.name}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {line!.perUnitAmount ? moneyExact(line!.perUnitAmount) : "—"}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {line!.plannedUnits ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {moneyExact(line!.uwAmount)}
-                        </TableCell>
-                      </TableRow>
-                    )),
-                  ];
-                })}
-              </TableBody>
-            </Table>
-          )}
+          <BudgetView categories={budgetCategories} />
         </CardContent>
       </Card>
     </div>
