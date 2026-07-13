@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
+import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { fmtDate, money, num } from "@/lib/format";
 import { stageLabel } from "@/lib/stages";
 
@@ -59,6 +60,21 @@ export default async function ProjectDetailPage({
     .where(eq(schema.projectStageEvents.projectId, projectId))
     .orderBy(desc(schema.projectStageEvents.createdAt))
     .limit(100);
+
+  const docs = await db()
+    .select()
+    .from(schema.attachments)
+    .where(
+      and(eq(schema.attachments.projectId, projectId), eq(schema.attachments.kind, "document")),
+    )
+    .orderBy(desc(schema.attachments.createdAt));
+
+  const documentRows: DocumentRow[] = docs.map((d) => ({
+    id: d.id,
+    name: d.caption ?? d.storagePath.split("/").pop() ?? "document",
+    caption: d.caption,
+    createdAt: d.createdAt,
+  }));
 
   const jtdN = parseFloat(jtd.total);
   const budget = num(project.budgetAmount);
@@ -189,7 +205,13 @@ export default async function ProjectDetailPage({
         </p>
       </div>
 
-      <ProjectDetailTabs overview={overview} log={log} />
+      <ProjectDetailTabs
+        overview={overview}
+        documents={
+          <DocumentManager propertyId={propertyId} projectId={projectId} documents={documentRows} />
+        }
+        log={log}
+      />
     </div>
   );
 }
