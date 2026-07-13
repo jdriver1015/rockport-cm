@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createCategory, createCostCode, deleteCostCode, updateCostCode } from "@/lib/actions/settings";
+import type { ActionResult } from "@/lib/action-result";
 
 type Category = { id: number; code: string; name: string };
 
@@ -37,7 +38,11 @@ export function AddCategoryDialog() {
             e.preventDefault();
             setBusy(true);
             try {
-              await createCategory(new FormData(e.currentTarget));
+              const result = await createCategory(new FormData(e.currentTarget));
+              if (!result.ok) {
+                toast.error(result.error);
+                return;
+              }
               toast.success("Category added");
               setOpen(false);
               router.refresh();
@@ -86,7 +91,11 @@ export function AddCostCodeDialog({ categories }: { categories: Category[] }) {
             e.preventDefault();
             setBusy(true);
             try {
-              await createCostCode(new FormData(e.currentTarget));
+              const result = await createCostCode(new FormData(e.currentTarget));
+              if (!result.ok) {
+                toast.error(result.error);
+                return;
+              }
               toast.success("Cost code added");
               setOpen(false);
               router.refresh();
@@ -158,10 +167,14 @@ export function EditCostCodeDialog({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const run = async (fn: () => Promise<unknown>, ok: string) => {
+  const run = async (fn: () => Promise<ActionResult>, ok: string) => {
     setBusy(true);
     try {
-      await fn();
+      const result = await fn();
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success(ok);
       setOpen(false);
       router.refresh();

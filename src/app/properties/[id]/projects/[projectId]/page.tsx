@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StagePipeline } from "@/components/stage-pipeline";
-import { setProjectStage } from "@/lib/actions/projects";
+import { AdvanceStageButton } from "@/components/advance-stage-button";
 import { fmtDate, money, num } from "@/lib/format";
 import { nextStage, stageLabel } from "@/lib/stages";
 
@@ -89,13 +88,12 @@ export default async function ProjectDetailPage({
           </p>
         </div>
         {next && (
-          <form action={setProjectStage}>
-            <input type="hidden" name="projectId" value={project.id} />
-            <input type="hidden" name="toStage" value={next.key} />
-            <Button type="submit" title={`Gate: ${next.gate}`}>
-              Advance to {next.label}
-            </Button>
-          </form>
+          <AdvanceStageButton
+            projectId={project.id}
+            toStage={next.key}
+            label={next.label}
+            gate={next.gate}
+          />
         )}
       </div>
 

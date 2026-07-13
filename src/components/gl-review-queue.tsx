@@ -22,6 +22,7 @@ import {
   restoreTransaction,
   updateTransaction,
 } from "@/lib/actions/gl";
+import type { ActionResult } from "@/lib/action-result";
 
 type Txn = {
   id: number;
@@ -58,10 +59,14 @@ export function GlReviewQueue({
 
   const readyCount = transactions.filter((t) => t.status === "staged" && t.costCodeId).length;
 
-  const run = (fn: () => Promise<unknown>, ok?: string) =>
+  const run = (fn: () => Promise<ActionResult>, ok?: string) =>
     startTransition(async () => {
       try {
-        await fn();
+        const result = await fn();
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         if (ok) toast.success(ok);
         router.refresh();
       } catch (err) {
@@ -86,9 +91,14 @@ export function GlReviewQueue({
         <Button
           disabled={pending || readyCount === 0}
           onClick={() =>
-            run(async () => {
-              const n = batchId ? await postBatch(batchId) : await postAllReady(propertyId);
-              toast.success(`Posted ${n} transaction${n === 1 ? "" : "s"}`);
+            startTransition(async () => {
+              const result = batchId ? await postBatch(batchId) : await postAllReady(propertyId);
+              if (!result.ok) {
+                toast.error(result.error);
+                return;
+              }
+              toast.success(`Posted ${result.count} transaction${result.count === 1 ? "" : "s"}`);
+              router.refresh();
             })
           }
         >

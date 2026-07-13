@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_STAGES } from "@/lib/stages";
+import type { ActionResult } from "@/lib/action-result";
 
 const createProjectSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -17,7 +17,7 @@ const createProjectSchema = z.object({
   startDate: z.string().trim().optional(),
 });
 
-export async function createProject(formData: FormData) {
+export async function createProject(formData: FormData): Promise<ActionResult<{ projectId: number }>> {
   const parsed = createProjectSchema.parse({
     propertyId: formData.get("propertyId"),
     kind: formData.get("kind"),
@@ -32,7 +32,7 @@ export async function createProject(formData: FormData) {
   let name = parsed.name;
 
   if (parsed.kind === "unit") {
-    if (!parsed.unitNumber) throw new Error("Unit number is required for a unit project");
+    if (!parsed.unitNumber) return { ok: false, error: "Unit number is required for a unit project" };
     // Upsert the unit inventory row and link it
     const existing = await db().query.units.findFirst({
       where: and(
@@ -51,7 +51,7 @@ export async function createProject(formData: FormData) {
     }
     name ??= `Unit ${parsed.unitNumber} Interior`;
   } else {
-    if (!parsed.costCodeId) throw new Error("Cost code is required for a common project");
+    if (!parsed.costCodeId) return { ok: false, error: "Cost code is required for a common project" };
     if (!name) {
       const code = await db().query.costCodes.findFirst({
         where: eq(schema.costCodes.id, parsed.costCodeId),
@@ -80,7 +80,7 @@ export async function createProject(formData: FormData) {
   });
 
   revalidatePath(`/properties/${parsed.propertyId}`);
-  redirect(`/properties/${parsed.propertyId}/projects/${project.id}`);
+  return { ok: true, projectId: project.id };
 }
 
 const stageKeys = PROJECT_STAGES.map((s) => s.key) as [string, ...string[]];
@@ -91,7 +91,7 @@ const setStageSchema = z.object({
   note: z.string().trim().optional(),
 });
 
-export async function setProjectStage(formData: FormData) {
+export async function setProjectStage(formData: FormData): Promise<ActionResult> {
   const parsed = setStageSchema.parse({
     projectId: formData.get("projectId"),
     toStage: formData.get("toStage"),
@@ -101,8 +101,8 @@ export async function setProjectStage(formData: FormData) {
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, parsed.projectId),
   });
-  if (!project) throw new Error("Project not found");
-  if (project.stage === parsed.toStage) return;
+  if (!project) return { ok: false, error: "Project not found" };
+  if (project.stage === parsed.toStage) return { ok: true };
 
   const toStage = parsed.toStage as typeof project.stage;
 
@@ -131,4 +131,5 @@ export async function setProjectStage(formData: FormData) {
   revalidatePath(`/properties/${project.propertyId}`);
   revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
   revalidatePath("/");
+  return { ok: true };
 }

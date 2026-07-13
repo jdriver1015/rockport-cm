@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import type { ActionResult } from "@/lib/action-result";
 
 async function revalidateProperty(propertyId: number) {
   revalidatePath(`/properties/${propertyId}/gl`);
@@ -47,12 +48,12 @@ export async function updateTransaction(input: {
   transactionId: number;
   costCodeId?: number | null;
   projectId?: number | null;
-}) {
+}): Promise<ActionResult> {
   const parsed = updateSchema.parse(input);
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, parsed.transactionId),
   });
-  if (!txn) throw new Error("Transaction not found");
+  if (!txn) return { ok: false, error: "Transaction not found" };
 
   const nextCostCode = parsed.costCodeId ?? null;
 
@@ -76,26 +77,28 @@ export async function updateTransaction(input: {
   }
 
   await revalidateProperty(txn.propertyId);
+  return { ok: true };
 }
 
-export async function excludeTransaction(transactionId: number, reason?: string) {
+export async function excludeTransaction(transactionId: number, reason?: string): Promise<ActionResult> {
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
-  if (!txn) throw new Error("Transaction not found");
+  if (!txn) return { ok: false, error: "Transaction not found" };
   await db()
     .update(schema.glTransactions)
     .set({ status: "excluded", excludeReason: reason ?? "Excluded by reviewer", postedAt: null })
     .where(eq(schema.glTransactions.id, transactionId));
   await revalidateProperty(txn.propertyId);
+  return { ok: true };
 }
 
 /** Move an excluded row back into the review queue */
-export async function restoreTransaction(transactionId: number) {
+export async function restoreTransaction(transactionId: number): Promise<ActionResult> {
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
-  if (!txn) throw new Error("Transaction not found");
+  if (!txn) return { ok: false, error: "Transaction not found" };
   await db()
     .update(schema.glTransactions)
     .set({
@@ -104,6 +107,7 @@ export async function restoreTransaction(transactionId: number) {
     })
     .where(eq(schema.glTransactions.id, transactionId));
   await revalidateProperty(txn.propertyId);
+  return { ok: true };
 }
 
 /**
@@ -127,18 +131,19 @@ async function recomputeGlThru(propertyId: number) {
     .where(eq(schema.properties.id, propertyId));
 }
 
-export async function postTransaction(transactionId: number) {
+export async function postTransaction(transactionId: number): Promise<ActionResult> {
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
-  if (!txn) throw new Error("Transaction not found");
-  if (txn.costCodeId === null) throw new Error("Assign a cost code before posting");
+  if (!txn) return { ok: false, error: "Transaction not found" };
+  if (txn.costCodeId === null) return { ok: false, error: "Assign a cost code before posting" };
   await db()
     .update(schema.glTransactions)
     .set({ status: "posted", postedAt: new Date() })
     .where(eq(schema.glTransactions.id, transactionId));
   await recomputeGlThru(txn.propertyId);
   await revalidateProperty(txn.propertyId);
+  return { ok: true };
 }
 
 /**
@@ -146,12 +151,12 @@ export async function postTransaction(transactionId: number) {
  * cost code and project so re-posting is one click) and recompute the property's
  * GL-updated-thru so JTD reverts everywhere. Reopens its batch if it was closed.
  */
-export async function unpostTransaction(transactionId: number) {
+export async function unpostTransaction(transactionId: number): Promise<ActionResult> {
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
-  if (!txn) throw new Error("Transaction not found");
-  if (txn.status !== "posted") return;
+  if (!txn) return { ok: false, error: "Transaction not found" };
+  if (txn.status !== "posted") return { ok: true };
 
   await db()
     .update(schema.glTransactions)
@@ -175,10 +180,11 @@ export async function unpostTransaction(transactionId: number) {
 
   await recomputeGlThru(txn.propertyId);
   await revalidateProperty(txn.propertyId);
+  return { ok: true };
 }
 
 /** Post every ready (staged, cost-coded) row across a property */
-export async function postAllReady(propertyId: number) {
+export async function postAllReady(propertyId: number): Promise<ActionResult<{ count: number }>> {
   const result = await db()
     .update(schema.glTransactions)
     .set({ status: "posted", postedAt: new Date() })
@@ -192,15 +198,15 @@ export async function postAllReady(propertyId: number) {
     .returning({ id: schema.glTransactions.id });
   await recomputeGlThru(propertyId);
   await revalidateProperty(propertyId);
-  return result.length;
+  return { ok: true, count: result.length };
 }
 
 /** Post every ready (staged, cost-coded) row in a batch */
-export async function postBatch(batchId: number) {
+export async function postBatch(batchId: number): Promise<ActionResult<{ count: number }>> {
   const batch = await db().query.importBatches.findFirst({
     where: eq(schema.importBatches.id, batchId),
   });
-  if (!batch) throw new Error("Batch not found");
+  if (!batch) return { ok: false, error: "Batch not found" };
 
   const result = await db()
     .update(schema.glTransactions)
@@ -233,5 +239,5 @@ export async function postBatch(batchId: number) {
 
   await recomputeGlThru(batch.propertyId);
   await revalidateProperty(batch.propertyId);
-  return result.length;
+  return { ok: true, count: result.length };
 }

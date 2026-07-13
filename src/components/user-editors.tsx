@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createProfile, deleteProfile, updateProfileRole } from "@/lib/actions/settings";
+import type { ActionResult } from "@/lib/action-result";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
@@ -45,7 +46,11 @@ export function AddUserDialog() {
             e.preventDefault();
             setBusy(true);
             try {
-              await createProfile(new FormData(e.currentTarget));
+              const result = await createProfile(new FormData(e.currentTarget));
+              if (!result.ok) {
+                toast.error(result.error);
+                return;
+              }
               toast.success("User added");
               setOpen(false);
               router.refresh();
@@ -100,10 +105,14 @@ export function UserRowActions({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const run = (fn: () => Promise<unknown>, ok?: string) =>
+  const run = (fn: () => Promise<ActionResult>, ok?: string) =>
     startTransition(async () => {
       try {
-        await fn();
+        const result = await fn();
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         if (ok) toast.success(ok);
         router.refresh();
       } catch (err) {

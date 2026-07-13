@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { createProject } from "@/lib/actions/projects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +18,29 @@ export function NewProjectForm({
   propertyId: number;
   costCodes: CostCode[];
 }) {
+  const router = useRouter();
   const [kind, setKind] = useState<"common" | "unit">("common");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const result = await createProject(new FormData(e.currentTarget));
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      router.push(`/properties/${propertyId}/projects/${result.projectId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create project");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <form action={createProject} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <input type="hidden" name="propertyId" value={propertyId} />
       <input type="hidden" name="kind" value={kind} />
 
@@ -102,7 +123,9 @@ export function NewProjectForm({
       </div>
 
       <div className="flex justify-end pt-2">
-        <Button type="submit">Create project</Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create project"}
+        </Button>
       </div>
     </form>
   );

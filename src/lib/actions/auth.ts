@@ -5,12 +5,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/ensure-profile";
+import type { ActionResult } from "@/lib/action-result";
 
 function siteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
-
-type ActionResult<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 const credsSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),

@@ -21,7 +21,11 @@ export function UnpostButton({ transactionId }: { transactionId: number }) {
         }
         startTransition(async () => {
           try {
-            await unpostTransaction(transactionId);
+            const result = await unpostTransaction(transactionId);
+            if (!result.ok) {
+              toast.error(result.error);
+              return;
+            }
             toast.success("Un-posted — back in the review queue");
             router.refresh();
           } catch (err) {

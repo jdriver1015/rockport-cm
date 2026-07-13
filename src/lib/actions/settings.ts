@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import type { ActionResult } from "@/lib/action-result";
 
 // ---------------------------------------------------------------------------
 // Chart of accounts
@@ -18,15 +19,17 @@ const categorySchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
 });
 
-export async function createCategory(formData: FormData) {
-  const parsed = categorySchema.parse({
+export async function createCategory(formData: FormData): Promise<ActionResult> {
+  const parsed = categorySchema.safeParse({
     code: formData.get("code"),
     name: formData.get("name"),
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
   const existing = await db().query.costCategories.findFirst({
-    where: eq(schema.costCategories.code, parsed.code),
+    where: eq(schema.costCategories.code, parsed.data.code),
   });
-  if (existing) throw new Error(`Category code ${parsed.code} already exists`);
+  if (existing) return { ok: false, error: `Category code ${parsed.data.code} already exists` };
 
   const [{ maxOrder }] = await db()
     .select({ maxOrder: sql<number>`coalesce(max(${schema.costCategories.sortOrder}), 0)::int` })
@@ -34,18 +37,20 @@ export async function createCategory(formData: FormData) {
 
   await db()
     .insert(schema.costCategories)
-    .values({ code: parsed.code, name: parsed.name, sortOrder: maxOrder + 1 });
+    .values({ code: parsed.data.code, name: parsed.data.name, sortOrder: maxOrder + 1 });
   revalidateCoa();
+  return { ok: true };
 }
 
-export async function renameCategory(id: number, name: string) {
+export async function renameCategory(id: number, name: string): Promise<ActionResult> {
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("Name is required");
+  if (!trimmed) return { ok: false, error: "Name is required" };
   await db()
     .update(schema.costCategories)
     .set({ name: trimmed })
     .where(eq(schema.costCategories.id, id));
   revalidateCoa();
+  return { ok: true };
 }
 
 const costCodeSchema = z.object({
@@ -55,25 +60,28 @@ const costCodeSchema = z.object({
   isInterior: z.coerce.boolean().optional(),
 });
 
-export async function createCostCode(formData: FormData) {
-  const parsed = costCodeSchema.parse({
+export async function createCostCode(formData: FormData): Promise<ActionResult> {
+  const parsed = costCodeSchema.safeParse({
     categoryId: formData.get("categoryId"),
     code: formData.get("code"),
     name: formData.get("name"),
     isInterior: formData.get("isInterior") === "on" || formData.get("isInterior") === "true",
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
   const existing = await db().query.costCodes.findFirst({
-    where: eq(schema.costCodes.code, parsed.code),
+    where: eq(schema.costCodes.code, parsed.data.code),
   });
-  if (existing) throw new Error(`Cost code ${parsed.code} already exists`);
+  if (existing) return { ok: false, error: `Cost code ${parsed.data.code} already exists` };
 
   await db().insert(schema.costCodes).values({
-    categoryId: parsed.categoryId,
-    code: parsed.code,
-    name: parsed.name,
-    isInterior: parsed.isInterior ?? false,
+    categoryId: parsed.data.categoryId,
+    code: parsed.data.code,
+    name: parsed.data.name,
+    isInterior: parsed.data.isInterior ?? false,
   });
   revalidateCoa();
+  return { ok: true };
 }
 
 export async function updateCostCode(input: {
@@ -81,21 +89,22 @@ export async function updateCostCode(input: {
   name?: string;
   active?: boolean;
   isInterior?: boolean;
-}) {
+}): Promise<ActionResult> {
   const set: Partial<typeof schema.costCodes.$inferInsert> = {};
   if (input.name !== undefined) {
     const trimmed = input.name.trim();
-    if (!trimmed) throw new Error("Name is required");
+    if (!trimmed) return { ok: false, error: "Name is required" };
     set.name = trimmed;
   }
   if (input.active !== undefined) set.active = input.active;
   if (input.isInterior !== undefined) set.isInterior = input.isInterior;
-  if (Object.keys(set).length === 0) return;
+  if (Object.keys(set).length === 0) return { ok: true };
   await db().update(schema.costCodes).set(set).where(eq(schema.costCodes.id, input.id));
   revalidateCoa();
+  return { ok: true };
 }
 
-export async function deleteCostCode(id: number) {
+export async function deleteCostCode(id: number): Promise<ActionResult> {
   // Guard against deleting a code that's referenced anywhere
   const countWhere = async (
     table: typeof schema.budgetLines | typeof schema.glTransactions | typeof schema.projects | typeof schema.mappingRules,
@@ -116,11 +125,12 @@ export async function deleteCostCode(id: number) {
   ];
   const inUse = refs.find(([, n]) => n > 0);
   if (inUse) {
-    throw new Error(`In use by ${inUse[1]} ${inUse[0]} — deactivate it instead of deleting`);
+    return { ok: false, error: `In use by ${inUse[1]} ${inUse[0]} — deactivate it instead of deleting` };
   }
 
   await db().delete(schema.costCodes).where(eq(schema.costCodes.id, id));
   revalidateCoa();
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -140,33 +150,38 @@ const userSchema = z.object({
   role: z.enum(ROLES),
 });
 
-export async function createProfile(formData: FormData) {
-  const parsed = userSchema.parse({
+export async function createProfile(formData: FormData): Promise<ActionResult> {
+  const parsed = userSchema.safeParse({
     email: formData.get("email"),
     fullName: formData.get("fullName") || undefined,
     role: formData.get("role"),
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
   const existing = await db().query.profiles.findFirst({
-    where: eq(schema.profiles.email, parsed.email.toLowerCase()),
+    where: eq(schema.profiles.email, parsed.data.email.toLowerCase()),
   });
-  if (existing) throw new Error(`${parsed.email} is already a user`);
+  if (existing) return { ok: false, error: `${parsed.data.email} is already a user` };
 
   await db().insert(schema.profiles).values({
     id: crypto.randomUUID(),
-    email: parsed.email.toLowerCase(),
-    fullName: parsed.fullName,
-    role: parsed.role,
+    email: parsed.data.email.toLowerCase(),
+    fullName: parsed.data.fullName,
+    role: parsed.data.role,
   });
   revalidateUsers();
+  return { ok: true };
 }
 
-export async function updateProfileRole(id: string, role: (typeof ROLES)[number]) {
-  if (!ROLES.includes(role)) throw new Error("Invalid role");
+export async function updateProfileRole(id: string, role: (typeof ROLES)[number]): Promise<ActionResult> {
+  if (!ROLES.includes(role)) return { ok: false, error: "Invalid role" };
   await db().update(schema.profiles).set({ role }).where(eq(schema.profiles.id, id));
   revalidateUsers();
+  return { ok: true };
 }
 
-export async function deleteProfile(id: string) {
+export async function deleteProfile(id: string): Promise<ActionResult> {
   await db().delete(schema.profiles).where(eq(schema.profiles.id, id));
   revalidateUsers();
+  return { ok: true };
 }
