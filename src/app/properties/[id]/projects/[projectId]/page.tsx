@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,13 +41,6 @@ export default async function ProjectDetailPage({
   if (!data || data.project.propertyId !== propertyId) notFound();
   const { project, costCode, unit, vendor } = data;
 
-  const [jtd] = await db()
-    .select({ total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)` })
-    .from(schema.glTransactions)
-    .where(
-      sql`${schema.glTransactions.projectId} = ${projectId} and ${schema.glTransactions.status} = 'posted'`,
-    );
-
   const scope = await db()
     .select()
     .from(schema.scopeItems)
@@ -76,9 +69,6 @@ export default async function ProjectDetailPage({
     createdAt: d.createdAt,
   }));
 
-  const jtdN = parseFloat(jtd.total);
-  const budget = num(project.budgetAmount);
-
   const tradeOut =
     project.previousRent && project.tradeOutRent
       ? num(project.tradeOutRent) - num(project.previousRent)
@@ -95,26 +85,6 @@ export default async function ProjectDetailPage({
 
   const overview = (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Budgeted", value: money(budget) },
-          { label: "Committed", value: money(project.committedCost) },
-          { label: "Completed", value: money(jtdN) },
-          { label: "Remaining vs Budgeted", value: money(budget - jtdN) },
-        ].map((kpi) => (
-          <Card key={kpi.label} className="bg-paper">
-            <CardHeader className="pb-1">
-              <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {kpi.label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-2xl font-semibold tabular-nums text-navy">
-              {kpi.value}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
 
       <Card>
