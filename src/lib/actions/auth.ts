@@ -66,6 +66,32 @@ export async function signUp(
   return { needsConfirmation: true };
 }
 
+const emailSchema = z.object({ email: z.string().trim().email("Enter a valid email") });
+
+export async function requestPasswordReset(formData: FormData): Promise<{ ok: true }> {
+  const parsed = emailSchema.parse({ email: formData.get("email") });
+  const supabase = await createClient();
+  const next = encodeURIComponent("/auth/reset-password");
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.email, {
+    redirectTo: `${siteUrl()}/auth/callback?next=${next}`,
+  });
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
+const newPasswordSchema = z.object({
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+/** Requires an active (recovery) session — see /auth/reset-password. */
+export async function updatePassword(formData: FormData): Promise<{ ok: true }> {
+  const parsed = newPasswordSchema.parse({ password: formData.get("password") });
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({ password: parsed.password });
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
 /** Invoked from a plain `<form action={signOut}>` so redirect() works directly. */
 export async function signOut() {
   const supabase = await createClient();
