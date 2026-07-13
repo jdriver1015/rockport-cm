@@ -269,6 +269,22 @@ export const punchItems = pgTable("punch_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Scope: line items of work/materials for a project. Total (qty × unitCost) is
+// derived in queries, never stored. `status` is app-constrained (see src/lib/scope.ts).
+export const scopeItems = pgTable("scope_items", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
+  item: text("item").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }),
+  vendor: text("vendor"),
+  status: text("status").notNull().default("planned"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
 // ---------------------------------------------------------------------------
