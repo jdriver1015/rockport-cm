@@ -118,7 +118,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Budget
+              Budgeted
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold tabular-nums text-navy">

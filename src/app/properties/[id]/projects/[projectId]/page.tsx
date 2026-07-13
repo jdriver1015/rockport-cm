@@ -97,10 +97,10 @@ export default async function ProjectDetailPage({
     <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Project Budget", value: money(budget) },
+          { label: "Budgeted", value: money(budget) },
           { label: "Committed", value: money(project.committedCost) },
-          { label: "JTD Actual", value: money(jtdN) },
-          { label: "Remaining vs Budget", value: money(budget - jtdN) },
+          { label: "Completed", value: money(jtdN) },
+          { label: "Remaining vs Budgeted", value: money(budget - jtdN) },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-paper">
             <CardHeader className="pb-1">

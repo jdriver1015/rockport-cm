@@ -75,9 +75,9 @@ function SummaryTable({ categories }: { categories: BudgetCategory[] }) {
         <TableRow>
           <TableHead>Code</TableHead>
           <TableHead>Description</TableHead>
-          <TableHead className="text-right">Budget</TableHead>
-          <TableHead className="text-right">JTD Committed</TableHead>
-          <TableHead className="text-right">JTD Completed</TableHead>
+          <TableHead className="text-right">Budgeted</TableHead>
+          <TableHead className="text-right">Committed</TableHead>
+          <TableHead className="text-right">Completed</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -105,9 +105,9 @@ function DetailTable({ categories }: { categories: BudgetCategory[] }) {
           <TableHead>Code</TableHead>
           <TableHead>Category</TableHead>
           <TableHead>Description</TableHead>
-          <TableHead className="text-right">Budget</TableHead>
-          <TableHead className="text-right">JTD Committed</TableHead>
-          <TableHead className="text-right">JTD Completed</TableHead>
+          <TableHead className="text-right">Budgeted</TableHead>
+          <TableHead className="text-right">Committed</TableHead>
+          <TableHead className="text-right">Completed</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

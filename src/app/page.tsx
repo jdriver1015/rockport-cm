@@ -77,11 +77,11 @@ export default async function PortfolioPage() {
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">UW Budget</span>
+                      <span className="text-muted-foreground">Budgeted</span>
                       <span className="font-medium tabular-nums">{money(uw)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">JTD Actual</span>
+                      <span className="text-muted-foreground">Completed</span>
                       <span className="font-medium tabular-nums">{money(jtd)}</span>
                     </div>
                     <div className="flex justify-between text-sm">

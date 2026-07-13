@@ -225,9 +225,9 @@ export function ProjectBoard({
             }}
             options={[
               ["name", "Name"],
-              ["budget", "Budget"],
+              ["budget", "Budgeted"],
               ["committed", "Committed"],
-              ["jtd", "JTD"],
+              ["jtd", "Completed"],
               ["stage", "Stage"],
             ]}
           />
@@ -406,9 +406,9 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
             <TableHead className="w-[26%]">Project</TableHead>
             <TableHead className="w-[28%]">UW line item</TableHead>
             <TableHead className="w-[14%]">Stage</TableHead>
-            <TableHead className="w-[11%] text-right">Budget</TableHead>
+            <TableHead className="w-[11%] text-right">Budgeted</TableHead>
             <TableHead className="w-[11%] text-right">Committed</TableHead>
-            <TableHead className="w-[10%] text-right">JTD</TableHead>
+            <TableHead className="w-[10%] text-right">Completed</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
