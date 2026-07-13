@@ -5,6 +5,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -69,6 +70,7 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
 }
 
 function SummaryTable({ categories }: { categories: BudgetCategory[] }) {
+  const totals = sumTotals(categories);
   return (
     <Table>
       <TableHeader>
@@ -93,11 +95,27 @@ function SummaryTable({ categories }: { categories: BudgetCategory[] }) {
           </TableRow>
         ))}
       </TableBody>
+      <TableFooter>
+        <TableRow>
+          <TableCell />
+          <TableCell className="font-semibold text-navy">Total</TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.budget)}
+          </TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.committed)}
+          </TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.completed)}
+          </TableCell>
+        </TableRow>
+      </TableFooter>
     </Table>
   );
 }
 
 function DetailTable({ categories }: { categories: BudgetCategory[] }) {
+  const totals = sumTotals(categories);
   return (
     <Table>
       <TableHeader>
@@ -126,6 +144,33 @@ function DetailTable({ categories }: { categories: BudgetCategory[] }) {
           )),
         )}
       </TableBody>
+      <TableFooter>
+        <TableRow>
+          <TableCell colSpan={3} className="font-semibold text-navy">
+            Total
+          </TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.budget)}
+          </TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.committed)}
+          </TableCell>
+          <TableCell className="text-right font-semibold tabular-nums text-navy">
+            {money(totals.completed)}
+          </TableCell>
+        </TableRow>
+      </TableFooter>
     </Table>
+  );
+}
+
+function sumTotals(categories: BudgetCategory[]) {
+  return categories.reduce(
+    (acc, cat) => ({
+      budget: acc.budget + cat.budget,
+      committed: acc.committed + cat.committed,
+      completed: acc.completed + cat.completed,
+    }),
+    { budget: 0, committed: 0, completed: 0 },
   );
 }

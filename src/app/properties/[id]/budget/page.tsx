@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { PropertyNav } from "@/components/property-nav";
 import { BudgetView, type BudgetCategory } from "@/components/budget-view";
-import { money, num } from "@/lib/format";
+import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -61,18 +61,6 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   const completedByCode = new Map(completedRows.map((r) => [r.costCodeId, num(r.total)]));
 
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
-  const grandTotal = lines.reduce((s, l) => s + num(l.uwAmount), 0);
-
-  // Total committed and completed across all codes
-  const totalCommitted = Array.from(committedByCode.values()).reduce((s, v) => s + v, 0);
-  const totalCompleted = Array.from(completedByCode.values()).reduce((s, v) => s + v, 0);
-
-  // Count projects
-  const projectCount = await db()
-    .select({ count: sql<number>`count(*)::int` })
-    .from(schema.projects)
-    .where(eq(schema.projects.propertyId, propertyId));
-  const totalProjects = projectCount[0]?.count ?? 0;
 
   // Build the category → lines tree the view renders. Only categories with at
   // least one budgeted line appear (matches the prior page behavior).
@@ -107,61 +95,12 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     <div className="space-y-6">
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
-        <p className="text-sm text-muted-foreground">
-          Underwriting budget — benchmarks by cost code; projects roll up under these lines
-        </p>
       </div>
 
       <PropertyNav propertyId={property.id} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Budgeted
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
-            {money(grandTotal)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Committed
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
-            {money(totalCommitted)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Completed
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
-            {money(totalCompleted)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Projects
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
-            {totalProjects}
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-navy">Budget Detail</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <BudgetView categories={budgetCategories} />
         </CardContent>
       </Card>
