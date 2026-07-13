@@ -29,7 +29,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Rockport Construction Manager",
-  description: "Portfolio construction tracking: budgets, GL intake, unit turns",
+  description: "Portfolio construction tracking: budgets, ledger, unit turns",
 };
 
 const ROLE_LABEL: Record<string, string> = {

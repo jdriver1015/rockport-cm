@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { href: "", label: "Projects" },
   { href: "/budget", label: "Budget" },
-  { href: "/gl", label: "GL Intake" },
+  { href: "/gl", label: "Ledger" },
 ];
 
 export function PropertyNav({ propertyId }: { propertyId: number }) {

@@ -60,7 +60,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
         <p className="text-sm text-muted-foreground">
-          GL intake — each import reconciles a GL export to cost codes
+          Ledger — each import reconciles a GL export to cost codes
           {property.glUpdatedThru ? ` · GL updated thru ${fmtDate(property.glUpdatedThru)}` : ""}
         </p>
       </div>
