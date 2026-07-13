@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BudgetImport } from "@/components/budget-import";
 import { PropertyNav } from "@/components/property-nav";
 import { money, moneyExact, num } from "@/lib/format";
 
@@ -56,8 +55,6 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
       <PropertyNav propertyId={property.id} />
 
-      <BudgetImport propertyId={property.id} />
-
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between">
           <CardTitle className="text-base text-[#1b355d]">UW Budget</CardTitle>
@@ -68,7 +65,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         <CardContent>
           {lines.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No budget loaded yet — drop an Excel file above to import the underwriting budget.
+              No budget loaded yet.
             </p>
           ) : (
             <Table>
