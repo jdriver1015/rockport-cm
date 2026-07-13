@@ -63,6 +63,17 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
   const grandTotal = lines.reduce((s, l) => s + num(l.uwAmount), 0);
 
+  // Total committed and completed across all codes
+  const totalCommitted = Array.from(committedByCode.values()).reduce((s, v) => s + v, 0);
+  const totalCompleted = Array.from(completedByCode.values()).reduce((s, v) => s + v, 0);
+
+  // Count projects
+  const projectCount = await db()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.projects)
+    .where(eq(schema.projects.propertyId, propertyId));
+  const totalProjects = projectCount[0]?.count ?? 0;
+
   // Build the category → lines tree the view renders. Only categories with at
   // least one budgeted line appear (matches the prior page behavior).
   const budgetCategories: BudgetCategory[] = categories
@@ -103,10 +114,52 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
       <PropertyNav propertyId={property.id} />
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Budget
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
+            {money(grandTotal)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Committed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
+            {money(totalCommitted)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Completed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
+            {money(totalCompleted)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Projects
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold tabular-nums text-navy">
+            {totalProjects}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
-        <CardHeader className="flex flex-row items-baseline justify-between">
-          <CardTitle className="text-base text-navy">Budget</CardTitle>
-          <span className="text-lg font-semibold tabular-nums text-navy">{money(grandTotal)}</span>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">Budget Detail</CardTitle>
         </CardHeader>
         <CardContent>
           <BudgetView categories={budgetCategories} />
