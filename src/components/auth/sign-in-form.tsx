@@ -1,20 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signIn, sendMagicLink } from "@/lib/actions/auth";
+import { signIn } from "@/lib/actions/auth";
 
 export function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
-  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [magicSent, setMagicSent] = useState(false);
+
+  useEffect(() => {
+    const queryError = params.get("error");
+    if (queryError && queryError !== "auth") {
+      toast.error(queryError);
+      return;
+    }
+    // Supabase reports email-confirmation failures (expired/used/denied
+    // token) via a URL hash fragment, which never reaches the server — only
+    // the browser can read it.
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const hashError = hash.get("error_description");
+    if (hashError) toast.error(hashError.replace(/\+/g, " "));
+  }, [params]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -30,32 +42,6 @@ export function SignInForm() {
     }
   }
 
-  async function handleMagicLink() {
-    if (!email) {
-      toast.error("Enter your email first");
-      return;
-    }
-    setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.set("email", email);
-      await sendMagicLink(fd);
-      setMagicSent(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send link");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (magicSent) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Check <span className="font-medium text-[#1b355d]">{email}</span> for a sign-in link.
-      </p>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-1.5">
@@ -66,8 +52,6 @@ export function SignInForm() {
           type="email"
           autoComplete="email"
           required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
           placeholder="name@westcreek-capital.com"
         />
       </div>
@@ -84,15 +68,6 @@ export function SignInForm() {
       </div>
       <Button type="submit" className="w-full" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        disabled={busy}
-        onClick={handleMagicLink}
-      >
-        Email me a sign-in link instead
       </Button>
     </form>
   );

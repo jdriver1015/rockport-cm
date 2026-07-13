@@ -66,19 +66,6 @@ export async function signUp(
   return { needsConfirmation: true };
 }
 
-const emailSchema = z.object({ email: z.string().trim().email("Enter a valid email") });
-
-export async function sendMagicLink(formData: FormData): Promise<{ ok: true }> {
-  const parsed = emailSchema.parse({ email: formData.get("email") });
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email: parsed.email,
-    options: { emailRedirectTo: `${siteUrl()}/auth/callback` },
-  });
-  if (error) throw new Error(error.message);
-  return { ok: true };
-}
-
 /** Invoked from a plain `<form action={signOut}>` so redirect() works directly. */
 export async function signOut() {
   const supabase = await createClient();
