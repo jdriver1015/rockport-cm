@@ -1,4 +1,3 @@
 {
-  "buildCommand": "next build",
-  "postBuildCommand": "npm run db:migrate"
+  "buildCommand": "npm run db:migrate && next build"
 }
