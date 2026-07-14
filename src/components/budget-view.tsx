@@ -121,7 +121,6 @@ function DetailTable({ categories }: { categories: BudgetCategory[] }) {
       <TableHeader>
         <TableRow>
           <TableHead>Code</TableHead>
-          <TableHead>Category</TableHead>
           <TableHead>Description</TableHead>
           <TableHead className="text-right">Budgeted</TableHead>
           <TableHead className="text-right">Committed</TableHead>
@@ -129,26 +128,35 @@ function DetailTable({ categories }: { categories: BudgetCategory[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {categories.flatMap((cat) =>
-          cat.lines.map((line) => (
+        {categories.flatMap((cat) => [
+          <TableRow key={`cat-${cat.code}`} className="bg-muted/60 hover:bg-muted/60">
+            <TableCell className="font-mono text-xs font-bold text-navy">{cat.code}</TableCell>
+            <TableCell className="font-bold text-navy">{cat.name}</TableCell>
+            <TableCell className="text-right font-bold tabular-nums text-navy">
+              {money(cat.budget)}
+            </TableCell>
+            <TableCell className="text-right font-bold tabular-nums text-navy">
+              {money(cat.committed)}
+            </TableCell>
+            <TableCell className="text-right font-bold tabular-nums text-navy">
+              {money(cat.completed)}
+            </TableCell>
+          </TableRow>,
+          ...cat.lines.map((line) => (
             <TableRow key={line.code}>
-              <TableCell className="font-mono text-xs">{line.code}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {cat.code} {cat.name}
-              </TableCell>
+              <TableCell className="pl-6 font-mono text-xs">{line.code}</TableCell>
               <TableCell>{line.name}</TableCell>
               <TableCell className="text-right tabular-nums">{money(line.budget)}</TableCell>
               <TableCell className="text-right tabular-nums">{money(line.committed)}</TableCell>
               <TableCell className="text-right tabular-nums">{money(line.completed)}</TableCell>
             </TableRow>
           )),
-        )}
+        ])}
       </TableBody>
       <TableFooter>
         <TableRow>
-          <TableCell colSpan={3} className="font-semibold text-navy">
-            Total
-          </TableCell>
+          <TableCell className="font-semibold text-navy">Total</TableCell>
+          <TableCell />
           <TableCell className="text-right font-semibold tabular-nums text-navy">
             {money(totals.budget)}
           </TableCell>
