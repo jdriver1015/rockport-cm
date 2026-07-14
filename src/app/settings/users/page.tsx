@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AddUserDialog, RestoreUserButton, UserRowActions } from "@/components/user-editors";
+import { AddUserDialog, RestoreUserButton, UserDetailDialog } from "@/components/user-editors";
 import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +84,8 @@ export default async function UsersPage({
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Added</TableHead>
-                  <TableHead className="text-right">{showArchived ? "" : "Role"}</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -95,13 +96,19 @@ export default async function UsersPage({
                     </TableCell>
                     <TableCell className="text-muted-foreground">{u.email}</TableCell>
                     <TableCell className="text-muted-foreground">{fmtDate(u.createdAt)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {ROLE_LABEL[u.role] ?? u.role}
+                    </TableCell>
                     <TableCell className="text-right">
                       {showArchived ? (
                         <RestoreUserButton id={u.id} />
                       ) : (
-                        <UserRowActions
+                        <UserDetailDialog
                           id={u.id}
+                          fullName={u.fullName}
+                          email={u.email}
                           role={u.role as "admin" | "cm" | "site" | "viewer"}
+                          createdAt={u.createdAt}
                         />
                       )}
                     </TableCell>

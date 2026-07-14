@@ -164,9 +164,38 @@ export async function createProfile(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function updateProfileRole(id: string, role: (typeof ROLES)[number]): Promise<ActionResult> {
-  if (!ROLES.includes(role)) return { ok: false, error: "Invalid role" };
-  await db().update(schema.profiles).set({ role }).where(eq(schema.profiles.id, id));
+const updateProfileSchema = z.object({
+  id: z.string().trim().min(1),
+  email: z.string().trim().email("Enter a valid email"),
+  fullName: z.string().trim().optional(),
+  role: z.enum(ROLES),
+});
+
+export async function updateProfile(formData: FormData): Promise<ActionResult> {
+  const parsed = updateProfileSchema.safeParse({
+    id: formData.get("id"),
+    email: formData.get("email"),
+    fullName: formData.get("fullName") || undefined,
+    role: formData.get("role"),
+  });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const normalizedEmail = parsed.data.email.toLowerCase();
+
+  const existing = await db().query.profiles.findFirst({
+    where: and(eq(schema.profiles.email, normalizedEmail), isNull(schema.profiles.archivedAt)),
+  });
+  if (existing && existing.id !== parsed.data.id) {
+    return { ok: false, error: `${normalizedEmail} is already a user` };
+  }
+
+  await db()
+    .update(schema.profiles)
+    .set({
+      email: normalizedEmail,
+      fullName: parsed.data.fullName ?? null,
+      role: parsed.data.role,
+    })
+    .where(eq(schema.profiles.id, parsed.data.id));
   revalidateUsers();
   return { ok: true };
 }
