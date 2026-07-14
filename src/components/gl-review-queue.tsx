@@ -1,10 +1,11 @@
 "use client";
 
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ComboboxSelect } from "@/components/ui/combobox";
 import {
   Table,
   TableBody,
@@ -56,6 +57,15 @@ export function GlReviewQueue({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  const costCodeOptions = useMemo(
+    () => costCodes.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),
+    [costCodes],
+  );
+  const projectOptions = useMemo(
+    () => projects.map((p) => ({ value: p.id, label: p.name })),
+    [projects],
+  );
 
   const readyCount = transactions.filter((t) => t.status === "staged" && t.costCodeId).length;
 
@@ -140,50 +150,42 @@ export function GlReviewQueue({
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{money(t.amount)}</TableCell>
                   <TableCell>
-                    <select
+                    <ComboboxSelect
+                      className="w-44"
                       disabled={pending || excluded}
-                      value={t.costCodeId ?? ""}
-                      onChange={(e) =>
+                      value={t.costCodeId}
+                      options={costCodeOptions}
+                      placeholder="— needs review —"
+                      emptyMessage="No matching cost codes"
+                      onValueChange={(costCodeId) =>
                         run(() =>
                           updateTransaction({
                             transactionId: t.id,
-                            costCodeId: e.target.value ? Number(e.target.value) : null,
+                            costCodeId,
                             projectId: t.projectId,
                           }),
                         )
                       }
-                      className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-                    >
-                      <option value="">— needs review —</option>
-                      {costCodes.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.code} {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </TableCell>
                   <TableCell>
-                    <select
+                    <ComboboxSelect
+                      className="w-44"
                       disabled={pending || excluded}
-                      value={t.projectId ?? ""}
-                      onChange={(e) =>
+                      value={t.projectId}
+                      options={projectOptions}
+                      placeholder="— unassigned —"
+                      emptyMessage="No matching projects"
+                      onValueChange={(projectId) =>
                         run(() =>
                           updateTransaction({
                             transactionId: t.id,
                             costCodeId: t.costCodeId,
-                            projectId: e.target.value ? Number(e.target.value) : null,
+                            projectId,
                           }),
                         )
                       }
-                      className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-                    >
-                      <option value="">— unassigned —</option>
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">

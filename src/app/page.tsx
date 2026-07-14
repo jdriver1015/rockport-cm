@@ -69,7 +69,7 @@ export default async function PortfolioPage() {
             const counts = countsBy.get(p.id);
             const pct = uw > 0 ? Math.round((jtd / uw) * 100) : 0;
             return (
-              <Link key={p.id} href={`/properties/${p.id}`} className="group">
+              <Link key={p.id} href={`/properties/${p.id}/budget`} className="group">
                 <Card className="h-full transition-shadow group-hover:shadow-md">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base text-navy">{p.name}</CardTitle>
