@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
+import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { fmtDate, money, num } from "@/lib/format";
 import { stageLabel } from "@/lib/stages";
@@ -69,6 +70,49 @@ export default async function ProjectDetailPage({
     createdAt: d.createdAt,
   }));
 
+  // Bids with their vendor/contact names, plus the active-vendor roster for
+  // the add-bid dropdowns.
+  const bidJoins = await db()
+    .select({
+      bid: schema.bids,
+      vendorName: schema.vendors.name,
+      contactName: schema.vendorContacts.name,
+    })
+    .from(schema.bids)
+    .leftJoin(schema.vendors, eq(schema.bids.vendorId, schema.vendors.id))
+    .leftJoin(schema.vendorContacts, eq(schema.bids.submittedByContactId, schema.vendorContacts.id))
+    .where(eq(schema.bids.projectId, projectId))
+    .orderBy(asc(schema.bids.bidNumber));
+
+  const bidRows: BidRow[] = bidJoins.map(({ bid, vendorName, contactName }) => ({
+    id: bid.id,
+    vendorName: vendorName ?? "—",
+    contactName,
+    amount: bid.amount,
+    receivedDate: bid.receivedDate,
+    approved: bid.approved,
+    note: bid.note,
+  }));
+
+  const activeVendors = await db()
+    .select()
+    .from(schema.vendors)
+    .where(eq(schema.vendors.active, true))
+    .orderBy(asc(schema.vendors.name));
+  const activeContacts = await db()
+    .select()
+    .from(schema.vendorContacts)
+    .where(eq(schema.vendorContacts.active, true))
+    .orderBy(asc(schema.vendorContacts.name));
+
+  const bidderVendors: BidderVendor[] = activeVendors.map((v) => ({
+    id: v.id,
+    name: v.name,
+    contacts: activeContacts
+      .filter((c) => c.vendorId === v.id)
+      .map((c) => ({ id: c.id, name: c.name })),
+  }));
+
   const tradeOut =
     project.previousRent && project.tradeOutRent
       ? num(project.tradeOutRent) - num(project.previousRent)
@@ -86,6 +130,13 @@ export default async function ProjectDetailPage({
   const overview = (
     <>
       <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
+
+      <BidsCard
+        propertyId={propertyId}
+        projectId={projectId}
+        bids={bidRows}
+        vendors={bidderVendors}
+      />
 
       <Card>
         <CardHeader>

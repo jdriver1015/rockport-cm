@@ -170,9 +170,33 @@ export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
   trade: text("trade"),
-  contactName: text("contact_name"),
-  contactEmail: text("contact_email"),
-  contactPhone: text("contact_phone"),
+  /** Deactivate instead of delete once referenced by bids/projects */
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * People at a vendor. Portal-ready: when a contact is provisioned a login to
+ * submit bids, a Supabase auth user is created and linked via profileId —
+ * email is the future login identity, so it's globally unique.
+ */
+export const vendorContacts = pgTable("vendor_contacts", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id")
+    .notNull()
+    .references(() => vendors.id),
+  name: text("name").notNull(),
+  /** e.g. "Estimator", "Owner" */
+  title: text("title"),
+  email: text("email").unique(),
+  phone: text("phone"),
+  /** Shown on the vendor roster row */
+  isPrimary: boolean("is_primary").notNull().default(false),
+  /** Set when portal access is provisioned; null until then */
+  profileId: uuid("profile_id").references(() => profiles.id),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -251,6 +275,8 @@ export const bids = pgTable("bids", {
     .notNull()
     .references(() => projects.id),
   vendorId: integer("vendor_id").references(() => vendors.id),
+  /** Contact who submitted the bid — set internally today, by portal logins later */
+  submittedByContactId: integer("submitted_by_contact_id").references(() => vendorContacts.id),
   bidNumber: integer("bid_number").notNull().default(1),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   receivedDate: date("received_date"),

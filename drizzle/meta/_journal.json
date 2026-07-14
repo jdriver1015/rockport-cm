@@ -22,6 +22,20 @@
       "when": 1783972898459,
       "tag": "0002_lowly_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783993557684,
+      "tag": "0003_nifty_dragon_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783993588763,
+      "tag": "0004_luxuriant_kulan_gath",
+      "breakpoints": true
     }
   ]
 }
