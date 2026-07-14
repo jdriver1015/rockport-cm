@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyNav } from "@/components/property-nav";
 import { BudgetView, type BudgetCategory } from "@/components/budget-view";
+import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
 import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,16 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     })
     .filter((c): c is BudgetCategory => c !== null);
 
+  const categoryOptions = categories.map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  const costCodeOptions = codes.map((c) => ({
+    id: c.id,
+    categoryId: c.categoryId,
+    code: c.code,
+    name: c.name,
+    isInterior: c.isInterior,
+  }));
+  const budgetedCostCodeIds = lines.map((l) => l.costCodeId);
+
   return (
     <div className="space-y-6">
       <div>
@@ -100,7 +111,16 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       <PropertyNav propertyId={property.id} />
 
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base text-navy">Budget</CardTitle>
+          <AddBudgetLineDialog
+            propertyId={property.id}
+            categories={categoryOptions}
+            costCodes={costCodeOptions}
+            budgetedCostCodeIds={budgetedCostCodeIds}
+          />
+        </CardHeader>
+        <CardContent>
           <BudgetView categories={budgetCategories} />
         </CardContent>
       </Card>
