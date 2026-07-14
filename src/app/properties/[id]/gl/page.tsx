@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,12 +16,17 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
   const propertyId = Number(id);
   if (!Number.isInteger(propertyId)) notFound();
 
-  const [property, batches, counts] = await Promise.all([
+  const [property, batches, counts, [archivedCount]] = await Promise.all([
     db().query.properties.findFirst({ where: eq(schema.properties.id, propertyId) }),
     db()
       .select()
       .from(schema.importBatches)
-      .where(eq(schema.importBatches.propertyId, propertyId))
+      .where(
+        and(
+          eq(schema.importBatches.propertyId, propertyId),
+          isNull(schema.importBatches.archivedAt),
+        ),
+      )
       .orderBy(desc(schema.importBatches.createdAt)),
     // Live per-batch counts (rows change status as they're reviewed/posted)
     db()
@@ -32,6 +38,15 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
       .from(schema.glTransactions)
       .where(eq(schema.glTransactions.propertyId, propertyId))
       .groupBy(schema.glTransactions.batchId, schema.glTransactions.status),
+    db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.importBatches)
+      .where(
+        and(
+          eq(schema.importBatches.propertyId, propertyId),
+          isNotNull(schema.importBatches.archivedAt),
+        ),
+      ),
   ]);
   if (!property) notFound();
 
@@ -54,7 +69,17 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base text-navy">Import history</CardTitle>
-          <AddGlDialog propertyId={property.id} />
+          <div className="flex items-center gap-3">
+            {archivedCount.count > 0 && (
+              <Link
+                href={`/properties/${propertyId}/gl/archived`}
+                className="text-sm text-gold-link hover:underline"
+              >
+                Archived ({archivedCount.count})
+              </Link>
+            )}
+            <AddGlDialog propertyId={property.id} />
+          </div>
         </CardHeader>
         <CardContent>
           {batches.length === 0 ? (

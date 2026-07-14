@@ -1,4 +1,5 @@
-import { asc } from "drizzle-orm";
+import Link from "next/link";
+import { asc, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -9,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AddUserDialog, UserRowActions } from "@/components/user-editors";
+import { AddUserDialog, RestoreUserButton, UserRowActions } from "@/components/user-editors";
 import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -21,29 +22,60 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Viewer",
 };
 
-export default async function UsersPage() {
-  const users = await db()
-    .select()
-    .from(schema.profiles)
-    .orderBy(asc(schema.profiles.email));
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const showArchived = sp.archived === "1";
+
+  const [users, archivedCount] = await Promise.all([
+    db()
+      .select()
+      .from(schema.profiles)
+      .where(showArchived ? isNotNull(schema.profiles.archivedAt) : isNull(schema.profiles.archivedAt))
+      .orderBy(asc(schema.profiles.email)),
+    db().$count(schema.profiles, isNotNull(schema.profiles.archivedAt)),
+  ]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {users.length} user{users.length === 1 ? "" : "s"} · roles control what each person can do
+          {users.length} {showArchived ? "archived " : ""}user{users.length === 1 ? "" : "s"}
+          {!showArchived && " · roles control what each person can do"}
         </p>
-        <AddUserDialog />
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <Link
+              href={showArchived ? "/settings/users" : "/settings/users?archived=1"}
+              className="text-sm text-gold-link hover:underline"
+            >
+              {showArchived ? "Back to active" : `Archived (${archivedCount})`}
+            </Link>
+          )}
+          <AddUserDialog />
+        </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-navy">Users &amp; roles</CardTitle>
+          <CardTitle className="text-base text-navy">
+            {showArchived ? "Archived users" : "Users & roles"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {users.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No users yet. Click <span className="font-medium">Add user</span> to build the roster.
+              {showArchived ? (
+                "No archived users."
+              ) : (
+                <>
+                  No users yet. Click <span className="font-medium">Add user</span> to build the
+                  roster.
+                </>
+              )}
             </p>
           ) : (
             <Table>
@@ -52,7 +84,7 @@ export default async function UsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Added</TableHead>
-                  <TableHead className="text-right">Role</TableHead>
+                  <TableHead className="text-right">{showArchived ? "" : "Role"}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -63,11 +95,15 @@ export default async function UsersPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{u.email}</TableCell>
                     <TableCell className="text-muted-foreground">{fmtDate(u.createdAt)}</TableCell>
-                    <TableCell>
-                      <UserRowActions
-                        id={u.id}
-                        role={u.role as "admin" | "cm" | "site" | "viewer"}
-                      />
+                    <TableCell className="text-right">
+                      {showArchived ? (
+                        <RestoreUserButton id={u.id} />
+                      ) : (
+                        <UserRowActions
+                          id={u.id}
+                          role={u.role as "admin" | "cm" | "site" | "viewer"}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -77,10 +113,11 @@ export default async function UsersPage() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-muted-foreground">
-        Role labels shown: {Object.values(ROLE_LABEL).join(", ")}. Sign-in isn&apos;t wired up yet —
-        these entries reserve each person&apos;s access for when it is.
-      </p>
+      {!showArchived && (
+        <p className="text-xs text-muted-foreground">
+          Role labels shown: {Object.values(ROLE_LABEL).join(", ")}.
+        </p>
+      )}
     </div>
   );
 }

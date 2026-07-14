@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
@@ -38,6 +38,7 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
     where: and(
       eq(schema.budgetLines.propertyId, propertyId),
       eq(schema.budgetLines.costCodeId, costCodeId),
+      isNull(schema.budgetLines.archivedAt),
     ),
   });
   if (existing) {
@@ -136,7 +137,32 @@ export async function deleteBudgetLine(input: {
     return { ok: false, error: "Budget line not found" };
   }
 
-  await db().delete(schema.budgetLines).where(eq(schema.budgetLines.id, input.id));
+  await db()
+    .update(schema.budgetLines)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.budgetLines.id, input.id));
+
+  revalidatePath(`/properties/${input.propertyId}/budget`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Reverses deleteBudgetLine — used by the delete toast's Undo action. */
+export async function restoreBudgetLine(input: {
+  id: number;
+  propertyId: number;
+}): Promise<ActionResult> {
+  const line = await db().query.budgetLines.findFirst({
+    where: eq(schema.budgetLines.id, input.id),
+  });
+  if (!line || line.propertyId !== input.propertyId) {
+    return { ok: false, error: "Budget line not found" };
+  }
+
+  await db()
+    .update(schema.budgetLines)
+    .set({ archivedAt: null })
+    .where(eq(schema.budgetLines.id, input.id));
 
   revalidatePath(`/properties/${input.propertyId}/budget`);
   revalidatePath("/");

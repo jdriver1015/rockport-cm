@@ -4,7 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { deleteBatch } from "@/lib/actions/gl";
+import { deleteBatch, restoreBatch } from "@/lib/actions/gl";
 
 export function DeleteBatchButton({
   propertyId,
@@ -36,7 +36,18 @@ export function DeleteBatchButton({
             toast.error(res.error);
             return;
           }
-          toast.success("Import deleted");
+          toast.success("Import deleted", {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                startTransition(async () => {
+                  const undo = await restoreBatch(batchId);
+                  if (!undo.ok) toast.error(undo.error);
+                  router.refresh();
+                });
+              },
+            },
+          });
           router.push(`/properties/${propertyId}/gl`);
         });
       }}

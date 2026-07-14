@@ -150,8 +150,27 @@ export async function deleteBid(input: {
     return { ok: false, error: "This bid was marked the winner — pick another winner first" };
   }
 
-  // Line items cascade on the FK, so deleting the bid clears them too.
-  await db().delete(schema.bids).where(eq(schema.bids.id, input.id));
+  await db()
+    .update(schema.bids)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.bids.id, input.id));
+  revalidateBids(input.propertyId, input.projectId);
+  return { ok: true };
+}
+
+/** Reverses deleteBid — used by the delete toast's Undo action. */
+export async function restoreBid(input: {
+  id: number;
+  propertyId: number;
+  projectId: number;
+}): Promise<ActionResult> {
+  const bid = await db().query.bids.findFirst({ where: eq(schema.bids.id, input.id) });
+  if (!bid || bid.projectId !== input.projectId) return { ok: false, error: "Bid not found" };
+
+  await db()
+    .update(schema.bids)
+    .set({ archivedAt: null })
+    .where(eq(schema.bids.id, input.id));
   revalidateBids(input.propertyId, input.projectId);
   return { ok: true };
 }

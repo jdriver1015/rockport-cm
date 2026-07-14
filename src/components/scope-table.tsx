@@ -24,7 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
+import {
+  createScopeItem,
+  deleteScopeItem,
+  restoreScopeItem,
+  updateScopeItem,
+} from "@/lib/actions/scope";
 
 export type ScopeRow = {
   id: number;
@@ -94,17 +99,6 @@ function ScopeItemRow({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) =>
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        toast.error(res.error ?? "Something went wrong");
-        return;
-      }
-      if (ok) toast.success(ok);
-      router.refresh();
-    });
-
   return (
     <TableRow className={pending ? "opacity-60" : undefined}>
       <TableCell className="font-medium text-navy">{row.item}</TableCell>
@@ -131,9 +125,25 @@ function ScopeItemRow({
             variant="ghost"
             disabled={pending}
             onClick={() => {
-              if (window.confirm(`Delete “${row.item}”?`)) {
-                run(() => deleteScopeItem({ id: row.id, propertyId, projectId }), "Deleted");
-              }
+              startTransition(async () => {
+                const res = await deleteScopeItem({ id: row.id, propertyId, projectId });
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
+                toast.success("Scope item deleted", {
+                  action: {
+                    label: "Undo",
+                    onClick: () => {
+                      startTransition(async () => {
+                        const undo = await restoreScopeItem({ id: row.id, propertyId, projectId });
+                        if (!undo.ok) toast.error(undo.error);
+                      });
+                    },
+                  },
+                });
+                router.refresh();
+              });
             }}
           >
             Delete

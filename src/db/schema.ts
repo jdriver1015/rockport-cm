@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -84,13 +85,20 @@ export const punchStatus = pgEnum("punch_status", ["open", "resolved"]);
 // Users (profile rows keyed to Supabase auth users)
 // ---------------------------------------------------------------------------
 
-export const profiles = pgTable("profiles", {
-  id: uuid("id").primaryKey(), // matches supabase auth.users.id
-  email: text("email").notNull().unique(),
-  fullName: text("full_name"),
-  role: userRole("role").notNull().default("viewer"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const profiles = pgTable(
+  "profiles",
+  {
+    id: uuid("id").primaryKey(), // matches supabase auth.users.id
+    email: text("email").notNull(),
+    fullName: text("full_name"),
+    role: userRole("role").notNull().default("viewer"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: removed from the active roster but kept for FK history (stage events, uploads). */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  // Partial — lets a departed user's email be reused by a fresh roster entry.
+  (t) => [uniqueIndex("profiles_email_uq").on(t.email).where(sql`${t.archivedAt} is null`)],
+);
 
 // ---------------------------------------------------------------------------
 // Chart of accounts (portfolio-level master data)
@@ -159,8 +167,16 @@ export const budgetLines = pgTable(
     plannedUnits: integer("planned_units"),
     note: text("note"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: hidden from the budget view but restorable. Null = active. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("budget_lines_property_code_uq").on(t.propertyId, t.costCodeId)],
+  (t) => [
+    // Partial — lets a re-added line for the same code reuse the slot once
+    // the old one is archived, instead of colliding with it.
+    uniqueIndex("budget_lines_property_code_uq")
+      .on(t.propertyId, t.costCodeId)
+      .where(sql`${t.archivedAt} is null`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -256,6 +272,8 @@ export const projects = pgTable("projects", {
   leaseDate: date("lease_date"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from active views but keeps its budget/bid/GL history. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [
   index("projects_property_idx").on(t.propertyId),
   index("projects_cost_code_idx").on(t.costCodeId),
@@ -285,6 +303,8 @@ export const bids = pgTable("bids", {
   receivedDate: date("received_date"),
   approved: boolean("approved").notNull().default(false),
   note: text("note"),
+  /** Soft-delete: hidden from the bids list but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("bids_project_idx").on(t.projectId)]);
 
 // A bid is built from line items: one per project scope item (the vendor's
@@ -332,6 +352,8 @@ export const scopeItems = pgTable("scope_items", {
   productLink: text("product_link"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the scope table but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("scope_items_project_idx").on(t.projectId)]);
 
 // ---------------------------------------------------------------------------
@@ -353,6 +375,8 @@ export const importBatches = pgTable("import_batches", {
   needsReviewCount: integer("needs_review_count").notNull().default(0),
   uploadedBy: uuid("uploaded_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the import history but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
 export const glTransactions = pgTable("gl_transactions", {
@@ -428,4 +452,7 @@ export const attachments = pgTable("attachments", {
   takenAt: timestamp("taken_at", { withTimezone: true }),
   uploadedBy: uuid("uploaded_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the document list but restorable; the storage
+   *  file is kept too (only a hard purge would ever remove it). Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("attachments_project_idx").on(t.projectId)]);

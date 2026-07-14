@@ -14,7 +14,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createProfile, deleteProfile, updateProfileRole } from "@/lib/actions/settings";
+import {
+  createProfile,
+  deleteProfile,
+  restoreProfile,
+  updateProfileRole,
+} from "@/lib/actions/settings";
 import type { ActionResult } from "@/lib/action-result";
 
 const ROLES = [
@@ -144,11 +149,56 @@ export function UserRowActions({
         variant="ghost"
         disabled={pending}
         onClick={() => {
-          if (window.confirm("Remove this user?")) run(() => deleteProfile(id), "User removed");
+          if (!window.confirm("Remove this user?")) return;
+          startTransition(async () => {
+            const result = await deleteProfile(id);
+            if (!result.ok) {
+              toast.error(result.error);
+              return;
+            }
+            toast.success("User removed", {
+              action: {
+                label: "Undo",
+                onClick: () => {
+                  startTransition(async () => {
+                    const undo = await restoreProfile(id);
+                    if (!undo.ok) toast.error(undo.error);
+                  });
+                },
+              },
+            });
+            router.refresh();
+          });
         }}
       >
         Remove
       </Button>
     </div>
+  );
+}
+
+export function RestoreUserButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      onClick={() => {
+        startTransition(async () => {
+          const result = await restoreProfile(id);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          toast.success("User restored");
+          router.refresh();
+        });
+      }}
+    >
+      {pending ? "Restoring…" : "Restore"}
+    </Button>
   );
 }

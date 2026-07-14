@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 /**
@@ -6,7 +6,9 @@ import { db, schema } from "@/db";
  * pre-provisioned a roster entry for this email (via Settings → Users) it's
  * adopted — keeping its role — and re-keyed to the real auth id, since the
  * roster entry was created with a placeholder id. Otherwise a fresh profile
- * is created with the default "viewer" role.
+ * is created with the default "viewer" role. An archived placeholder (removed
+ * from the roster) is never adopted — that would silently resurrect a removed
+ * user's role, so signing in just gets the default fresh profile instead.
  */
 export async function ensureProfile(userId: string, email: string, fullName?: string | null) {
   const byId = await db().query.profiles.findFirst({ where: eq(schema.profiles.id, userId) });
@@ -14,7 +16,7 @@ export async function ensureProfile(userId: string, email: string, fullName?: st
 
   const normalizedEmail = email.toLowerCase();
   const byEmail = await db().query.profiles.findFirst({
-    where: eq(schema.profiles.email, normalizedEmail),
+    where: and(eq(schema.profiles.email, normalizedEmail), isNull(schema.profiles.archivedAt)),
   });
 
   if (byEmail) {

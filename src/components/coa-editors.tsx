@@ -18,7 +18,6 @@ import { useTransition } from "react";
 import {
   createCategory,
   createCostCode,
-  deleteCostCode,
   setCategoryDivision,
   updateCostCode,
 } from "@/lib/actions/settings";
@@ -238,7 +237,7 @@ export function EditCostCodeDialog({
           <DialogTitle>
             <span className="font-mono">{code}</span>
           </DialogTitle>
-          <DialogDescription>Rename, change type, activate/deactivate, or delete.</DialogDescription>
+          <DialogDescription>Rename, change type, or activate/deactivate.</DialogDescription>
         </DialogHeader>
         <form
           className="space-y-4"
@@ -265,30 +264,15 @@ export function EditCostCodeDialog({
             Interior (4000-series)
           </label>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => run(() => updateCostCode({ id, active: !active }), active ? "Deactivated" : "Activated")}
-              >
-                {active ? "Deactivate" : "Activate"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={busy}
-                onClick={() => {
-                  if (window.confirm(`Delete ${code}? This can't be undone.`)) {
-                    run(() => deleteCostCode(id), "Cost code deleted");
-                  }
-                }}
-              >
-                Delete
-              </Button>
-            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => run(() => updateCostCode({ id, active: !active }), active ? "Deactivated" : "Activated")}
+            >
+              {active ? "Deactivate" : "Activate"}
+            </Button>
             <Button type="submit" disabled={busy}>
               Save
             </Button>

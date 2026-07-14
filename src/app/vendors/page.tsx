@@ -1,4 +1,4 @@
-import { asc, sql } from "drizzle-orm";
+import { and, asc, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VendorsView, type VendorRow } from "@/components/vendors-view";
@@ -13,11 +13,12 @@ export default async function VendorsPage() {
     db()
       .select({ vendorId: schema.bids.vendorId, count: sql<number>`count(*)::int` })
       .from(schema.bids)
+      .where(isNull(schema.bids.archivedAt))
       .groupBy(schema.bids.vendorId),
     db()
       .select({ vendorId: schema.projects.vendorId, count: sql<number>`count(*)::int` })
       .from(schema.projects)
-      .where(sql`${schema.projects.vendorId} is not null`)
+      .where(and(sql`${schema.projects.vendorId} is not null`, isNull(schema.projects.archivedAt)))
       .groupBy(schema.projects.vendorId),
   ]);
   const bidsByVendor = new Map(bidCounts.map((r) => [r.vendorId, r.count]));

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { fmtDate } from "@/lib/format";
-import { deleteBatch } from "@/lib/actions/gl";
+import { deleteBatch, restoreBatch } from "@/lib/actions/gl";
 
 export function GlBatchRow({
   propertyId,
@@ -45,7 +45,17 @@ export function GlBatchRow({
         toast.error(res.error);
         return;
       }
-      toast.success("Import deleted");
+      toast.success("Import deleted", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            startTransition(async () => {
+              const undo = await restoreBatch(batch.id);
+              if (!undo.ok) toast.error(undo.error);
+            });
+          },
+        },
+      });
       router.refresh();
     });
   }

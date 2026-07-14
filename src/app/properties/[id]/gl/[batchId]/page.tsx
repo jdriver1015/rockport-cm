@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DeleteBatchButton } from "@/components/delete-batch-button";
+import { RestoreBatchButton } from "@/components/restore-batch-button";
 import { GlReviewQueue } from "@/components/gl-review-queue";
 import { PropertyNav } from "@/components/property-nav";
 import { UnpostButton } from "@/components/unpost-button";
@@ -61,7 +62,9 @@ export default async function BatchDetailPage({
         costCodeId: schema.projects.costCodeId,
       })
       .from(schema.projects)
-      .where(eq(schema.projects.propertyId, propertyId))
+      .where(
+        and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)),
+      )
       .orderBy(asc(schema.projects.name)),
     db()
       .select()
@@ -128,7 +131,12 @@ export default async function BatchDetailPage({
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-navy">{batch.fileName}</h1>
           <Badge variant={batch.status === "posted" ? "positive" : "pending"}>{batch.status}</Badge>
-          <DeleteBatchButton propertyId={propertyId} batchId={batch.id} fileName={batch.fileName} />
+          {batch.archivedAt && <Badge variant="secondary">Archived</Badge>}
+          {batch.archivedAt ? (
+            <RestoreBatchButton batchId={batch.id} />
+          ) : (
+            <DeleteBatchButton propertyId={propertyId} batchId={batch.id} fileName={batch.fileName} />
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
           {batch.sourceSystem ? `${batch.sourceSystem} · ` : ""}

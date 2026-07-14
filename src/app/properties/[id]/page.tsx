@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { PropertyHeader } from "@/components/property-header";
@@ -27,42 +27,52 @@ export default async function PropertyBoardPage({
   });
   if (!property) notFound();
 
-  // Board rows — projects joined to their UW line item + category (division).
-  const rows = await db()
-    .select({
-      id: schema.projects.id,
-      name: schema.projects.name,
-      kind: schema.projects.kind,
-      stage: schema.projects.stage,
-      budgetAmount: schema.projects.budgetAmount,
-      committedCost: schema.projects.committedCost,
-      startDate: schema.projects.startDate,
-      completeDate: schema.projects.completeDate,
-      costCodeCode: schema.costCodes.code,
-      costCodeName: schema.costCodes.name,
-      categoryCode: schema.costCategories.code,
-      categoryName: schema.costCategories.name,
-      division: schema.costCategories.division,
-      unitNumber: schema.units.unitNumber,
-    })
-    .from(schema.projects)
-    .leftJoin(schema.costCodes, eq(schema.projects.costCodeId, schema.costCodes.id))
-    .leftJoin(schema.costCategories, eq(schema.costCodes.categoryId, schema.costCategories.id))
-    .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
-    .where(eq(schema.projects.propertyId, propertyId))
-    .orderBy(asc(schema.projects.createdAt));
-
-  // JTD actual per project (posted GL only)
-  const jtdRows = await db()
-    .select({
-      projectId: schema.glTransactions.projectId,
-      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-    })
-    .from(schema.glTransactions)
-    .where(
-      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
-    )
-    .groupBy(schema.glTransactions.projectId);
+  const [rows, [archivedCount], jtdRows] = await Promise.all([
+    // Board rows — projects joined to their UW line item + category (division).
+    db()
+      .select({
+        id: schema.projects.id,
+        name: schema.projects.name,
+        kind: schema.projects.kind,
+        stage: schema.projects.stage,
+        budgetAmount: schema.projects.budgetAmount,
+        committedCost: schema.projects.committedCost,
+        startDate: schema.projects.startDate,
+        completeDate: schema.projects.completeDate,
+        costCodeCode: schema.costCodes.code,
+        costCodeName: schema.costCodes.name,
+        categoryCode: schema.costCategories.code,
+        categoryName: schema.costCategories.name,
+        division: schema.costCategories.division,
+        unitNumber: schema.units.unitNumber,
+      })
+      .from(schema.projects)
+      .leftJoin(schema.costCodes, eq(schema.projects.costCodeId, schema.costCodes.id))
+      .leftJoin(schema.costCategories, eq(schema.costCodes.categoryId, schema.costCategories.id))
+      .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
+      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
+      .orderBy(asc(schema.projects.createdAt)),
+    db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.projects)
+      .where(
+        and(
+          eq(schema.projects.propertyId, propertyId),
+          sql`${schema.projects.archivedAt} is not null`,
+        ),
+      ),
+    // JTD actual per project (posted GL only)
+    db()
+      .select({
+        projectId: schema.glTransactions.projectId,
+        total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+      })
+      .from(schema.glTransactions)
+      .where(
+        sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
+      )
+      .groupBy(schema.glTransactions.projectId),
+  ]);
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
 
   const projects: BoardProject[] = rows.map((r) => {
@@ -98,9 +108,22 @@ export default async function PropertyBoardPage({
       <PropertyHeader
         property={property}
         action={
-          <Button render={<Link href={`/properties/${propertyId}/projects/new`} />} nativeButton={false}>
-            New project
-          </Button>
+          <div className="flex items-center gap-3">
+            {archivedCount.count > 0 && (
+              <Link
+                href={`/properties/${propertyId}/projects/archived`}
+                className="text-sm text-gold-link hover:underline"
+              >
+                Archived ({archivedCount.count})
+              </Link>
+            )}
+            <Button
+              render={<Link href={`/properties/${propertyId}/projects/new`} />}
+              nativeButton={false}
+            >
+              New project
+            </Button>
+          </div>
         }
       />
 

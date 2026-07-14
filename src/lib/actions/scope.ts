@@ -94,7 +94,24 @@ export async function deleteScopeItem(input: {
   propertyId: number;
   projectId: number;
 }): Promise<ActionResult> {
-  await db().delete(schema.scopeItems).where(eq(schema.scopeItems.id, input.id));
+  await db()
+    .update(schema.scopeItems)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.scopeItems.id, input.id));
+  revalidateProject(input.propertyId, input.projectId);
+  return { ok: true };
+}
+
+/** Reverses deleteScopeItem — used by the delete toast's Undo action. */
+export async function restoreScopeItem(input: {
+  id: number;
+  propertyId: number;
+  projectId: number;
+}): Promise<ActionResult> {
+  await db()
+    .update(schema.scopeItems)
+    .set({ archivedAt: null })
+    .where(eq(schema.scopeItems.id, input.id));
   revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }

@@ -202,9 +202,10 @@ export async function postAllReady(propertyId: number): Promise<ActionResult<{ c
 }
 
 /**
- * Delete an import batch entirely, including its staged/needs-review/excluded
- * rows. Refuses if any row has posted — those are actuals already reflected
- * in JTD/budget figures, so un-post them first rather than deleting under them.
+ * Soft-delete an import batch. Refuses if any row has posted — those are
+ * actuals already reflected in JTD/budget figures, so un-post them first
+ * rather than archiving under them. The batch and its staged/needs-review/
+ * excluded rows are kept and restorable via restoreBatch.
  */
 export async function deleteBatch(batchId: number): Promise<ActionResult> {
   const batch = await db().query.importBatches.findFirst({
@@ -225,8 +226,25 @@ export async function deleteBatch(batchId: number): Promise<ActionResult> {
     };
   }
 
-  await db().delete(schema.glTransactions).where(eq(schema.glTransactions.batchId, batchId));
-  await db().delete(schema.importBatches).where(eq(schema.importBatches.id, batchId));
+  await db()
+    .update(schema.importBatches)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.importBatches.id, batchId));
+
+  await revalidateProperty(batch.propertyId);
+  return { ok: true };
+}
+
+export async function restoreBatch(batchId: number): Promise<ActionResult> {
+  const batch = await db().query.importBatches.findFirst({
+    where: eq(schema.importBatches.id, batchId),
+  });
+  if (!batch) return { ok: false, error: "Import not found" };
+
+  await db()
+    .update(schema.importBatches)
+    .set({ archivedAt: null })
+    .where(eq(schema.importBatches.id, batchId));
 
   await revalidateProperty(batch.propertyId);
   return { ok: true };

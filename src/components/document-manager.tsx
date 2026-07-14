@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
-import { deleteDocument } from "@/lib/actions/documents";
+import { deleteDocument, restoreDocument } from "@/lib/actions/documents";
 
 export type DocumentRow = {
   id: number;
@@ -160,14 +160,23 @@ export function DocumentManager({
   }
 
   function remove(doc: DocumentRow) {
-    if (!window.confirm(`Delete “${doc.name}”?`)) return;
     startTransition(async () => {
       const res = await deleteDocument({ id: doc.id, propertyId, projectId });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success("Deleted");
+      toast.success("Deleted", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            startTransition(async () => {
+              const undo = await restoreDocument({ id: doc.id, propertyId, projectId });
+              if (!undo.ok) toast.error(undo.error);
+            });
+          },
+        },
+      });
       router.refresh();
     });
   }

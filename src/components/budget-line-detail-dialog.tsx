@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
 import { stageLabel } from "@/lib/stages";
-import { updateBudgetLine, deleteBudgetLine } from "@/lib/actions/budget";
+import { updateBudgetLine, deleteBudgetLine, restoreBudgetLine } from "@/lib/actions/budget";
 import type { BudgetLineRow } from "@/components/budget-view";
 
 export function BudgetLineDetailDialog({
@@ -78,7 +78,6 @@ function DialogBody({
   }
 
   function handleDelete() {
-    if (!window.confirm(`Delete the budget line for ${line.code} ${line.name}?`)) return;
     setBusy(true);
     (async () => {
       try {
@@ -87,7 +86,18 @@ function DialogBody({
           toast.error(res.error);
           return;
         }
-        toast.success("Budget line deleted");
+        toast.success("Budget line deleted", {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void (async () => {
+                const undo = await restoreBudgetLine({ id: line.id, propertyId });
+                if (!undo.ok) toast.error(undo.error);
+                router.refresh();
+              })();
+            },
+          },
+        });
         onClose();
         router.refresh();
       } finally {

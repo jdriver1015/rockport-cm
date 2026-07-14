@@ -202,3 +202,50 @@ export async function setProjectStage(formData: FormData): Promise<ActionResult>
   revalidatePath("/");
   return { ok: true };
 }
+
+const projectIdSchema = z.object({ projectId: z.coerce.number().int().positive() });
+
+/**
+ * Soft-delete — hides the project from active views but keeps its scope,
+ * bids, and GL history intact so nothing downstream (budget rollups, JTD)
+ * loses data. Reversible via restoreProject.
+ */
+export async function archiveProject(formData: FormData): Promise<ActionResult> {
+  const parsed = projectIdSchema.safeParse({ projectId: formData.get("projectId") });
+  if (!parsed.success) return { ok: false, error: "Invalid project" };
+
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, parsed.data.projectId),
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+
+  await db()
+    .update(schema.projects)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.projects.id, parsed.data.projectId));
+
+  revalidatePath(`/properties/${project.propertyId}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/archived`);
+  return { ok: true };
+}
+
+export async function restoreProject(formData: FormData): Promise<ActionResult> {
+  const parsed = projectIdSchema.safeParse({ projectId: formData.get("projectId") });
+  if (!parsed.success) return { ok: false, error: "Invalid project" };
+
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, parsed.data.projectId),
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+
+  await db()
+    .update(schema.projects)
+    .set({ archivedAt: null })
+    .where(eq(schema.projects.id, parsed.data.projectId));
+
+  revalidatePath(`/properties/${project.propertyId}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/archived`);
+  return { ok: true };
+}

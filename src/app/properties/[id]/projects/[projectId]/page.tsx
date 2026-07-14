@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
+import { RestoreProjectButton } from "@/components/restore-project-button";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
@@ -49,7 +51,9 @@ export default async function ProjectDetailPage({
     db()
       .select()
       .from(schema.scopeItems)
-      .where(eq(schema.scopeItems.projectId, projectId))
+      .where(
+        and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)),
+      )
       .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id)),
     db()
       .select()
@@ -61,7 +65,11 @@ export default async function ProjectDetailPage({
       .select()
       .from(schema.attachments)
       .where(
-        and(eq(schema.attachments.projectId, projectId), eq(schema.attachments.kind, "document")),
+        and(
+          eq(schema.attachments.projectId, projectId),
+          eq(schema.attachments.kind, "document"),
+          isNull(schema.attachments.archivedAt),
+        ),
       )
       .orderBy(desc(schema.attachments.createdAt)),
     // Bids with their vendor/contact names.
@@ -77,7 +85,7 @@ export default async function ProjectDetailPage({
         schema.vendorContacts,
         eq(schema.bids.submittedByContactId, schema.vendorContacts.id),
       )
-      .where(eq(schema.bids.projectId, projectId))
+      .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt)))
       .orderBy(asc(schema.bids.bidNumber)),
     // Active-vendor roster for the add-bid dropdowns.
     db()
@@ -240,20 +248,34 @@ export default async function ProjectDetailPage({
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
             <StatusBadgeDropdown projectId={project.id} stage={project.stage} />
+            {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
           </div>
-          <ProjectEditDialog
-            project={{
-              id: project.id,
-              name: project.name,
-              kind: project.kind,
-              startDate: project.startDate,
-              completeDate: project.completeDate,
-              notes: project.notes,
-              previousRent: project.previousRent,
-              tradeOutRent: project.tradeOutRent,
-              leaseDate: project.leaseDate,
-            }}
-          />
+          <div className="flex items-center gap-2">
+            {project.archivedAt ? (
+              <RestoreProjectButton projectId={project.id} />
+            ) : (
+              <>
+                <ProjectEditDialog
+                  project={{
+                    id: project.id,
+                    name: project.name,
+                    kind: project.kind,
+                    startDate: project.startDate,
+                    completeDate: project.completeDate,
+                    notes: project.notes,
+                    previousRent: project.previousRent,
+                    tradeOutRent: project.tradeOutRent,
+                    leaseDate: project.leaseDate,
+                  }}
+                />
+                <ArchiveProjectDialog
+                  propertyId={propertyId}
+                  projectId={project.id}
+                  projectName={project.name}
+                />
+              </>
+            )}
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">
           {costCode ? (

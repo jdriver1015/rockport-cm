@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { sql } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ export default async function PortfolioPage() {
         total: sql<string>`coalesce(sum(${schema.budgetLines.uwAmount}), 0)`,
       })
       .from(schema.budgetLines)
+      .where(isNull(schema.budgetLines.archivedAt))
       .groupBy(schema.budgetLines.propertyId),
     db()
       .select({
@@ -34,6 +35,7 @@ export default async function PortfolioPage() {
         done: sql<number>`count(*) filter (where ${schema.projects.stage} in ('complete','invoiced','closed'))::int`,
       })
       .from(schema.projects)
+      .where(isNull(schema.projects.archivedAt))
       .groupBy(schema.projects.propertyId),
   ]);
 

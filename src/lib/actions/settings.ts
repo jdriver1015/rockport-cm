@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
@@ -121,35 +121,6 @@ export async function updateCostCode(input: {
   return { ok: true };
 }
 
-export async function deleteCostCode(id: number): Promise<ActionResult> {
-  // Guard against deleting a code that's referenced anywhere
-  const countWhere = async (
-    table: typeof schema.budgetLines | typeof schema.glTransactions | typeof schema.projects | typeof schema.mappingRules,
-    col: unknown,
-  ) => {
-    const [{ count }] = await db()
-      .select({ count: sql<number>`count(*)::int` })
-      .from(table)
-      .where(eq(col as never, id));
-    return count;
-  };
-
-  const refs: [string, number][] = [
-    ["budget lines", await countWhere(schema.budgetLines, schema.budgetLines.costCodeId)],
-    ["GL transactions", await countWhere(schema.glTransactions, schema.glTransactions.costCodeId)],
-    ["projects", await countWhere(schema.projects, schema.projects.costCodeId)],
-    ["mapping rules", await countWhere(schema.mappingRules, schema.mappingRules.costCodeId)],
-  ];
-  const inUse = refs.find(([, n]) => n > 0);
-  if (inUse) {
-    return { ok: false, error: `In use by ${inUse[1]} ${inUse[0]} — deactivate it instead of deleting` };
-  }
-
-  await db().delete(schema.costCodes).where(eq(schema.costCodes.id, id));
-  revalidateCoa();
-  return { ok: true };
-}
-
 // ---------------------------------------------------------------------------
 // Users (profiles). Auth isn't wired yet, so these are roster entries; the id
 // will line up with a Supabase auth user once sign-in is added.
@@ -176,7 +147,10 @@ export async function createProfile(formData: FormData): Promise<ActionResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const existing = await db().query.profiles.findFirst({
-    where: eq(schema.profiles.email, parsed.data.email.toLowerCase()),
+    where: and(
+      eq(schema.profiles.email, parsed.data.email.toLowerCase()),
+      isNull(schema.profiles.archivedAt),
+    ),
   });
   if (existing) return { ok: false, error: `${parsed.data.email} is already a user` };
 
@@ -197,8 +171,20 @@ export async function updateProfileRole(id: string, role: (typeof ROLES)[number]
   return { ok: true };
 }
 
+/**
+ * Soft-delete — removes this person from the active roster/role list but
+ * keeps the profile row so it isn't orphaned by FKs (stage events, uploads).
+ * Note: this does not revoke their Supabase Auth sign-in; it only clears
+ * their app role. Restorable via restoreProfile.
+ */
 export async function deleteProfile(id: string): Promise<ActionResult> {
-  await db().delete(schema.profiles).where(eq(schema.profiles.id, id));
+  await db().update(schema.profiles).set({ archivedAt: new Date() }).where(eq(schema.profiles.id, id));
+  revalidateUsers();
+  return { ok: true };
+}
+
+export async function restoreProfile(id: string): Promise<ActionResult> {
+  await db().update(schema.profiles).set({ archivedAt: null }).where(eq(schema.profiles.id, id));
   revalidateUsers();
   return { ok: true };
 }

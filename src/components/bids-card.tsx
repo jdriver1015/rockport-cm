@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/table";
 import { moneyExact, num } from "@/lib/format";
 import type { ActionResult } from "@/lib/action-result";
-import { addBid, deleteBid, editBid, setBidWinner } from "@/lib/actions/bids";
+import { addBid, deleteBid, editBid, restoreBid, setBidWinner } from "@/lib/actions/bids";
 
 export type BidLineRow = {
   id: number;
@@ -182,12 +182,35 @@ export function BidsCard({
                             variant="ghost"
                             disabled={pending}
                             onClick={() => {
-                              if (window.confirm(`Delete the ${b.vendorName} bid?`)) {
-                                run(
-                                  () => deleteBid({ id: b.id, propertyId, projectId }),
-                                  "Bid deleted",
-                                );
-                              }
+                              setPending(true);
+                              void (async () => {
+                                try {
+                                  const res = await deleteBid({ id: b.id, propertyId, projectId });
+                                  if (!res.ok) {
+                                    toast.error(res.error);
+                                    return;
+                                  }
+                                  toast.success("Bid deleted", {
+                                    action: {
+                                      label: "Undo",
+                                      onClick: () => {
+                                        void (async () => {
+                                          const undo = await restoreBid({
+                                            id: b.id,
+                                            propertyId,
+                                            projectId,
+                                          });
+                                          if (!undo.ok) toast.error(undo.error);
+                                          router.refresh();
+                                        })();
+                                      },
+                                    },
+                                  });
+                                  router.refresh();
+                                } finally {
+                                  setPending(false);
+                                }
+                              })();
                             }}
                           >
                             Delete

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
@@ -30,7 +30,12 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .from(schema.costCodes)
         .where(eq(schema.costCodes.active, true))
         .orderBy(asc(schema.costCodes.code)),
-      db().select().from(schema.budgetLines).where(eq(schema.budgetLines.propertyId, propertyId)),
+      db()
+        .select()
+        .from(schema.budgetLines)
+        .where(
+          and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt)),
+        ),
       // JTD committed per cost code — contracted amounts on projects coded to the line.
       db()
         .select({

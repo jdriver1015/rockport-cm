@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Mulish, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
 import { createClient } from "@/lib/supabase/server";
 import { db, schema } from "@/db";
@@ -49,8 +49,13 @@ export default async function RootLayout({
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Archived profiles fall back to plain email display — removed from the
+  // roster means their role no longer applies, even if their Supabase Auth
+  // session is still valid.
   const profile = user
-    ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
+    ? await db().query.profiles.findFirst({
+        where: and(eq(schema.profiles.id, user.id), isNull(schema.profiles.archivedAt)),
+      })
     : null;
 
   return (
