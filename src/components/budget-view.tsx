@@ -12,13 +12,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { money } from "@/lib/format";
+import { BudgetLineDetailDialog } from "@/components/budget-line-detail-dialog";
+
+export type AttachedProject = {
+  id: number;
+  name: string;
+  stage: string;
+  budget: number;
+  committed: number;
+  completed: number;
+};
 
 export type BudgetLineRow = {
+  id: number;
+  costCodeId: number;
   code: string;
   name: string;
   budget: number;
   committed: number;
   completed: number;
+  perUnitAmount: number | null;
+  plannedUnits: number | null;
+  isInterior: boolean;
+  note: string | null;
+  projects: AttachedProject[];
 };
 
 export type BudgetCategory = {
@@ -30,8 +47,15 @@ export type BudgetCategory = {
   lines: BudgetLineRow[];
 };
 
-export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
+export function BudgetView({
+  propertyId,
+  categories,
+}: {
+  propertyId: number;
+  categories: BudgetCategory[];
+}) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<BudgetLineRow | null>(null);
 
   function toggle(code: string) {
     setExpanded((prev) => {
@@ -49,6 +73,7 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
   }
 
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -88,7 +113,11 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
           if (isOpen) {
             rows.push(
               ...cat.lines.map((line) => (
-                <TableRow key={line.code}>
+                <TableRow
+                  key={line.code}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() => setSelected(line)}
+                >
                   <TableCell />
                   <TableCell className="pl-8 font-mono text-xs text-muted-foreground">
                     {line.code}
@@ -125,6 +154,12 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
         </TableRow>
       </TableFooter>
     </Table>
+    <BudgetLineDetailDialog
+      propertyId={propertyId}
+      line={selected}
+      onClose={() => setSelected(null)}
+    />
+    </>
   );
 }
 

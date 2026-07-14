@@ -68,3 +68,77 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
   revalidatePath("/");
   return { ok: true };
 }
+
+const updateBudgetLineSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  propertyId: z.coerce.number().int().positive(),
+  uwAmount: z.coerce.number().nonnegative().optional(),
+  perUnitAmount: z.coerce.number().nonnegative().optional(),
+  plannedUnits: z.coerce.number().int().nonnegative().optional(),
+  note: z.string().trim().optional(),
+});
+
+export async function updateBudgetLine(input: {
+  id: number;
+  propertyId: number;
+  uwAmount?: string | number;
+  perUnitAmount?: string | number;
+  plannedUnits?: string | number;
+  note?: string;
+}): Promise<ActionResult> {
+  const parsed = updateBudgetLineSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const { id, propertyId, perUnitAmount, plannedUnits, note } = parsed.data;
+
+  const line = await db().query.budgetLines.findFirst({
+    where: eq(schema.budgetLines.id, id),
+  });
+  if (!line || line.propertyId !== propertyId) {
+    return { ok: false, error: "Budget line not found" };
+  }
+
+  // Interior lines budget per unit; others take a direct amount.
+  const uwAmount =
+    perUnitAmount !== undefined && plannedUnits !== undefined
+      ? perUnitAmount * plannedUnits
+      : (parsed.data.uwAmount ?? 0);
+
+  if (uwAmount <= 0) {
+    return { ok: false, error: "Enter a budgeted amount" };
+  }
+
+  await db()
+    .update(schema.budgetLines)
+    .set({
+      uwAmount: uwAmount.toFixed(2),
+      perUnitAmount: perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : null,
+      plannedUnits: plannedUnits ?? null,
+      note: note ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.budgetLines.id, id));
+
+  revalidatePath(`/properties/${propertyId}/budget`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deleteBudgetLine(input: {
+  id: number;
+  propertyId: number;
+}): Promise<ActionResult> {
+  const line = await db().query.budgetLines.findFirst({
+    where: eq(schema.budgetLines.id, input.id),
+  });
+  if (!line || line.propertyId !== input.propertyId) {
+    return { ok: false, error: "Budget line not found" };
+  }
+
+  await db().delete(schema.budgetLines).where(eq(schema.budgetLines.id, input.id));
+
+  revalidatePath(`/properties/${input.propertyId}/budget`);
+  revalidatePath("/");
+  return { ok: true };
+}

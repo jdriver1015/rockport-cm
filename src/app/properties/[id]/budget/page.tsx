@@ -61,6 +61,48 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     .groupBy(schema.glTransactions.costCodeId);
   const completedByCode = new Map(completedRows.map((r) => [r.costCodeId, num(r.total)]));
 
+  // Projects coded to each line (common projects link to a cost code; interior
+  // unit projects have no single cost code, so those lines show none).
+  const projectRows = await db()
+    .select({
+      id: schema.projects.id,
+      name: schema.projects.name,
+      stage: schema.projects.stage,
+      costCodeId: schema.projects.costCodeId,
+      budgetAmount: schema.projects.budgetAmount,
+      committedCost: schema.projects.committedCost,
+    })
+    .from(schema.projects)
+    .where(eq(schema.projects.propertyId, propertyId))
+    .orderBy(asc(schema.projects.name));
+
+  const jtdRows = await db()
+    .select({
+      projectId: schema.glTransactions.projectId,
+      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+    })
+    .from(schema.glTransactions)
+    .where(
+      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
+    )
+    .groupBy(schema.glTransactions.projectId);
+  const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+
+  const projectsByCode = new Map<number, BudgetCategory["lines"][number]["projects"]>();
+  for (const p of projectRows) {
+    if (p.costCodeId == null) continue;
+    const list = projectsByCode.get(p.costCodeId) ?? [];
+    list.push({
+      id: p.id,
+      name: p.name,
+      stage: p.stage,
+      budget: num(p.budgetAmount),
+      committed: num(p.committedCost),
+      completed: jtdByProject.get(p.id) ?? 0,
+    });
+    projectsByCode.set(p.costCodeId, list);
+  }
+
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
 
   // Build the category → lines tree the view renders. Only categories with at
@@ -74,11 +116,18 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       if (catLines.length === 0) return null;
 
       const lineRows = catLines.map(({ code, line }) => ({
+        id: line!.id,
+        costCodeId: code.id,
         code: code.code,
         name: code.name,
         budget: num(line!.uwAmount),
         committed: committedByCode.get(code.id) ?? 0,
         completed: completedByCode.get(code.id) ?? 0,
+        perUnitAmount: line!.perUnitAmount ? num(line!.perUnitAmount) : null,
+        plannedUnits: line!.plannedUnits ?? null,
+        isInterior: code.isInterior,
+        note: line!.note,
+        projects: projectsByCode.get(code.id) ?? [],
       }));
 
       return {
@@ -121,7 +170,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
           />
         </CardHeader>
         <CardContent>
-          <BudgetView categories={budgetCategories} />
+          <BudgetView propertyId={property.id} categories={budgetCategories} />
         </CardContent>
       </Card>
     </div>
