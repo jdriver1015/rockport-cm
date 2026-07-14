@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createVendor } from "@/lib/actions/vendors";
 
-export function AddVendorDialog({ propertyId }: { propertyId: number }) {
+export function AddVendorDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,7 +50,6 @@ export function AddVendorDialog({ propertyId }: { propertyId: number }) {
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <input type="hidden" name="propertyId" value={propertyId} />
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="vendor-name">Name</Label>

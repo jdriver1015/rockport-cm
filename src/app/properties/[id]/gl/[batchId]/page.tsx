@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeleteBatchButton } from "@/components/delete-batch-button";
 import { GlReviewQueue } from "@/components/gl-review-queue";
 import { PropertyNav } from "@/components/property-nav";
 import { UnpostButton } from "@/components/unpost-button";
@@ -118,6 +119,7 @@ export default async function BatchDetailPage({
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-navy">{batch.fileName}</h1>
           <Badge variant={batch.status === "posted" ? "positive" : "pending"}>{batch.status}</Badge>
+          <DeleteBatchButton propertyId={propertyId} batchId={batch.id} fileName={batch.fileName} />
         </div>
         <p className="text-sm text-muted-foreground">
           {batch.sourceSystem ? `${batch.sourceSystem} · ` : ""}

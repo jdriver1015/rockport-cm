@@ -53,13 +53,7 @@ export type VendorRow = {
   wonCount: number;
 };
 
-export function VendorsView({
-  propertyId,
-  vendors,
-}: {
-  propertyId: number;
-  vendors: VendorRow[];
-}) {
+export function VendorsView({ vendors }: { vendors: VendorRow[] }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   // Derive from props so a router.refresh() keeps the open dialog current.
   const selected = vendors.find((v) => v.id === selectedId) ?? null;
@@ -123,12 +117,7 @@ export function VendorsView({
       <Dialog open={selected !== null} onOpenChange={(next) => !next && setSelectedId(null)}>
         <DialogContent className="sm:max-w-lg">
           {selected && (
-            <VendorDetail
-              key={selected.id}
-              propertyId={propertyId}
-              vendor={selected}
-              onClose={() => setSelectedId(null)}
-            />
+            <VendorDetail key={selected.id} vendor={selected} onClose={() => setSelectedId(null)} />
           )}
         </DialogContent>
       </Dialog>
@@ -137,11 +126,9 @@ export function VendorsView({
 }
 
 function VendorDetail({
-  propertyId,
   vendor,
   onClose,
 }: {
-  propertyId: number;
   vendor: VendorRow;
   onClose: () => void;
 }) {
@@ -172,7 +159,7 @@ function VendorDetail({
       <DialogHeader>
         <DialogTitle>{vendor.name}</DialogTitle>
         <DialogDescription>
-          {[vendor.trade, `${vendor.bidCount} bids · ${vendor.wonCount} won at this property`]
+          {[vendor.trade, `${vendor.bidCount} bids · ${vendor.wonCount} won`]
             .filter(Boolean)
             .join(" · ")}
         </DialogDescription>
@@ -188,7 +175,6 @@ function VendorDetail({
               () =>
                 updateVendor({
                   id: vendor.id,
-                  propertyId,
                   name: String(fd.get("name") ?? ""),
                   trade: String(fd.get("trade") ?? ""),
                   notes: String(fd.get("notes") ?? ""),
@@ -249,12 +235,11 @@ function VendorDetail({
                     contactForm === c.id ? (
                       <li key={c.id} className="p-3">
                         <ContactForm
-                          propertyId={propertyId}
                           vendorId={vendor.id}
                           existing={c}
                           busy={busy}
                           onSubmit={(fields) => {
-                            run(() => updateContact({ id: c.id, propertyId, ...fields }), "Contact updated");
+                            run(() => updateContact({ id: c.id, ...fields }), "Contact updated");
                             setContactForm("closed");
                           }}
                           onCancel={() => setContactForm("closed")}
@@ -279,7 +264,7 @@ function VendorDetail({
                             size="sm"
                             variant="ghost"
                             disabled={busy}
-                            onClick={() => run(() => setContactPrimary({ id: c.id, propertyId }))}
+                            onClick={() => run(() => setContactPrimary({ id: c.id }))}
                           >
                             Make primary
                           </Button>
@@ -297,7 +282,7 @@ function VendorDetail({
                           variant="ghost"
                           disabled={busy}
                           onClick={() =>
-                            run(() => setContactActive({ id: c.id, propertyId, active: false }), "Contact removed")
+                            run(() => setContactActive({ id: c.id, active: false }), "Contact removed")
                           }
                         >
                           Remove
@@ -308,7 +293,6 @@ function VendorDetail({
                 {contactForm === "add" && (
                   <li className="p-3">
                     <ContactForm
-                      propertyId={propertyId}
                       vendorId={vendor.id}
                       busy={busy}
                       onSubmit={(fields, fd) => {
@@ -329,7 +313,7 @@ function VendorDetail({
               disabled={busy}
               onClick={() => {
                 run(
-                  () => setVendorActive({ id: vendor.id, propertyId, active: !vendor.active }),
+                  () => setVendorActive({ id: vendor.id, active: !vendor.active }),
                   vendor.active ? "Vendor deactivated" : "Vendor reactivated",
                 );
                 onClose();
@@ -348,14 +332,12 @@ function VendorDetail({
 }
 
 function ContactForm({
-  propertyId,
   vendorId,
   existing,
   busy,
   onSubmit,
   onCancel,
 }: {
-  propertyId: number;
   vendorId: number;
   existing?: VendorContactRow;
   busy: boolean;
@@ -382,7 +364,6 @@ function ContactForm({
         );
       }}
     >
-      <input type="hidden" name="propertyId" value={propertyId} />
       <input type="hidden" name="vendorId" value={vendorId} />
       <div className="grid grid-cols-2 gap-3">
         <Input name="name" required placeholder="Name" defaultValue={existing?.name} />

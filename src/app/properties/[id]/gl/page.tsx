@@ -1,18 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AddGlDialog } from "@/components/add-gl-dialog";
+import { GlBatchRow } from "@/components/gl-batch-row";
 import { PropertyNav } from "@/components/property-nav";
 import { fmtDate } from "@/lib/format";
 
@@ -90,46 +82,20 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
                     <TableHead className="text-right">In queue</TableHead>
                     <TableHead className="text-right">Posted</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {batches.map((b) => {
                     const c = byBatch.get(b.id) ?? { queue: 0, posted: 0, excluded: 0 };
                     return (
-                      <TableRow key={b.id} className="cursor-pointer">
-                        <TableCell>
-                          <Link
-                            href={`/properties/${property.id}/gl/${b.id}`}
-                            className="font-medium text-gold-link hover:underline"
-                          >
-                            {b.fileName}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {b.sourceSystem ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {fmtDate(b.createdAt)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{b.rowCount}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {c.queue > 0 ? (
-                            <span className="font-medium text-[#a3641f]">{c.queue}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{c.posted}</TableCell>
-                        <TableCell>
-                          <Badge variant={b.status === "posted" ? "positive" : "pending"}>
-                            {b.status === "posted"
-                              ? "posted"
-                              : c.queue > 0
-                                ? `${c.queue} to review`
-                                : "ready"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
+                      <GlBatchRow
+                        key={b.id}
+                        propertyId={property.id}
+                        batch={b}
+                        queueCount={c.queue}
+                        postedCount={c.posted}
+                      />
                     );
                   })}
                 </TableBody>

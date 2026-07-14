@@ -6,15 +6,12 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 
-// Vendors are portfolio-wide; revalidate every property's vendors tab via the
-// dynamic segment plus the pages that render vendor names.
-function revalidateVendors(propertyId: number) {
-  revalidatePath(`/properties/${propertyId}/vendors`);
-  revalidatePath(`/properties/${propertyId}`);
+// Vendors are portfolio-wide, shown on the top-level Vendors page.
+function revalidateVendors() {
+  revalidatePath("/vendors");
 }
 
 const vendorSchema = z.object({
-  propertyId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, "Vendor name is required"),
   trade: z.string().trim().optional(),
   notes: z.string().trim().optional(),
@@ -27,7 +24,6 @@ const vendorSchema = z.object({
 
 export async function createVendor(formData: FormData): Promise<ActionResult<{ vendorId: number }>> {
   const parsed = vendorSchema.safeParse({
-    propertyId: formData.get("propertyId"),
     name: formData.get("name"),
     trade: formData.get("trade") || undefined,
     notes: formData.get("notes") || undefined,
@@ -68,13 +64,12 @@ export async function createVendor(formData: FormData): Promise<ActionResult<{ v
     });
   }
 
-  revalidateVendors(d.propertyId);
+  revalidateVendors();
   return { ok: true, vendorId: vendor.id };
 }
 
 export async function updateVendor(input: {
   id: number;
-  propertyId: number;
   name?: string;
   trade?: string;
   notes?: string;
@@ -98,20 +93,19 @@ export async function updateVendor(input: {
     })
     .where(eq(schema.vendors.id, input.id));
 
-  revalidateVendors(input.propertyId);
+  revalidateVendors();
   return { ok: true };
 }
 
 export async function setVendorActive(input: {
   id: number;
-  propertyId: number;
   active: boolean;
 }): Promise<ActionResult> {
   await db()
     .update(schema.vendors)
     .set({ active: input.active })
     .where(eq(schema.vendors.id, input.id));
-  revalidateVendors(input.propertyId);
+  revalidateVendors();
   return { ok: true };
 }
 
@@ -120,7 +114,6 @@ export async function setVendorActive(input: {
 // ---------------------------------------------------------------------------
 
 const contactSchema = z.object({
-  propertyId: z.coerce.number().int().positive(),
   vendorId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, "Contact name is required"),
   title: z.string().trim().optional(),
@@ -130,7 +123,6 @@ const contactSchema = z.object({
 
 export async function addContact(formData: FormData): Promise<ActionResult> {
   const parsed = contactSchema.safeParse({
-    propertyId: formData.get("propertyId"),
     vendorId: formData.get("vendorId"),
     name: formData.get("name"),
     title: formData.get("title") || undefined,
@@ -163,13 +155,12 @@ export async function addContact(formData: FormData): Promise<ActionResult> {
     isPrimary: count === 0,
   });
 
-  revalidateVendors(d.propertyId);
+  revalidateVendors();
   return { ok: true };
 }
 
 export async function updateContact(input: {
   id: number;
-  propertyId: number;
   name?: string;
   title?: string;
   email?: string;
@@ -196,14 +187,11 @@ export async function updateContact(input: {
     })
     .where(eq(schema.vendorContacts.id, input.id));
 
-  revalidateVendors(input.propertyId);
+  revalidateVendors();
   return { ok: true };
 }
 
-export async function setContactPrimary(input: {
-  id: number;
-  propertyId: number;
-}): Promise<ActionResult> {
+export async function setContactPrimary(input: { id: number }): Promise<ActionResult> {
   const contact = await db().query.vendorContacts.findFirst({
     where: eq(schema.vendorContacts.id, input.id),
   });
@@ -220,19 +208,18 @@ export async function setContactPrimary(input: {
       .where(eq(schema.vendorContacts.id, input.id));
   });
 
-  revalidateVendors(input.propertyId);
+  revalidateVendors();
   return { ok: true };
 }
 
 export async function setContactActive(input: {
   id: number;
-  propertyId: number;
   active: boolean;
 }): Promise<ActionResult> {
   await db()
     .update(schema.vendorContacts)
     .set({ active: input.active, ...(input.active ? {} : { isPrimary: false }) })
     .where(eq(schema.vendorContacts.id, input.id));
-  revalidateVendors(input.propertyId);
+  revalidateVendors();
   return { ok: true };
 }

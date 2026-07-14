@@ -1,24 +1,12 @@
-import { notFound } from "next/navigation";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PropertyNav } from "@/components/property-nav";
 import { VendorsView, type VendorRow } from "@/components/vendors-view";
 import { AddVendorDialog } from "@/components/add-vendor-dialog";
 
 export const dynamic = "force-dynamic";
 
-export default async function VendorsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const propertyId = Number(id);
-  if (!Number.isInteger(propertyId)) notFound();
-
-  const property = await db().query.properties.findFirst({
-    where: eq(schema.properties.id, propertyId),
-  });
-  if (!property) notFound();
-
-  // Roster is portfolio-wide; bid/win counts are scoped to this property.
+export default async function VendorsPage() {
   const vendors = await db().select().from(schema.vendors).orderBy(asc(schema.vendors.name));
 
   const contacts = await db()
@@ -27,25 +15,15 @@ export default async function VendorsPage({ params }: { params: Promise<{ id: st
     .orderBy(asc(schema.vendorContacts.name));
 
   const bidCounts = await db()
-    .select({
-      vendorId: schema.bids.vendorId,
-      count: sql<number>`count(*)::int`,
-    })
+    .select({ vendorId: schema.bids.vendorId, count: sql<number>`count(*)::int` })
     .from(schema.bids)
-    .innerJoin(schema.projects, eq(schema.bids.projectId, schema.projects.id))
-    .where(eq(schema.projects.propertyId, propertyId))
     .groupBy(schema.bids.vendorId);
   const bidsByVendor = new Map(bidCounts.map((r) => [r.vendorId, r.count]));
 
   const wonCounts = await db()
-    .select({
-      vendorId: schema.projects.vendorId,
-      count: sql<number>`count(*)::int`,
-    })
+    .select({ vendorId: schema.projects.vendorId, count: sql<number>`count(*)::int` })
     .from(schema.projects)
-    .where(
-      sql`${schema.projects.propertyId} = ${propertyId} and ${schema.projects.vendorId} is not null`,
-    )
+    .where(sql`${schema.projects.vendorId} is not null`)
     .groupBy(schema.projects.vendorId);
   const wonByVendor = new Map(wonCounts.map((r) => [r.vendorId, r.count]));
 
@@ -73,18 +51,17 @@ export default async function VendorsPage({ params }: { params: Promise<{ id: st
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
+        <h1 className="font-serif text-2xl font-semibold text-navy">Vendors</h1>
+        <p className="text-sm text-muted-foreground">Portfolio-wide roster — shared across every property</p>
       </div>
-
-      <PropertyNav propertyId={property.id} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base text-navy">Vendors</CardTitle>
-          <AddVendorDialog propertyId={property.id} />
+          <AddVendorDialog />
         </CardHeader>
         <CardContent>
-          <VendorsView propertyId={property.id} vendors={rows} />
+          <VendorsView vendors={rows} />
         </CardContent>
       </Card>
     </div>

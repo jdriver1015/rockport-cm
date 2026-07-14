@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
+import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
 import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
@@ -84,15 +85,42 @@ export default async function ProjectDetailPage({
     .where(eq(schema.bids.projectId, projectId))
     .orderBy(asc(schema.bids.bidNumber));
 
-  const bidRows: BidRow[] = bidJoins.map(({ bid, vendorName, contactName }) => ({
-    id: bid.id,
-    vendorName: vendorName ?? "—",
-    contactName,
-    amount: bid.amount,
-    receivedDate: bid.receivedDate,
-    approved: bid.approved,
-    note: bid.note,
-  }));
+  // Line items for every bid on this project, grouped per bid; the bid total is
+  // the sum of its lines (derived, not stored).
+  const bidIds = bidJoins.map((b) => b.bid.id);
+  const allLines = bidIds.length
+    ? await db()
+        .select()
+        .from(schema.bidLineItems)
+        .where(inArray(schema.bidLineItems.bidId, bidIds))
+        .orderBy(asc(schema.bidLineItems.sortOrder), asc(schema.bidLineItems.id))
+    : [];
+  const linesByBid = new Map<number, typeof allLines>();
+  for (const l of allLines) {
+    const arr = linesByBid.get(l.bidId) ?? [];
+    arr.push(l);
+    linesByBid.set(l.bidId, arr);
+  }
+
+  const bidRows: BidRow[] = bidJoins.map(({ bid, vendorName, contactName }) => {
+    const lines = (linesByBid.get(bid.id) ?? []).map((l) => ({
+      id: l.id,
+      scopeItemId: l.scopeItemId,
+      description: l.description,
+      amount: l.amount,
+    }));
+    const total = lines.reduce((s, l) => s + num(l.amount), 0);
+    return {
+      id: bid.id,
+      vendorName: vendorName ?? "—",
+      contactName,
+      total,
+      receivedDate: bid.receivedDate,
+      approved: bid.approved,
+      note: bid.note,
+      lines,
+    };
+  });
 
   const activeVendors = await db()
     .select()
@@ -121,10 +149,8 @@ export default async function ProjectDetailPage({
   const scopeRows: ScopeRow[] = scope.map((s) => ({
     id: s.id,
     item: s.item,
-    quantity: s.quantity,
-    unitCost: s.unitCost,
-    vendor: s.vendor,
-    status: s.status,
+    materialQuality: s.materialQuality,
+    productLink: s.productLink,
   }));
 
   const overview = (
@@ -136,6 +162,7 @@ export default async function ProjectDetailPage({
         projectId={projectId}
         bids={bidRows}
         vendors={bidderVendors}
+        scopeItems={scope.map((s) => ({ id: s.id, item: s.item }))}
       />
 
       <Card>
@@ -206,9 +233,24 @@ export default async function ProjectDetailPage({
             ← All projects
           </Link>
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
-          <StatusBadgeDropdown projectId={project.id} stage={project.stage} />
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
+            <StatusBadgeDropdown projectId={project.id} stage={project.stage} />
+          </div>
+          <ProjectEditDialog
+            project={{
+              id: project.id,
+              name: project.name,
+              kind: project.kind,
+              startDate: project.startDate,
+              completeDate: project.completeDate,
+              notes: project.notes,
+              previousRent: project.previousRent,
+              tradeOutRent: project.tradeOutRent,
+              leaseDate: project.leaseDate,
+            }}
+          />
         </div>
         <p className="text-sm text-muted-foreground">
           {costCode ? (

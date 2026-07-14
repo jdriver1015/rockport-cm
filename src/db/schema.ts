@@ -278,10 +278,28 @@ export const bids = pgTable("bids", {
   /** Contact who submitted the bid — set internally today, by portal logins later */
   submittedByContactId: integer("submitted_by_contact_id").references(() => vendorContacts.id),
   bidNumber: integer("bid_number").notNull().default(1),
-  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   receivedDate: date("received_date"),
   approved: boolean("approved").notNull().default(false),
   note: text("note"),
+});
+
+// A bid is built from line items: one per project scope item (the vendor's
+// price for that part of the scope) plus any manual lines the vendor adds
+// (labor, mobilization, etc.). The bid total is the sum of these — derived
+// in queries, never stored.
+export const bidLineItems = pgTable("bid_line_items", {
+  id: serial("id").primaryKey(),
+  bidId: integer("bid_id")
+    .notNull()
+    .references(() => bids.id, { onDelete: "cascade" }),
+  /** The scope item this line prices; null for manual/labor lines */
+  scopeItemId: integer("scope_item_id").references(() => scopeItems.id, {
+    onDelete: "set null",
+  }),
+  /** Label snapshot — the scope text at bid time, or the manual line's description */
+  description: text("description").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
 });
 
 export const punchItems = pgTable("punch_items", {
@@ -295,18 +313,19 @@ export const punchItems = pgTable("punch_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Scope: line items of work/materials for a project. Total (qty × unitCost) is
-// derived in queries, never stored. `status` is app-constrained (see src/lib/scope.ts).
+// Scope: the spec list for a project — what work/materials, at what grade, and
+// a link to the product. No pricing here; vendors price the scope via bid line
+// items (see bidLineItems).
 export const scopeItems = pgTable("scope_items", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")
     .notNull()
     .references(() => projects.id),
   item: text("item").notNull(),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }),
-  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }),
-  vendor: text("vendor"),
-  status: text("status").notNull().default("planned"),
+  /** Spec notes — grade/quality of materials for this line */
+  materialQuality: text("material_quality"),
+  /** URL to the product/spec so anyone can view it online */
+  productLink: text("product_link"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

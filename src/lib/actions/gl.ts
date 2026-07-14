@@ -201,6 +201,37 @@ export async function postAllReady(propertyId: number): Promise<ActionResult<{ c
   return { ok: true, count: result.length };
 }
 
+/**
+ * Delete an import batch entirely, including its staged/needs-review/excluded
+ * rows. Refuses if any row has posted — those are actuals already reflected
+ * in JTD/budget figures, so un-post them first rather than deleting under them.
+ */
+export async function deleteBatch(batchId: number): Promise<ActionResult> {
+  const batch = await db().query.importBatches.findFirst({
+    where: eq(schema.importBatches.id, batchId),
+  });
+  if (!batch) return { ok: false, error: "Import not found" };
+
+  const [{ postedCount }] = await db()
+    .select({ postedCount: sql<number>`count(*)::int` })
+    .from(schema.glTransactions)
+    .where(
+      and(eq(schema.glTransactions.batchId, batchId), eq(schema.glTransactions.status, "posted")),
+    );
+  if (postedCount > 0) {
+    return {
+      ok: false,
+      error: "This import has posted transactions — un-post them before deleting",
+    };
+  }
+
+  await db().delete(schema.glTransactions).where(eq(schema.glTransactions.batchId, batchId));
+  await db().delete(schema.importBatches).where(eq(schema.importBatches.id, batchId));
+
+  await revalidateProperty(batch.propertyId);
+  return { ok: true };
+}
+
 /** Post every ready (staged, cost-coded) row in a batch */
 export async function postBatch(batchId: number): Promise<ActionResult<{ count: number }>> {
   const batch = await db().query.importBatches.findFirst({

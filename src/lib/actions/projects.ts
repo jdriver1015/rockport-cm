@@ -83,6 +83,75 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
   return { ok: true, projectId: project.id };
 }
 
+// Optional money/date fields come off the edit form as strings; "" means clear.
+const optMoney = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v ? v : null))
+  .refine((v) => v === null || !Number.isNaN(Number(v)), "Enter a number")
+  .transform((v) => (v === null ? null : Number(v).toFixed(2)));
+
+const optDate = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v ? v : null));
+
+const updateProjectSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1, "Name is required"),
+  startDate: optDate,
+  completeDate: optDate,
+  notes: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : null)),
+  // Unit economics — only meaningful for kind='unit', ignored otherwise
+  previousRent: optMoney,
+  tradeOutRent: optMoney,
+  leaseDate: optDate,
+});
+
+export async function updateProject(formData: FormData): Promise<ActionResult> {
+  const parsed = updateProjectSchema.safeParse({
+    projectId: formData.get("projectId"),
+    name: formData.get("name"),
+    startDate: formData.get("startDate"),
+    completeDate: formData.get("completeDate"),
+    notes: formData.get("notes"),
+    previousRent: formData.get("previousRent"),
+    tradeOutRent: formData.get("tradeOutRent"),
+    leaseDate: formData.get("leaseDate"),
+  });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
+
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, d.projectId),
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+
+  await db()
+    .update(schema.projects)
+    .set({
+      name: d.name,
+      startDate: d.startDate,
+      completeDate: d.completeDate,
+      notes: d.notes,
+      // Only touch rent economics for unit projects
+      ...(project.kind === "unit"
+        ? { previousRent: d.previousRent, tradeOutRent: d.tradeOutRent, leaseDate: d.leaseDate }
+        : {}),
+    })
+    .where(eq(schema.projects.id, d.projectId));
+
+  revalidatePath(`/properties/${project.propertyId}`);
+  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  return { ok: true };
+}
+
 const stageKeys = PROJECT_STAGES.map((s) => s.key) as [string, ...string[]];
 
 const setStageSchema = z.object({
