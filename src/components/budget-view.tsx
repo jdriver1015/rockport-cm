@@ -74,15 +74,13 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
                   {isOpen ? <MinusIcon className="size-3" /> : <PlusIcon className="size-3" />}
                 </span>
               </TableCell>
-              <TableCell className="font-mono text-xs font-bold text-navy">{cat.code}</TableCell>
-              <TableCell className="font-bold text-navy">{cat.name}</TableCell>
-              <TableCell className="text-right font-bold tabular-nums text-navy">
-                {money(cat.budget)}
-              </TableCell>
-              <TableCell className="text-right font-bold tabular-nums text-navy">
+              <TableCell className="font-mono text-xs text-navy">{cat.code}</TableCell>
+              <TableCell className="text-navy">{cat.name}</TableCell>
+              <TableCell className="text-right tabular-nums text-navy">{money(cat.budget)}</TableCell>
+              <TableCell className="text-right tabular-nums text-navy">
                 {money(cat.committed)}
               </TableCell>
-              <TableCell className="text-right font-bold tabular-nums text-navy">
+              <TableCell className="text-right tabular-nums text-navy">
                 {money(cat.completed)}
               </TableCell>
             </TableRow>,
@@ -92,11 +90,19 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
               ...cat.lines.map((line) => (
                 <TableRow key={line.code}>
                   <TableCell />
-                  <TableCell className="pl-6 font-mono text-xs">{line.code}</TableCell>
-                  <TableCell>{line.name}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(line.budget)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(line.committed)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(line.completed)}</TableCell>
+                  <TableCell className="pl-8 font-mono text-xs text-muted-foreground">
+                    {line.code}
+                  </TableCell>
+                  <TableCell className="pl-4 text-muted-foreground">{line.name}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {money(line.budget)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {money(line.committed)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {money(line.completed)}
+                  </TableCell>
                 </TableRow>
               )),
             );
@@ -107,15 +113,13 @@ export function BudgetView({ categories }: { categories: BudgetCategory[] }) {
       <TableFooter>
         <TableRow>
           <TableCell />
-          <TableCell className="font-semibold text-navy">Total</TableCell>
+          <TableCell className="text-navy">Total</TableCell>
           <TableCell />
-          <TableCell className="text-right font-semibold tabular-nums text-navy">
-            {money(totals.budget)}
-          </TableCell>
-          <TableCell className="text-right font-semibold tabular-nums text-navy">
+          <TableCell className="text-right tabular-nums text-navy">{money(totals.budget)}</TableCell>
+          <TableCell className="text-right tabular-nums text-navy">
             {money(totals.committed)}
           </TableCell>
-          <TableCell className="text-right font-semibold tabular-nums text-navy">
+          <TableCell className="text-right tabular-nums text-navy">
             {money(totals.completed)}
           </TableCell>
         </TableRow>
