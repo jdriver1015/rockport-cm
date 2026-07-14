@@ -8,33 +8,34 @@ import { money } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function PortfolioPage() {
-  const properties = await db().select().from(schema.properties);
-
-  const budgetTotals = await db()
-    .select({
-      propertyId: schema.budgetLines.propertyId,
-      total: sql<string>`coalesce(sum(${schema.budgetLines.uwAmount}), 0)`,
-    })
-    .from(schema.budgetLines)
-    .groupBy(schema.budgetLines.propertyId);
-
-  const jtdTotals = await db()
-    .select({
-      propertyId: schema.glTransactions.propertyId,
-      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-    })
-    .from(schema.glTransactions)
-    .where(sql`${schema.glTransactions.status} = 'posted'`)
-    .groupBy(schema.glTransactions.propertyId);
-
-  const projectCounts = await db()
-    .select({
-      propertyId: schema.projects.propertyId,
-      total: sql<number>`count(*)::int`,
-      done: sql<number>`count(*) filter (where ${schema.projects.stage} in ('complete','invoiced','closed'))::int`,
-    })
-    .from(schema.projects)
-    .groupBy(schema.projects.propertyId);
+  // Independent portfolio rollups — run in parallel instead of four sequential
+  // round-trips.
+  const [properties, budgetTotals, jtdTotals, projectCounts] = await Promise.all([
+    db().select().from(schema.properties),
+    db()
+      .select({
+        propertyId: schema.budgetLines.propertyId,
+        total: sql<string>`coalesce(sum(${schema.budgetLines.uwAmount}), 0)`,
+      })
+      .from(schema.budgetLines)
+      .groupBy(schema.budgetLines.propertyId),
+    db()
+      .select({
+        propertyId: schema.glTransactions.propertyId,
+        total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+      })
+      .from(schema.glTransactions)
+      .where(sql`${schema.glTransactions.status} = 'posted'`)
+      .groupBy(schema.glTransactions.propertyId),
+    db()
+      .select({
+        propertyId: schema.projects.propertyId,
+        total: sql<number>`count(*)::int`,
+        done: sql<number>`count(*) filter (where ${schema.projects.stage} in ('complete','invoiced','closed'))::int`,
+      })
+      .from(schema.projects)
+      .groupBy(schema.projects.propertyId),
+  ]);
 
   const budgetBy = new Map(budgetTotals.map((r) => [r.propertyId, parseFloat(r.total)]));
   const jtdBy = new Map(jtdTotals.map((r) => [r.propertyId, parseFloat(r.total)]));

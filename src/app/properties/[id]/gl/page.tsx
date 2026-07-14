@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AddGlDialog } from "@/components/add-gl-dialog";
 import { GlBatchRow } from "@/components/gl-batch-row";
+import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -15,27 +15,25 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
   const propertyId = Number(id);
   if (!Number.isInteger(propertyId)) notFound();
 
-  const property = await db().query.properties.findFirst({
-    where: eq(schema.properties.id, propertyId),
-  });
+  const [property, batches, counts] = await Promise.all([
+    db().query.properties.findFirst({ where: eq(schema.properties.id, propertyId) }),
+    db()
+      .select()
+      .from(schema.importBatches)
+      .where(eq(schema.importBatches.propertyId, propertyId))
+      .orderBy(desc(schema.importBatches.createdAt)),
+    // Live per-batch counts (rows change status as they're reviewed/posted)
+    db()
+      .select({
+        batchId: schema.glTransactions.batchId,
+        status: schema.glTransactions.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.glTransactions)
+      .where(eq(schema.glTransactions.propertyId, propertyId))
+      .groupBy(schema.glTransactions.batchId, schema.glTransactions.status),
+  ]);
   if (!property) notFound();
-
-  const batches = await db()
-    .select()
-    .from(schema.importBatches)
-    .where(eq(schema.importBatches.propertyId, propertyId))
-    .orderBy(desc(schema.importBatches.createdAt));
-
-  // Live per-batch counts (rows change status as they're reviewed/posted)
-  const counts = await db()
-    .select({
-      batchId: schema.glTransactions.batchId,
-      status: schema.glTransactions.status,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(schema.glTransactions)
-    .where(eq(schema.glTransactions.propertyId, propertyId))
-    .groupBy(schema.glTransactions.batchId, schema.glTransactions.status);
 
   const byBatch = new Map<number, { queue: number; posted: number; excluded: number }>();
   for (const c of counts) {
@@ -49,13 +47,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
-        <p className="text-sm text-muted-foreground">
-          Ledger — each import reconciles a GL export to cost codes
-          {property.glUpdatedThru ? ` · GL updated thru ${fmtDate(property.glUpdatedThru)}` : ""}
-        </p>
-      </div>
+      <PropertyHeader property={property} />
 
       <PropertyNav propertyId={property.id} />
 

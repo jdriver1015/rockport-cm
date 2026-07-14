@@ -43,26 +43,54 @@ export default async function ProjectDetailPage({
   if (!data || data.project.propertyId !== propertyId) notFound();
   const { project, costCode, unit, vendor } = data;
 
-  const scope = await db()
-    .select()
-    .from(schema.scopeItems)
-    .where(eq(schema.scopeItems.projectId, projectId))
-    .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id));
-
-  const auditLog = await db()
-    .select()
-    .from(schema.projectStageEvents)
-    .where(eq(schema.projectStageEvents.projectId, projectId))
-    .orderBy(desc(schema.projectStageEvents.createdAt))
-    .limit(100);
-
-  const docs = await db()
-    .select()
-    .from(schema.attachments)
-    .where(
-      and(eq(schema.attachments.projectId, projectId), eq(schema.attachments.kind, "document")),
-    )
-    .orderBy(desc(schema.attachments.createdAt));
+  // None of these depend on each other — run them as one parallel batch rather
+  // than six sequential round-trips to the pooled Supabase connection.
+  const [scope, auditLog, docs, bidJoins, activeVendors, activeContacts] = await Promise.all([
+    db()
+      .select()
+      .from(schema.scopeItems)
+      .where(eq(schema.scopeItems.projectId, projectId))
+      .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id)),
+    db()
+      .select()
+      .from(schema.projectStageEvents)
+      .where(eq(schema.projectStageEvents.projectId, projectId))
+      .orderBy(desc(schema.projectStageEvents.createdAt))
+      .limit(100),
+    db()
+      .select()
+      .from(schema.attachments)
+      .where(
+        and(eq(schema.attachments.projectId, projectId), eq(schema.attachments.kind, "document")),
+      )
+      .orderBy(desc(schema.attachments.createdAt)),
+    // Bids with their vendor/contact names.
+    db()
+      .select({
+        bid: schema.bids,
+        vendorName: schema.vendors.name,
+        contactName: schema.vendorContacts.name,
+      })
+      .from(schema.bids)
+      .leftJoin(schema.vendors, eq(schema.bids.vendorId, schema.vendors.id))
+      .leftJoin(
+        schema.vendorContacts,
+        eq(schema.bids.submittedByContactId, schema.vendorContacts.id),
+      )
+      .where(eq(schema.bids.projectId, projectId))
+      .orderBy(asc(schema.bids.bidNumber)),
+    // Active-vendor roster for the add-bid dropdowns.
+    db()
+      .select()
+      .from(schema.vendors)
+      .where(eq(schema.vendors.active, true))
+      .orderBy(asc(schema.vendors.name)),
+    db()
+      .select()
+      .from(schema.vendorContacts)
+      .where(eq(schema.vendorContacts.active, true))
+      .orderBy(asc(schema.vendorContacts.name)),
+  ]);
 
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
@@ -70,20 +98,6 @@ export default async function ProjectDetailPage({
     caption: d.caption,
     createdAt: d.createdAt,
   }));
-
-  // Bids with their vendor/contact names, plus the active-vendor roster for
-  // the add-bid dropdowns.
-  const bidJoins = await db()
-    .select({
-      bid: schema.bids,
-      vendorName: schema.vendors.name,
-      contactName: schema.vendorContacts.name,
-    })
-    .from(schema.bids)
-    .leftJoin(schema.vendors, eq(schema.bids.vendorId, schema.vendors.id))
-    .leftJoin(schema.vendorContacts, eq(schema.bids.submittedByContactId, schema.vendorContacts.id))
-    .where(eq(schema.bids.projectId, projectId))
-    .orderBy(asc(schema.bids.bidNumber));
 
   // Line items for every bid on this project, grouped per bid; the bid total is
   // the sum of its lines (derived, not stored).
@@ -121,17 +135,6 @@ export default async function ProjectDetailPage({
       lines,
     };
   });
-
-  const activeVendors = await db()
-    .select()
-    .from(schema.vendors)
-    .where(eq(schema.vendors.active, true))
-    .orderBy(asc(schema.vendors.name));
-  const activeContacts = await db()
-    .select()
-    .from(schema.vendorContacts)
-    .where(eq(schema.vendorContacts.active, true))
-    .orderBy(asc(schema.vendorContacts.name));
 
   const bidderVendors: BidderVendor[] = activeVendors.map((v) => ({
     id: v.id,

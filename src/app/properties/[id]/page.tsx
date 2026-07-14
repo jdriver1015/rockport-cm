@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
+import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { ProjectBoard, type BoardProject } from "@/components/project-board";
 import { num } from "@/lib/format";
@@ -94,21 +95,14 @@ export default async function PropertyBoardPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            {[property.entity, [property.city, property.state].filter(Boolean).join(", ")]
-              .filter(Boolean)
-              .join(" · ") || "—"}
-            {property.unitCount ? ` · ${property.unitCount} units` : ""}
-            {property.glUpdatedThru ? ` · GL thru ${property.glUpdatedThru}` : ""}
-          </p>
-        </div>
-        <Button render={<Link href={`/properties/${propertyId}/projects/new`} />} nativeButton={false}>
-          New project
-        </Button>
-      </div>
+      <PropertyHeader
+        property={property}
+        action={
+          <Button render={<Link href={`/properties/${propertyId}/projects/new`} />} nativeButton={false}>
+            New project
+          </Button>
+        }
+      />
 
       <PropertyNav propertyId={property.id} />
 

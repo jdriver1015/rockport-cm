@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  index,
   integer,
   numeric,
   pgEnum,
@@ -116,7 +117,7 @@ export const costCodes = pgTable("cost_codes", {
   /** 4000-series interior codes; unit projects spend across all of them */
   isInterior: boolean("is_interior").notNull().default(false),
   active: boolean("active").notNull().default(true),
-});
+}, (t) => [index("cost_codes_category_idx").on(t.categoryId)]);
 
 // ---------------------------------------------------------------------------
 // Properties (the assets)
@@ -198,7 +199,7 @@ export const vendorContacts = pgTable("vendor_contacts", {
   active: boolean("active").notNull().default(true),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("vendor_contacts_vendor_idx").on(t.vendorId)]);
 
 // ---------------------------------------------------------------------------
 // Units (inventory; a unit may have successive turn projects over time)
@@ -255,7 +256,10 @@ export const projects = pgTable("projects", {
   leaseDate: date("lease_date"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("projects_property_idx").on(t.propertyId),
+  index("projects_cost_code_idx").on(t.costCodeId),
+]);
 
 export const projectStageEvents = pgTable("project_stage_events", {
   id: serial("id").primaryKey(),
@@ -267,7 +271,7 @@ export const projectStageEvents = pgTable("project_stage_events", {
   note: text("note"),
   userId: uuid("user_id").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("project_stage_events_project_idx").on(t.projectId)]);
 
 export const bids = pgTable("bids", {
   id: serial("id").primaryKey(),
@@ -281,7 +285,7 @@ export const bids = pgTable("bids", {
   receivedDate: date("received_date"),
   approved: boolean("approved").notNull().default(false),
   note: text("note"),
-});
+}, (t) => [index("bids_project_idx").on(t.projectId)]);
 
 // A bid is built from line items: one per project scope item (the vendor's
 // price for that part of the scope) plus any manual lines the vendor adds
@@ -300,7 +304,7 @@ export const bidLineItems = pgTable("bid_line_items", {
   description: text("description").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
-});
+}, (t) => [index("bid_line_items_bid_idx").on(t.bidId)]);
 
 export const punchItems = pgTable("punch_items", {
   id: serial("id").primaryKey(),
@@ -311,7 +315,7 @@ export const punchItems = pgTable("punch_items", {
   status: punchStatus("status").notNull().default("open"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("punch_items_project_idx").on(t.projectId)]);
 
 // Scope: the spec list for a project — what work/materials, at what grade, and
 // a link to the product. No pricing here; vendors price the scope via bid line
@@ -328,7 +332,7 @@ export const scopeItems = pgTable("scope_items", {
   productLink: text("product_link"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("scope_items_project_idx").on(t.projectId)]);
 
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
@@ -381,7 +385,14 @@ export const glTransactions = pgTable("gl_transactions", {
   lienWaiver: boolean("lien_waiver").notNull().default(false),
   postedAt: timestamp("posted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Aggregations filter by property + status (posted actuals); batch/project/cost
+  // code drive the ledger views. This is the table that grows with each import.
+  index("gl_txn_property_status_idx").on(t.propertyId, t.status),
+  index("gl_txn_batch_idx").on(t.batchId),
+  index("gl_txn_project_idx").on(t.projectId),
+  index("gl_txn_cost_code_idx").on(t.costCodeId),
+]);
 
 export const mappingRules = pgTable("mapping_rules", {
   id: serial("id").primaryKey(),
@@ -417,4 +428,4 @@ export const attachments = pgTable("attachments", {
   takenAt: timestamp("taken_at", { withTimezone: true }),
   uploadedBy: uuid("uploaded_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("attachments_project_idx").on(t.projectId)]);

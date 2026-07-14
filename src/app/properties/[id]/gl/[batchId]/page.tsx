@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -20,77 +21,85 @@ import { fmtDate, money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+const POSTED_PAGE_SIZE = 50;
+
 export default async function BatchDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; batchId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id, batchId: bid } = await params;
+  const sp = await searchParams;
   const propertyId = Number(id);
   const batchId = Number(bid);
   if (!Number.isInteger(propertyId) || !Number.isInteger(batchId)) notFound();
 
-  const property = await db().query.properties.findFirst({
-    where: eq(schema.properties.id, propertyId),
-  });
-  if (!property) notFound();
+  const postedPageParam = Array.isArray(sp.postedPage) ? sp.postedPage[0] : sp.postedPage;
+  const postedPage = Math.max(1, Number(postedPageParam) || 1);
 
-  const batch = await db().query.importBatches.findFirst({
-    where: eq(schema.importBatches.id, batchId),
-  });
+  // Guards first (both independent), then the batch's data queries in parallel.
+  const [property, batch] = await Promise.all([
+    db().query.properties.findFirst({ where: eq(schema.properties.id, propertyId) }),
+    db().query.importBatches.findFirst({ where: eq(schema.importBatches.id, batchId) }),
+  ]);
+  if (!property) notFound();
   if (!batch || batch.propertyId !== propertyId) notFound();
 
-  const costCodes = await db()
-    .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
-    .from(schema.costCodes)
-    .where(eq(schema.costCodes.active, true))
-    .orderBy(asc(schema.costCodes.code));
-
-  const projects = await db()
-    .select({
-      id: schema.projects.id,
-      name: schema.projects.name,
-      kind: schema.projects.kind,
-      costCodeId: schema.projects.costCodeId,
-    })
-    .from(schema.projects)
-    .where(eq(schema.projects.propertyId, propertyId))
-    .orderBy(asc(schema.projects.name));
-
-  const queue = await db()
-    .select()
-    .from(schema.glTransactions)
-    .where(
-      and(
-        eq(schema.glTransactions.batchId, batchId),
-        inArray(schema.glTransactions.status, ["staged", "needs_review", "excluded"]),
+  const [costCodes, projects, queue, posted, [postedAgg]] = await Promise.all([
+    db()
+      .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
+      .from(schema.costCodes)
+      .where(eq(schema.costCodes.active, true))
+      .orderBy(asc(schema.costCodes.code)),
+    db()
+      .select({
+        id: schema.projects.id,
+        name: schema.projects.name,
+        kind: schema.projects.kind,
+        costCodeId: schema.projects.costCodeId,
+      })
+      .from(schema.projects)
+      .where(eq(schema.projects.propertyId, propertyId))
+      .orderBy(asc(schema.projects.name)),
+    db()
+      .select()
+      .from(schema.glTransactions)
+      .where(
+        and(
+          eq(schema.glTransactions.batchId, batchId),
+          inArray(schema.glTransactions.status, ["staged", "needs_review", "excluded"]),
+        ),
+      )
+      .orderBy(desc(schema.glTransactions.txnDate), asc(schema.glTransactions.id)),
+    db()
+      .select({
+        txn: schema.glTransactions,
+        code: schema.costCodes,
+        project: schema.projects,
+      })
+      .from(schema.glTransactions)
+      .leftJoin(schema.costCodes, eq(schema.glTransactions.costCodeId, schema.costCodes.id))
+      .leftJoin(schema.projects, eq(schema.glTransactions.projectId, schema.projects.id))
+      .where(
+        and(eq(schema.glTransactions.batchId, batchId), eq(schema.glTransactions.status, "posted")),
+      )
+      .orderBy(desc(schema.glTransactions.txnDate), asc(schema.glTransactions.id))
+      .limit(POSTED_PAGE_SIZE)
+      .offset((postedPage - 1) * POSTED_PAGE_SIZE),
+    db()
+      .select({
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+      })
+      .from(schema.glTransactions)
+      .where(
+        and(eq(schema.glTransactions.batchId, batchId), eq(schema.glTransactions.status, "posted")),
       ),
-    )
-    .orderBy(desc(schema.glTransactions.txnDate), asc(schema.glTransactions.id));
+  ]);
 
-  const posted = await db()
-    .select({
-      txn: schema.glTransactions,
-      code: schema.costCodes,
-      project: schema.projects,
-    })
-    .from(schema.glTransactions)
-    .leftJoin(schema.costCodes, eq(schema.glTransactions.costCodeId, schema.costCodes.id))
-    .leftJoin(schema.projects, eq(schema.glTransactions.projectId, schema.projects.id))
-    .where(
-      and(eq(schema.glTransactions.batchId, batchId), eq(schema.glTransactions.status, "posted")),
-    )
-    .orderBy(desc(schema.glTransactions.txnDate));
-
-  const [postedAgg] = await db()
-    .select({
-      count: sql<number>`count(*)::int`,
-      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-    })
-    .from(schema.glTransactions)
-    .where(
-      and(eq(schema.glTransactions.batchId, batchId), eq(schema.glTransactions.status, "posted")),
-    );
+  const postedTotalPages = Math.max(1, Math.ceil(postedAgg.count / POSTED_PAGE_SIZE));
 
   const queueForClient = queue.map((t) => ({
     id: t.id,
@@ -192,6 +201,49 @@ export default async function BatchDetailPage({
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {postedTotalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                Page {postedPage} of {postedTotalPages}
+              </span>
+              <div className="flex gap-2">
+                {postedPage <= 1 ? (
+                  <Button size="sm" variant="outline" disabled>
+                    Previous
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    render={
+                      <Link
+                        href={`/properties/${propertyId}/gl/${batchId}?postedPage=${postedPage - 1}`}
+                      />
+                    }
+                  >
+                    Previous
+                  </Button>
+                )}
+                {postedPage >= postedTotalPages ? (
+                  <Button size="sm" variant="outline" disabled>
+                    Next
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    render={
+                      <Link
+                        href={`/properties/${propertyId}/gl/${batchId}?postedPage=${postedPage + 1}`}
+                      />
+                    }
+                  >
+                    Next
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

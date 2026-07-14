@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { BudgetView, type BudgetCategory } from "@/components/budget-view";
 import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
@@ -19,73 +20,67 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   });
   if (!property) notFound();
 
-  const categories = await db()
-    .select()
-    .from(schema.costCategories)
-    .orderBy(asc(schema.costCategories.sortOrder));
+  // These queries don't depend on each other, so fire them in parallel — one
+  // network round-trip instead of seven against the pooled Supabase connection.
+  const [categories, codes, lines, committedRows, completedRows, projectRows, jtdRows] =
+    await Promise.all([
+      db().select().from(schema.costCategories).orderBy(asc(schema.costCategories.sortOrder)),
+      db()
+        .select()
+        .from(schema.costCodes)
+        .where(eq(schema.costCodes.active, true))
+        .orderBy(asc(schema.costCodes.code)),
+      db().select().from(schema.budgetLines).where(eq(schema.budgetLines.propertyId, propertyId)),
+      // JTD committed per cost code — contracted amounts on projects coded to the line.
+      db()
+        .select({
+          costCodeId: schema.projects.costCodeId,
+          total: sql<string>`coalesce(sum(${schema.projects.committedCost}), 0)`,
+        })
+        .from(schema.projects)
+        .where(
+          sql`${schema.projects.propertyId} = ${propertyId} and ${schema.projects.costCodeId} is not null`,
+        )
+        .groupBy(schema.projects.costCodeId),
+      // JTD completed per cost code — posted GL actuals.
+      db()
+        .select({
+          costCodeId: schema.glTransactions.costCodeId,
+          total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+        })
+        .from(schema.glTransactions)
+        .where(
+          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null`,
+        )
+        .groupBy(schema.glTransactions.costCodeId),
+      // Projects coded to each line (common projects link to a cost code; interior
+      // unit projects have no single cost code, so those lines show none).
+      db()
+        .select({
+          id: schema.projects.id,
+          name: schema.projects.name,
+          stage: schema.projects.stage,
+          costCodeId: schema.projects.costCodeId,
+          budgetAmount: schema.projects.budgetAmount,
+          committedCost: schema.projects.committedCost,
+        })
+        .from(schema.projects)
+        .where(eq(schema.projects.propertyId, propertyId))
+        .orderBy(asc(schema.projects.name)),
+      db()
+        .select({
+          projectId: schema.glTransactions.projectId,
+          total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
+        })
+        .from(schema.glTransactions)
+        .where(
+          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
+        )
+        .groupBy(schema.glTransactions.projectId),
+    ]);
 
-  const codes = await db()
-    .select()
-    .from(schema.costCodes)
-    .where(eq(schema.costCodes.active, true))
-    .orderBy(asc(schema.costCodes.code));
-
-  const lines = await db()
-    .select()
-    .from(schema.budgetLines)
-    .where(eq(schema.budgetLines.propertyId, propertyId));
-
-  // JTD committed per cost code — contracted amounts on projects coded to the line.
-  const committedRows = await db()
-    .select({
-      costCodeId: schema.projects.costCodeId,
-      total: sql<string>`coalesce(sum(${schema.projects.committedCost}), 0)`,
-    })
-    .from(schema.projects)
-    .where(
-      sql`${schema.projects.propertyId} = ${propertyId} and ${schema.projects.costCodeId} is not null`,
-    )
-    .groupBy(schema.projects.costCodeId);
   const committedByCode = new Map(committedRows.map((r) => [r.costCodeId, num(r.total)]));
-
-  // JTD completed per cost code — posted GL actuals.
-  const completedRows = await db()
-    .select({
-      costCodeId: schema.glTransactions.costCodeId,
-      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-    })
-    .from(schema.glTransactions)
-    .where(
-      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null`,
-    )
-    .groupBy(schema.glTransactions.costCodeId);
   const completedByCode = new Map(completedRows.map((r) => [r.costCodeId, num(r.total)]));
-
-  // Projects coded to each line (common projects link to a cost code; interior
-  // unit projects have no single cost code, so those lines show none).
-  const projectRows = await db()
-    .select({
-      id: schema.projects.id,
-      name: schema.projects.name,
-      stage: schema.projects.stage,
-      costCodeId: schema.projects.costCodeId,
-      budgetAmount: schema.projects.budgetAmount,
-      committedCost: schema.projects.committedCost,
-    })
-    .from(schema.projects)
-    .where(eq(schema.projects.propertyId, propertyId))
-    .orderBy(asc(schema.projects.name));
-
-  const jtdRows = await db()
-    .select({
-      projectId: schema.glTransactions.projectId,
-      total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-    })
-    .from(schema.glTransactions)
-    .where(
-      sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
-    )
-    .groupBy(schema.glTransactions.projectId);
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
 
   const projectsByCode = new Map<number, BudgetCategory["lines"][number]["projects"]>();
@@ -153,9 +148,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy">{property.name}</h1>
-      </div>
+      <PropertyHeader property={property} />
 
       <PropertyNav propertyId={property.id} />
 

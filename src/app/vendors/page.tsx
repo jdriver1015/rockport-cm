@@ -7,24 +7,20 @@ import { AddVendorDialog } from "@/components/add-vendor-dialog";
 export const dynamic = "force-dynamic";
 
 export default async function VendorsPage() {
-  const vendors = await db().select().from(schema.vendors).orderBy(asc(schema.vendors.name));
-
-  const contacts = await db()
-    .select()
-    .from(schema.vendorContacts)
-    .orderBy(asc(schema.vendorContacts.name));
-
-  const bidCounts = await db()
-    .select({ vendorId: schema.bids.vendorId, count: sql<number>`count(*)::int` })
-    .from(schema.bids)
-    .groupBy(schema.bids.vendorId);
+  const [vendors, contacts, bidCounts, wonCounts] = await Promise.all([
+    db().select().from(schema.vendors).orderBy(asc(schema.vendors.name)),
+    db().select().from(schema.vendorContacts).orderBy(asc(schema.vendorContacts.name)),
+    db()
+      .select({ vendorId: schema.bids.vendorId, count: sql<number>`count(*)::int` })
+      .from(schema.bids)
+      .groupBy(schema.bids.vendorId),
+    db()
+      .select({ vendorId: schema.projects.vendorId, count: sql<number>`count(*)::int` })
+      .from(schema.projects)
+      .where(sql`${schema.projects.vendorId} is not null`)
+      .groupBy(schema.projects.vendorId),
+  ]);
   const bidsByVendor = new Map(bidCounts.map((r) => [r.vendorId, r.count]));
-
-  const wonCounts = await db()
-    .select({ vendorId: schema.projects.vendorId, count: sql<number>`count(*)::int` })
-    .from(schema.projects)
-    .where(sql`${schema.projects.vendorId} is not null`)
-    .groupBy(schema.projects.vendorId);
   const wonByVendor = new Map(wonCounts.map((r) => [r.vendorId, r.count]));
 
   const rows: VendorRow[] = vendors.map((v) => ({
