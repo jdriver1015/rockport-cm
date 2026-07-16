@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MicrosoftSignInButton } from "@/components/auth/microsoft-sign-in-button";
 import { signIn } from "@/lib/actions/auth";
 
 export function SignInForm() {
@@ -49,16 +48,7 @@ export function SignInForm() {
   }
 
   return (
-    <div className="space-y-4">
-      <MicrosoftSignInButton />
-
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <div className="h-px flex-1 bg-border" />
-        or continue with email
-        <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -90,6 +80,5 @@ export function SignInForm() {
           {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-    </div>
   );
 }
