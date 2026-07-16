@@ -32,7 +32,9 @@ export function GlUpload({
         toast.error(data.error ?? "Could not read GL file");
         return;
       }
-      if (data.needsAccounts) {
+      if (data.needsMapping) {
+        toast.success(`Read ${file.name} — map its columns to continue`);
+      } else if (data.needsAccounts) {
         toast.success(
           `Read ${file.name}: ${data.accountCount} accounts found — pick which to import`,
         );

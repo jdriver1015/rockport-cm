@@ -75,7 +75,15 @@ export function GlBatchRow({
       <TableCell className="text-right tabular-nums">{postedCount}</TableCell>
       <TableCell>
         <Badge variant={batch.status === "posted" ? "positive" : "pending"}>
-          {batch.status === "posted" ? "posted" : queueCount > 0 ? `${queueCount} to review` : "ready"}
+          {batch.status === "posted"
+            ? "posted"
+            : batch.status === "needs_mapping"
+              ? "map columns"
+              : batch.status === "needs_accounts"
+                ? "select accounts"
+                : queueCount > 0
+                  ? `${queueCount} to review`
+                  : "ready"}
         </Badge>
       </TableCell>
       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

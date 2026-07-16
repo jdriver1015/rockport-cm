@@ -4,7 +4,11 @@ import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ATTACHMENTS_BUCKET, GL_IMPORTS_PREFIX, createAdminClient } from "@/lib/supabase/admin";
 import { parseGlWorkbook, suggestConstructionAccount } from "@/lib/gl-import";
-import { insertMappedTransactions, type AccountSummary } from "@/lib/gl-import-pipeline";
+import {
+  insertMappedTransactions,
+  lookupFormatMemory,
+  type AccountSummary,
+} from "@/lib/gl-import-pipeline";
 
 function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
@@ -42,31 +46,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
-  // Read the file once: the same bytes are both parsed and archived to storage.
+  // Read the file once: the same bytes are parsed and archived to storage.
   const buffer = await file.arrayBuffer();
 
-  let parsed;
-  try {
-    parsed = parseGlWorkbook(buffer);
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Could not read workbook: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 422 },
-    );
-  }
-
-  if (parsed.rows.length === 0) {
-    return NextResponse.json(
-      {
-        error:
-          "No transactions recognized. Expect a header row naming a vendor/description column and an amount column.",
-      },
-      { status: 422 },
-    );
-  }
-
-  // Archive the original file first so the import is reproducible/auditable and
-  // can be re-parsed (e.g. after account selection) without a re-upload.
+  // Archive the original first — every downstream branch (account selection,
+  // manual column mapping) re-reads it rather than requiring a re-upload.
   const admin = createAdminClient();
   const storagePath = `${GL_IMPORTS_PREFIX}/${propertyId}/${crypto.randomUUID()}-${safeName(file.name)}`;
   const { error: uploadErr } = await admin.storage
@@ -80,30 +64,66 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   try {
+    let parsed;
+    try {
+      parsed = parseGlWorkbook(buffer);
+    } catch (err) {
+      throw new Error(`Could not read workbook: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // No header row recognized. Try a remembered column mapping for this format;
+    // otherwise route the batch to the manual column-mapping step.
+    if (!parsed.headerFound) {
+      const override = await lookupFormatMemory(buffer);
+      if (override) {
+        parsed = parseGlWorkbook(buffer, override);
+      } else {
+        const [batch] = await db()
+          .insert(schema.importBatches)
+          .values({
+            propertyId,
+            fileName: file.name,
+            storagePath,
+            sourceSystem,
+            status: "needs_mapping",
+            rowCount: 0,
+            uploadedBy: user.id,
+          })
+          .returning();
+        return NextResponse.json({ ok: true, batchId: batch.id, needsMapping: true });
+      }
+    }
+
+    if (parsed.rows.length === 0) {
+      throw new Error(
+        "No transactions recognized. Expect a header row naming a vendor/description column and an amount column.",
+      );
+    }
+
     // A grouped ledger (Yardi/ResMan) is the whole property book — most account
     // sections are operational noise. Decide which sections to import: reuse the
     // per-property memory where it exists, and route the rest through a selection
     // step. A flat file with no sections skips straight to review.
-    const remembered = parsed.layout === "grouped"
-      ? new Map(
-          (
-            await db()
-              .select({
-                accountCode: schema.glPropertyAccounts.accountCode,
-                isConstruction: schema.glPropertyAccounts.isConstruction,
-              })
-              .from(schema.glPropertyAccounts)
-              .where(eq(schema.glPropertyAccounts.propertyId, propertyId))
-          ).map((r) => [r.accountCode, r.isConstruction]),
-        )
-      : new Map<string, boolean>();
+    const remembered =
+      parsed.layout === "grouped"
+        ? new Map(
+            (
+              await db()
+                .select({
+                  accountCode: schema.glPropertyAccounts.accountCode,
+                  isConstruction: schema.glPropertyAccounts.isConstruction,
+                })
+                .from(schema.glPropertyAccounts)
+                .where(eq(schema.glPropertyAccounts.propertyId, propertyId))
+            ).map((r) => [r.accountCode, r.isConstruction]),
+          )
+        : new Map<string, boolean>();
 
     const hasUndecided =
       parsed.layout === "grouped" && parsed.sections.some((s) => !remembered.has(s.code));
 
     if (parsed.layout === "grouped" && hasUndecided) {
-      // Stage the section summaries and wait for the user to pick accounts. No
-      // transactions are materialized yet.
+      // Stage the section summaries and wait for the user to pick accounts.
       const summary: AccountSummary[] = parsed.sections.map((s) => ({
         code: s.code,
         name: s.name,
@@ -174,11 +194,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       skipped: parsed.skipped,
     });
   } catch (err) {
-    // Roll back the stored object if the DB write failed.
+    // Roll back the stored object if anything after upload failed.
     await admin.storage.from(ATTACHMENTS_BUCKET).remove([storagePath]);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Could not save import" },
-      { status: 500 },
+      { status: 422 },
     );
   }
 }

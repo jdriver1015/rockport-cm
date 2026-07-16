@@ -41,8 +41,30 @@ export type GlParseResult = {
   periodDate: string | null;
   /** Normalized header labels, for format fingerprinting */
   headerLabels: string[];
+  /** False when no header row could be detected (→ needs manual column mapping) */
+  headerFound: boolean;
   /** Rows skipped because no amount could be read */
   skipped: number;
+};
+
+/**
+ * A manually- or memory-supplied column map that bypasses header auto-detection.
+ * Column values are 0-based indices into the sheet's rows.
+ */
+export type ColumnOverride = {
+  sheetName?: string;
+  headerRow: number;
+  date?: number;
+  vendor?: number;
+  description?: number;
+  amount?: number;
+  debit?: number;
+  credit?: number;
+  invoice?: number;
+  check?: number;
+  draw?: number;
+  account?: number;
+  unit?: number;
 };
 
 function toNumber(v: unknown): number | null {
@@ -199,7 +221,10 @@ function detectPeriodDate(rows: unknown[][], headerRow: number): string | null {
   return null;
 }
 
-export function parseGlWorkbook(buf: ArrayBuffer | Buffer): GlParseResult {
+export function parseGlWorkbook(
+  buf: ArrayBuffer | Buffer,
+  override?: ColumnOverride,
+): GlParseResult {
   const wb = XLSX.read(buf, { type: buf instanceof ArrayBuffer ? "array" : "buffer" });
   const out: ParsedGlRow[] = [];
   const sectionsByCode = new Map<string, GlAccountSection>();
@@ -207,13 +232,22 @@ export function parseGlWorkbook(buf: ArrayBuffer | Buffer): GlParseResult {
   let layout: "grouped" | "flat" = "flat";
   let periodDate: string | null = null;
   let headerLabels: string[] = [];
+  let headerFound = false;
 
-  for (const sheetName of wb.SheetNames) {
+  // With an override, only the named sheet (or the first) is parsed.
+  const sheetNames = override
+    ? [override.sheetName ?? wb.SheetNames[0]].filter(Boolean)
+    : wb.SheetNames;
+
+  for (const sheetName of sheetNames) {
     const ws = wb.Sheets[sheetName];
     if (!ws) continue;
     const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
-    const cols = detectColumns(rows);
+    const cols = override
+      ? overrideToColMap(override, rows)
+      : detectColumns(rows);
     if (!cols) continue;
+    headerFound = true;
 
     if (headerLabels.length === 0) headerLabels = cols.labels.filter((l) => l !== "");
     if (periodDate === null) periodDate = detectPeriodDate(rows, cols.headerRow);
@@ -287,7 +321,49 @@ export function parseGlWorkbook(buf: ArrayBuffer | Buffer): GlParseResult {
   }
 
   const sections = [...sectionsByCode.values()].sort((a, b) => a.code.localeCompare(b.code));
-  return { rows: out, sections, layout, periodDate, headerLabels, skipped };
+  return { rows: out, sections, layout, periodDate, headerLabels, headerFound, skipped };
+}
+
+/** Build a ColMap from an explicit override, reading labels from its header row. */
+function overrideToColMap(o: ColumnOverride, rows: unknown[][]): ColMap {
+  const headerRow = rows[o.headerRow] ?? [];
+  const labels = headerRow.map((c) => (typeof c === "string" ? c.trim().toLowerCase() : ""));
+  return {
+    headerRow: o.headerRow,
+    labels,
+    date: o.date,
+    vendor: o.vendor,
+    description: o.description,
+    amount: o.amount,
+    debit: o.debit,
+    credit: o.credit,
+    invoice: o.invoice,
+    check: o.check,
+    draw: o.draw,
+    account: o.account,
+    unit: o.unit,
+  };
+}
+
+/**
+ * Extract a small raw preview of each sheet for the manual column-mapper UI:
+ * the first `maxRows` rows as string cells, plus each sheet's total row count.
+ */
+export function extractSheetPreview(
+  buf: ArrayBuffer | Buffer,
+  maxRows = 20,
+): { sheets: { name: string; rows: string[][]; totalRows: number }[] } {
+  const wb = XLSX.read(buf, { type: buf instanceof ArrayBuffer ? "array" : "buffer" });
+  const sheets = wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name];
+    const rows: unknown[][] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) : [];
+    return {
+      name,
+      totalRows: rows.length,
+      rows: rows.slice(0, maxRows).map((r) => (r ?? []).map((c) => (c == null ? "" : String(c)))),
+    };
+  });
+  return { sheets };
 }
 
 // ---------------------------------------------------------------------------

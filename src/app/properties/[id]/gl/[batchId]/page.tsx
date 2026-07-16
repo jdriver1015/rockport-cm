@@ -16,9 +16,12 @@ import {
 import { DeleteBatchButton } from "@/components/delete-batch-button";
 import { RestoreBatchButton } from "@/components/restore-batch-button";
 import { GlAccountPicker, type AccountRow } from "@/components/gl-account-picker";
+import { GlColumnMapper } from "@/components/gl-column-mapper";
 import { GlReviewQueue } from "@/components/gl-review-queue";
 import { PropertyNav } from "@/components/property-nav";
 import { UnpostButton } from "@/components/unpost-button";
+import { extractSheetPreview } from "@/lib/gl-import";
+import { downloadStoredFile } from "@/lib/gl-import-pipeline";
 import { fmtDate, money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +51,46 @@ export default async function BatchDetailPage({
   ]);
   if (!property) notFound();
   if (!batch || batch.propertyId !== propertyId) notFound();
+
+  // Unrecognized layout: show the manual column mapper against a preview of the
+  // stored file.
+  if (batch.status === "needs_mapping") {
+    let sheets: { name: string; rows: string[][]; totalRows: number }[] = [];
+    if (batch.storagePath) {
+      try {
+        sheets = extractSheetPreview(await downloadStoredFile(batch.storagePath), 18).sheets;
+      } catch {
+        sheets = [];
+      }
+    }
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="text-sm">
+            <Link href={`/properties/${propertyId}/gl`} className="text-gold-link hover:underline">
+              ← Import history
+            </Link>
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-navy">{batch.fileName}</h1>
+            <Badge variant="pending">map columns</Badge>
+            <DeleteBatchButton propertyId={propertyId} batchId={batch.id} fileName={batch.fileName} />
+          </div>
+        </div>
+
+        <PropertyNav propertyId={property.id} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-navy">Map the columns</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <GlColumnMapper propertyId={propertyId} batchId={batch.id} sheets={sheets} />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Grouped imports pause here until the user picks which GL account sections to
   // import — no transactions exist yet, so render the account picker instead of

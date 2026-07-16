@@ -5,8 +5,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { suggestConstructionAccount, type ColumnOverride } from "@/lib/gl-import";
 import type { AccountSummary } from "@/lib/gl-import-pipeline";
-import { insertMappedTransactions, reparseStoredBatch } from "@/lib/gl-import-pipeline";
+import {
+  insertMappedTransactions,
+  reparseStoredBatch,
+  saveFormatMemory,
+} from "@/lib/gl-import-pipeline";
 
 async function revalidateProperty(propertyId: number) {
   revalidatePath(`/properties/${propertyId}/gl`);
@@ -248,6 +253,111 @@ export async function restoreBatch(batchId: number): Promise<ActionResult> {
     .set({ archivedAt: null })
     .where(eq(schema.importBatches.id, batchId));
 
+  await revalidateProperty(batch.propertyId);
+  return { ok: true };
+}
+
+const columnOverrideSchema = z.object({
+  sheetName: z.string().optional(),
+  headerRow: z.number().int().nonnegative(),
+  date: z.number().int().nonnegative().optional(),
+  vendor: z.number().int().nonnegative().optional(),
+  description: z.number().int().nonnegative().optional(),
+  amount: z.number().int().nonnegative().optional(),
+  debit: z.number().int().nonnegative().optional(),
+  credit: z.number().int().nonnegative().optional(),
+  invoice: z.number().int().nonnegative().optional(),
+  check: z.number().int().nonnegative().optional(),
+  draw: z.number().int().nonnegative().optional(),
+  account: z.number().int().nonnegative().optional(),
+  unit: z.number().int().nonnegative().optional(),
+});
+
+/**
+ * Finish a `needs_mapping` batch: apply a manual column mapping, remember it for
+ * this format (so future imports auto-recognize it), then re-parse and route the
+ * batch onward — to account selection (grouped ledger) or straight into the
+ * review queue (flat file).
+ */
+export async function confirmImportColumns(
+  batchId: number,
+  mapping: ColumnOverride,
+): Promise<ActionResult> {
+  const parsedMapping = columnOverrideSchema.safeParse(mapping);
+  if (!parsedMapping.success) {
+    return { ok: false, error: parsedMapping.error.issues[0]?.message ?? "Invalid mapping" };
+  }
+  const override = parsedMapping.data;
+  if (override.amount === undefined && override.debit === undefined && override.credit === undefined) {
+    return { ok: false, error: "Map an Amount column, or Debit and/or Credit columns" };
+  }
+  if (override.vendor === undefined && override.description === undefined) {
+    return { ok: false, error: "Map a Vendor or Description column" };
+  }
+
+  const batch = await db().query.importBatches.findFirst({
+    where: eq(schema.importBatches.id, batchId),
+  });
+  if (!batch) return { ok: false, error: "Import not found" };
+  if (batch.status !== "needs_mapping") {
+    return { ok: false, error: "This import has already been mapped" };
+  }
+  if (!batch.storagePath) {
+    return { ok: false, error: "Original file is missing — re-upload the GL export" };
+  }
+
+  const parsed = await reparseStoredBatch(batch.storagePath, override);
+  if (parsed.rows.length === 0) {
+    return { ok: false, error: "That mapping produced no transactions — check the columns" };
+  }
+
+  const uploader = batch.uploadedBy ?? null;
+  await saveFormatMemory(parsed.headerLabels, override, batch.sourceSystem, uploader);
+
+  if (parsed.layout === "grouped") {
+    const remembered = new Map(
+      (
+        await db()
+          .select({
+            accountCode: schema.glPropertyAccounts.accountCode,
+            isConstruction: schema.glPropertyAccounts.isConstruction,
+          })
+          .from(schema.glPropertyAccounts)
+          .where(eq(schema.glPropertyAccounts.propertyId, batch.propertyId))
+      ).map((r) => [r.accountCode, r.isConstruction] as const),
+    );
+    const summary: AccountSummary[] = parsed.sections.map((s) => ({
+      code: s.code,
+      name: s.name,
+      rowCount: s.rows.length,
+      total: s.total,
+      suggested: remembered.get(s.code) ?? suggestConstructionAccount(s.code, s.name),
+      remembered: remembered.has(s.code),
+    }));
+    await db()
+      .update(schema.importBatches)
+      .set({
+        status: "needs_accounts",
+        periodDate: parsed.periodDate,
+        accountSummary: summary,
+      })
+      .where(eq(schema.importBatches.id, batchId));
+    await revalidateProperty(batch.propertyId);
+    return { ok: true };
+  }
+
+  // Flat file: import everything straight to the review queue.
+  const counts = await insertMappedTransactions(batch.propertyId, batchId, parsed.rows);
+  await db()
+    .update(schema.importBatches)
+    .set({
+      status: "in_review",
+      rowCount: counts.rowCount,
+      autoMappedCount: counts.autoMappedCount,
+      needsReviewCount: counts.needsReviewCount,
+      periodDate: parsed.periodDate,
+    })
+    .where(eq(schema.importBatches.id, batchId));
   await revalidateProperty(batch.propertyId);
   return { ok: true };
 }

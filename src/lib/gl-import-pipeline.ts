@@ -1,10 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { ATTACHMENTS_BUCKET, createAdminClient } from "@/lib/supabase/admin";
 import {
   autoMapRow,
   dedupeKey,
+  extractSheetPreview,
+  fingerprintHeaders,
   parseGlWorkbook,
+  type ColumnOverride,
   type GlParseResult,
   type MapContext,
   type MappingRule,
@@ -152,13 +155,72 @@ export async function insertMappedTransactions(
   return { rowCount: mapped.length, autoMappedCount, needsReviewCount, duplicates };
 }
 
-/** Re-download a batch's archived file from storage and re-parse it. */
-export async function reparseStoredBatch(storagePath: string): Promise<GlParseResult> {
+/** Re-download a batch's archived file from storage. */
+export async function downloadStoredFile(storagePath: string): Promise<ArrayBuffer> {
   const admin = createAdminClient();
   const { data, error } = await admin.storage.from(ATTACHMENTS_BUCKET).download(storagePath);
   if (error || !data) {
     throw new Error(`Could not read stored file: ${error?.message ?? "not found"}`);
   }
-  const buf = await data.arrayBuffer();
-  return parseGlWorkbook(buf);
+  return data.arrayBuffer();
+}
+
+/** Re-download a batch's archived file and re-parse it (optionally with a saved mapping). */
+export async function reparseStoredBatch(
+  storagePath: string,
+  override?: ColumnOverride,
+): Promise<GlParseResult> {
+  return parseGlWorkbook(await downloadStoredFile(storagePath), override);
+}
+
+/**
+ * When header auto-detection fails, look for a previously-saved column mapping
+ * whose header fingerprint matches one of the file's candidate rows. Returns a
+ * ready-to-use override (with its sheet) or null.
+ */
+export async function lookupFormatMemory(buf: ArrayBuffer): Promise<ColumnOverride | null> {
+  const preview = extractSheetPreview(buf, 25);
+  const candidates: { fp: string; sheetName: string }[] = [];
+  for (const sheet of preview.sheets) {
+    for (const row of sheet.rows) {
+      const labels = row.map((c) => c.trim().toLowerCase()).filter(Boolean);
+      if (labels.length >= 3) candidates.push({ fp: fingerprintHeaders(labels), sheetName: sheet.name });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  const fps = [...new Set(candidates.map((c) => c.fp))];
+  const hits = await db()
+    .select({
+      fingerprint: schema.glImportFormats.fingerprint,
+      columnMapping: schema.glImportFormats.columnMapping,
+    })
+    .from(schema.glImportFormats)
+    .where(inArray(schema.glImportFormats.fingerprint, fps));
+  if (hits.length === 0) return null;
+
+  const byFp = new Map(hits.map((h) => [h.fingerprint, h.columnMapping as ColumnOverride]));
+  for (const c of candidates) {
+    const mapping = byFp.get(c.fp);
+    if (mapping) return { ...mapping, sheetName: c.sheetName };
+  }
+  return null;
+}
+
+/** Remember a confirmed manual column mapping keyed by its header fingerprint. */
+export async function saveFormatMemory(
+  headerLabels: string[],
+  mapping: ColumnOverride,
+  sourceSystem: string | null,
+  userId: string | null,
+): Promise<void> {
+  const fingerprint = fingerprintHeaders(headerLabels);
+  const now = new Date();
+  await db()
+    .insert(schema.glImportFormats)
+    .values({ fingerprint, columnMapping: mapping, sourceSystem, createdBy: userId, updatedAt: now })
+    .onConflictDoUpdate({
+      target: schema.glImportFormats.fingerprint,
+      set: { columnMapping: mapping, sourceSystem, updatedAt: now },
+    });
 }
