@@ -8,6 +8,7 @@ const tabs = [
   { href: "/budget", label: "Budget" },
   { href: "", label: "Projects" },
   { href: "/gl", label: "Ledger" },
+  { href: "/audits", label: "Site Audits" },
 ];
 
 export function PropertyNav({ propertyId }: { propertyId: number }) {

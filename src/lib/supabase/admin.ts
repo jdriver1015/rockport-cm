@@ -24,3 +24,6 @@ export const ATTACHMENTS_BUCKET = "attachments";
 
 /** Prefix within ATTACHMENTS_BUCKET for original GL import files. */
 export const GL_IMPORTS_PREFIX = "gl-imports";
+
+/** Prefix within ATTACHMENTS_BUCKET for site-audit photos. */
+export const AUDIT_PHOTOS_PREFIX = "audit-photos";

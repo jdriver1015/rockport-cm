@@ -84,6 +84,12 @@ export const unitTier = pgEnum("unit_tier", ["classic", "upgraded", "renovated"]
 
 export const punchStatus = pgEnum("punch_status", ["open", "resolved"]);
 
+export const auditStatus = pgEnum("audit_status", ["draft", "complete"]);
+
+export const findingSeverity = pgEnum("finding_severity", ["low", "medium", "high"]);
+
+export const findingStatus = pgEnum("finding_status", ["open", "resolved"]);
+
 // ---------------------------------------------------------------------------
 // Users (profile rows keyed to Supabase auth users)
 // ---------------------------------------------------------------------------
@@ -513,3 +519,67 @@ export const attachments = pgTable("attachments", {
    *  file is kept too (only a hard purge would ever remove it). Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("attachments_project_idx").on(t.projectId)]);
+
+// ---------------------------------------------------------------------------
+// Site audits — a walk-through of a property producing photo-backed findings,
+// exportable as a branded report. Audit → findings → annotated photos.
+// ---------------------------------------------------------------------------
+
+export const siteAudits = pgTable("site_audits", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id")
+    .notNull()
+    .references(() => properties.id),
+  /** Optional link to a specific work project */
+  projectId: integer("project_id").references(() => projects.id),
+  title: text("title").notNull(),
+  auditDate: date("audit_date").notNull(),
+  auditorName: text("auditor_name"),
+  notes: text("notes"),
+  status: auditStatus("status").notNull().default("draft"),
+  createdBy: uuid("created_by").references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the list but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (t) => [index("site_audits_property_idx").on(t.propertyId)]);
+
+export const auditFindings = pgTable("audit_findings", {
+  id: serial("id").primaryKey(),
+  auditId: integer("audit_id")
+    .notNull()
+    .references(() => siteAudits.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  /** Area / location within the property */
+  location: text("location"),
+  severity: findingSeverity("severity").notNull().default("medium"),
+  status: findingStatus("status").notNull().default("open"),
+  assignee: text("assignee"),
+  dueDate: date("due_date"),
+  /** Manual ordering within the audit (ordering is a top user pain point) */
+  sortIndex: integer("sort_index").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (t) => [index("audit_findings_audit_idx").on(t.auditId)]);
+
+export const auditPhotos = pgTable("audit_photos", {
+  id: serial("id").primaryKey(),
+  findingId: integer("finding_id")
+    .notNull()
+    .references(() => auditFindings.id),
+  /** Original uploaded image in Supabase Storage */
+  storagePath: text("storage_path").notNull(),
+  /** Flattened annotated render, if the photo has been marked up */
+  annotatedPath: text("annotated_path"),
+  /** Re-editable vector annotation overlay (shapes) */
+  annotation: jsonb("annotation"),
+  /** The note for this photo */
+  caption: text("caption"),
+  sortIndex: integer("sort_index").notNull().default(0),
+  takenAt: timestamp("taken_at", { withTimezone: true }),
+  gpsLat: numeric("gps_lat", { precision: 9, scale: 6 }),
+  gpsLng: numeric("gps_lng", { precision: 9, scale: 6 }),
+  uploadedBy: uuid("uploaded_by").references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (t) => [index("audit_photos_finding_idx").on(t.findingId)]);
