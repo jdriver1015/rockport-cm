@@ -306,60 +306,67 @@ export async function confirmImportColumns(
     return { ok: false, error: "Original file is missing — re-upload the GL export" };
   }
 
-  const parsed = await reparseStoredBatch(batch.storagePath, override);
-  if (parsed.rows.length === 0) {
-    return { ok: false, error: "That mapping produced no transactions — check the columns" };
-  }
+  try {
+    const parsed = await reparseStoredBatch(batch.storagePath, override);
+    if (parsed.rows.length === 0) {
+      return { ok: false, error: "That mapping produced no transactions — check the columns" };
+    }
 
-  const uploader = batch.uploadedBy ?? null;
-  await saveFormatMemory(parsed.headerLabels, override, batch.sourceSystem, uploader);
+    const uploader = batch.uploadedBy ?? null;
+    await saveFormatMemory(parsed.headerLabels, override, batch.sourceSystem, uploader);
 
-  if (parsed.layout === "grouped") {
-    const remembered = new Map(
-      (
-        await db()
-          .select({
-            accountCode: schema.glPropertyAccounts.accountCode,
-            isConstruction: schema.glPropertyAccounts.isConstruction,
-          })
-          .from(schema.glPropertyAccounts)
-          .where(eq(schema.glPropertyAccounts.propertyId, batch.propertyId))
-      ).map((r) => [r.accountCode, r.isConstruction] as const),
-    );
-    const summary: AccountSummary[] = parsed.sections.map((s) => ({
-      code: s.code,
-      name: s.name,
-      rowCount: s.rows.length,
-      total: s.total,
-      suggested: remembered.get(s.code) ?? suggestConstructionAccount(s.code, s.name),
-      remembered: remembered.has(s.code),
-    }));
+    if (parsed.layout === "grouped") {
+      const remembered = new Map(
+        (
+          await db()
+            .select({
+              accountCode: schema.glPropertyAccounts.accountCode,
+              isConstruction: schema.glPropertyAccounts.isConstruction,
+            })
+            .from(schema.glPropertyAccounts)
+            .where(eq(schema.glPropertyAccounts.propertyId, batch.propertyId))
+        ).map((r) => [r.accountCode, r.isConstruction] as const),
+      );
+      const summary: AccountSummary[] = parsed.sections.map((s) => ({
+        code: s.code,
+        name: s.name,
+        rowCount: s.rows.length,
+        total: s.total,
+        suggested: remembered.get(s.code) ?? suggestConstructionAccount(s.code, s.name),
+        remembered: remembered.has(s.code),
+      }));
+      await db()
+        .update(schema.importBatches)
+        .set({
+          status: "needs_accounts",
+          periodDate: parsed.periodDate,
+          accountSummary: summary,
+        })
+        .where(eq(schema.importBatches.id, batchId));
+      await revalidateProperty(batch.propertyId);
+      return { ok: true };
+    }
+
+    // Flat file: import everything straight to the review queue.
+    const counts = await insertMappedTransactions(batch.propertyId, batchId, parsed.rows);
     await db()
       .update(schema.importBatches)
       .set({
-        status: "needs_accounts",
+        status: "in_review",
+        rowCount: counts.rowCount,
+        autoMappedCount: counts.autoMappedCount,
+        needsReviewCount: counts.needsReviewCount,
         periodDate: parsed.periodDate,
-        accountSummary: summary,
       })
       .where(eq(schema.importBatches.id, batchId));
     await revalidateProperty(batch.propertyId);
     return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not apply the column mapping",
+    };
   }
-
-  // Flat file: import everything straight to the review queue.
-  const counts = await insertMappedTransactions(batch.propertyId, batchId, parsed.rows);
-  await db()
-    .update(schema.importBatches)
-    .set({
-      status: "in_review",
-      rowCount: counts.rowCount,
-      autoMappedCount: counts.autoMappedCount,
-      needsReviewCount: counts.needsReviewCount,
-      periodDate: parsed.periodDate,
-    })
-    .where(eq(schema.importBatches.id, batchId));
-  await revalidateProperty(batch.propertyId);
-  return { ok: true };
 }
 
 /**
@@ -386,42 +393,56 @@ export async function confirmImportAccounts(
   const summary = (batch.accountSummary ?? []) as AccountSummary[];
   const included = new Set(includedCodes);
 
-  // Remember every account's decision for this property so next month's import
-  // auto-selects the same set.
-  const now = new Date();
-  for (const s of summary) {
+  try {
+    // Remember every account's decision for this property in ONE upsert (a full
+    // GL can have hundreds of sections — a per-row loop is hundreds of round
+    // trips and will time out on a serverless function).
+    if (summary.length > 0) {
+      const now = new Date();
+      await db()
+        .insert(schema.glPropertyAccounts)
+        .values(
+          summary.map((s) => ({
+            propertyId: batch.propertyId,
+            accountCode: s.code,
+            accountName: s.name,
+            isConstruction: included.has(s.code),
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [schema.glPropertyAccounts.propertyId, schema.glPropertyAccounts.accountCode],
+          set: {
+            isConstruction: sql`excluded.is_construction`,
+            accountName: sql`excluded.account_name`,
+            updatedAt: now,
+          },
+        });
+    }
+
+    const parsed = await reparseStoredBatch(batch.storagePath);
+    const rows = parsed.rows.filter((r) => r.glAccountRaw != null && included.has(r.glAccountRaw));
+
+    const counts = await insertMappedTransactions(batch.propertyId, batchId, rows);
     await db()
-      .insert(schema.glPropertyAccounts)
-      .values({
-        propertyId: batch.propertyId,
-        accountCode: s.code,
-        accountName: s.name,
-        isConstruction: included.has(s.code),
-        updatedAt: now,
+      .update(schema.importBatches)
+      .set({
+        status: "in_review",
+        rowCount: counts.rowCount,
+        autoMappedCount: counts.autoMappedCount,
+        needsReviewCount: counts.needsReviewCount,
+        accountSummary: null,
       })
-      .onConflictDoUpdate({
-        target: [schema.glPropertyAccounts.propertyId, schema.glPropertyAccounts.accountCode],
-        set: { isConstruction: included.has(s.code), accountName: s.name, updatedAt: now },
-      });
+      .where(eq(schema.importBatches.id, batchId));
+
+    await revalidateProperty(batch.propertyId);
+    return { ok: true, count: counts.rowCount };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not import the selected accounts",
+    };
   }
-
-  const parsed = await reparseStoredBatch(batch.storagePath);
-  const rows = parsed.rows.filter((r) => r.glAccountRaw != null && included.has(r.glAccountRaw));
-
-  const counts = await insertMappedTransactions(batch.propertyId, batchId, rows);
-  await db()
-    .update(schema.importBatches)
-    .set({
-      status: "in_review",
-      rowCount: counts.rowCount,
-      autoMappedCount: counts.autoMappedCount,
-      needsReviewCount: counts.needsReviewCount,
-      accountSummary: null,
-    })
-    .where(eq(schema.importBatches.id, batchId));
-
-  await revalidateProperty(batch.propertyId);
-  return { ok: true, count: counts.rowCount };
 }
 
 /** Post every ready (staged, cost-coded) row in a batch */

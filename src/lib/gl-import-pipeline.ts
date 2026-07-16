@@ -125,31 +125,32 @@ export async function insertMappedTransactions(
   const needsReviewCount = mapped.filter((m) => m.status === "needs_review").length;
   const duplicates = mapped.filter((m) => m.isDuplicate).length;
 
-  if (mapped.length > 0) {
-    await db()
-      .insert(schema.glTransactions)
-      .values(
-        mapped.map((m) => ({
-          propertyId,
-          batchId,
-          costCodeId: m.costCodeId,
-          projectId: m.projectId,
-          vendorRaw: m.vendorRaw,
-          description: m.description,
-          amount: m.amount.toFixed(2),
-          txnDate: m.txnDate,
-          invoiceNo: m.invoiceNo,
-          checkNo: m.checkNo,
-          drawNo: m.drawNo,
-          unitLabel: m.unitLabel,
-          glAccountRaw: m.glAccountRaw,
-          status: m.status,
-          sourceRow: m.sourceRow,
-          ...(m.isDuplicate
-            ? { status: "excluded" as const, excludeReason: "Possible duplicate" }
-            : {}),
-        })),
-      );
+  const values = mapped.map((m) => ({
+    propertyId,
+    batchId,
+    costCodeId: m.costCodeId,
+    projectId: m.projectId,
+    vendorRaw: m.vendorRaw,
+    description: m.description,
+    amount: m.amount.toFixed(2),
+    txnDate: m.txnDate,
+    invoiceNo: m.invoiceNo,
+    checkNo: m.checkNo,
+    drawNo: m.drawNo,
+    unitLabel: m.unitLabel,
+    glAccountRaw: m.glAccountRaw,
+    status: m.status,
+    sourceRow: m.sourceRow,
+    ...(m.isDuplicate
+      ? { status: "excluded" as const, excludeReason: "Possible duplicate" }
+      : {}),
+  }));
+
+  // Chunk the insert: each row binds ~16 params and Postgres caps a statement at
+  // 65535, so a single .values() over a few thousand rows would throw.
+  const CHUNK = 500;
+  for (let i = 0; i < values.length; i += CHUNK) {
+    await db().insert(schema.glTransactions).values(values.slice(i, i + CHUNK));
   }
 
   return { rowCount: mapped.length, autoMappedCount, needsReviewCount, duplicates };
