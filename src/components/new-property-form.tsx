@@ -21,7 +21,7 @@ export function NewPropertyForm() {
         toast.error(result.error);
         return;
       }
-      router.push(`/properties/${result.propertyId}`);
+      router.push(`/properties/${result.propertyId}/budget`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create property");
     } finally {
