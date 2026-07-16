@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import {
-  autoMapRow,
-  dedupeKey,
-  parseGlWorkbook,
-  type MapContext,
-  type MappingRule,
-} from "@/lib/gl-import";
+import { createClient } from "@/lib/supabase/server";
+import { ATTACHMENTS_BUCKET, GL_IMPORTS_PREFIX, createAdminClient } from "@/lib/supabase/admin";
+import { parseGlWorkbook, suggestConstructionAccount } from "@/lib/gl-import";
+import { insertMappedTransactions, type AccountSummary } from "@/lib/gl-import-pipeline";
+
+function safeName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
+}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -15,6 +16,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!Number.isInteger(propertyId)) {
     return NextResponse.json({ error: "Invalid property id" }, { status: 400 });
   }
+
+  // Require an authenticated session before touching the service-role client.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const property = await db().query.properties.findFirst({
     where: eq(schema.properties.id, propertyId),
@@ -34,9 +42,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
+  // Read the file once: the same bytes are both parsed and archived to storage.
+  const buffer = await file.arrayBuffer();
+
   let parsed;
   try {
-    parsed = parseGlWorkbook(await file.arrayBuffer());
+    parsed = parseGlWorkbook(buffer);
   } catch (err) {
     return NextResponse.json(
       { error: `Could not read workbook: ${err instanceof Error ? err.message : String(err)}` },
@@ -54,132 +65,120 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
-  // Build the mapping context from current DB state
-  const rules: MappingRule[] = (
-    await db()
-      .select({
-        matchType: schema.mappingRules.matchType,
-        pattern: schema.mappingRules.pattern,
-        costCodeId: schema.mappingRules.costCodeId,
-        priority: schema.mappingRules.priority,
-      })
-      .from(schema.mappingRules)
-      .where(eq(schema.mappingRules.active, true))
-  )
-    .map((r) => ({ ...r, matchType: r.matchType as MappingRule["matchType"] }))
-    .sort((a, b) => a.priority - b.priority);
-
-  const codes = await db()
-    .select({ id: schema.costCodes.id, isInterior: schema.costCodes.isInterior })
-    .from(schema.costCodes);
-  const interiorByCode = new Map(codes.map((c) => [c.id, c.isInterior]));
-
-  const units = await db()
-    .select({ id: schema.units.id, unitNumber: schema.units.unitNumber })
-    .from(schema.units)
-    .where(eq(schema.units.propertyId, propertyId));
-  const unitIdByNumber = new Map(units.map((u) => [u.unitNumber.toUpperCase(), u.id]));
-
-  const projects = await db()
-    .select({
-      id: schema.projects.id,
-      kind: schema.projects.kind,
-      costCodeId: schema.projects.costCodeId,
-      unitId: schema.projects.unitId,
-    })
-    .from(schema.projects)
-    .where(eq(schema.projects.propertyId, propertyId));
-
-  const unitProjectByUnitId = new Map<number, number>();
-  const commonProjectsByCode = new Map<number, number[]>();
-  for (const p of projects) {
-    if (p.kind === "unit" && p.unitId != null) unitProjectByUnitId.set(p.unitId, p.id);
-    if (p.kind === "common" && p.costCodeId != null) {
-      const arr = commonProjectsByCode.get(p.costCodeId) ?? [];
-      arr.push(p.id);
-      commonProjectsByCode.set(p.costCodeId, arr);
-    }
+  // Archive the original file first so the import is reproducible/auditable and
+  // can be re-parsed (e.g. after account selection) without a re-upload.
+  const admin = createAdminClient();
+  const storagePath = `${GL_IMPORTS_PREFIX}/${propertyId}/${crypto.randomUUID()}-${safeName(file.name)}`;
+  const { error: uploadErr } = await admin.storage
+    .from(ATTACHMENTS_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (uploadErr) {
+    return NextResponse.json({ error: `Upload failed: ${uploadErr.message}` }, { status: 500 });
   }
 
-  const postedRows = await db()
-    .select({
-      vendorRaw: schema.glTransactions.vendorRaw,
-      amount: schema.glTransactions.amount,
-      invoiceNo: schema.glTransactions.invoiceNo,
-    })
-    .from(schema.glTransactions)
-    .where(
-      and(
-        eq(schema.glTransactions.propertyId, propertyId),
-        eq(schema.glTransactions.status, "posted"),
-      ),
-    );
-  const postedKeys = new Set(
-    postedRows.map((r) => dedupeKey(r.vendorRaw, parseFloat(r.amount), r.invoiceNo)),
-  );
+  try {
+    // A grouped ledger (Yardi/ResMan) is the whole property book — most account
+    // sections are operational noise. Decide which sections to import: reuse the
+    // per-property memory where it exists, and route the rest through a selection
+    // step. A flat file with no sections skips straight to review.
+    const remembered = parsed.layout === "grouped"
+      ? new Map(
+          (
+            await db()
+              .select({
+                accountCode: schema.glPropertyAccounts.accountCode,
+                isConstruction: schema.glPropertyAccounts.isConstruction,
+              })
+              .from(schema.glPropertyAccounts)
+              .where(eq(schema.glPropertyAccounts.propertyId, propertyId))
+          ).map((r) => [r.accountCode, r.isConstruction]),
+        )
+      : new Map<string, boolean>();
 
-  const mapCtx: MapContext = {
-    rules,
-    interiorByCode,
-    unitIdByNumber,
-    unitProjectByUnitId,
-    commonProjectsByCode,
-    postedKeys,
-  };
+    const hasUndecided =
+      parsed.layout === "grouped" && parsed.sections.some((s) => !remembered.has(s.code));
 
-  // Flag duplicates against already-posted rows AND earlier rows in this same file
-  const mapped = parsed.rows.map((r) => {
-    const m = autoMapRow(r, mapCtx);
-    mapCtx.postedKeys.add(dedupeKey(r.vendorRaw, r.amount, r.invoiceNo));
-    return m;
-  });
-  const autoMappedCount = mapped.filter((m) => m.status === "staged").length;
-  const needsReviewCount = mapped.filter((m) => m.status === "needs_review").length;
+    if (parsed.layout === "grouped" && hasUndecided) {
+      // Stage the section summaries and wait for the user to pick accounts. No
+      // transactions are materialized yet.
+      const summary: AccountSummary[] = parsed.sections.map((s) => ({
+        code: s.code,
+        name: s.name,
+        rowCount: s.rows.length,
+        total: s.total,
+        suggested: remembered.get(s.code) ?? suggestConstructionAccount(s.code, s.name),
+        remembered: remembered.has(s.code),
+      }));
 
-  const [batch] = await db()
-    .insert(schema.importBatches)
-    .values({
-      propertyId,
-      fileName: file.name,
-      sourceSystem,
-      status: "in_review",
-      rowCount: mapped.length,
-      autoMappedCount,
-      needsReviewCount,
-    })
-    .returning();
+      const [batch] = await db()
+        .insert(schema.importBatches)
+        .values({
+          propertyId,
+          fileName: file.name,
+          storagePath,
+          sourceSystem,
+          status: "needs_accounts",
+          rowCount: 0,
+          periodDate: parsed.periodDate,
+          accountSummary: summary,
+          uploadedBy: user.id,
+        })
+        .returning();
 
-  await db()
-    .insert(schema.glTransactions)
-    .values(
-      mapped.map((m) => ({
-        propertyId,
+      return NextResponse.json({
+        ok: true,
         batchId: batch.id,
-        costCodeId: m.costCodeId,
-        projectId: m.projectId,
-        vendorRaw: m.vendorRaw,
-        description: m.description,
-        amount: m.amount.toFixed(2),
-        txnDate: m.txnDate,
-        invoiceNo: m.invoiceNo,
-        checkNo: m.checkNo,
-        drawNo: m.drawNo,
-        unitLabel: m.unitLabel,
-        glAccountRaw: m.glAccountRaw,
-        status: m.status,
-        sourceRow: m.sourceRow,
-        // Duplicates start excluded with a reason so they don't double-count unless un-excluded
-        ...(m.isDuplicate ? { status: "excluded" as const, excludeReason: "Possible duplicate" } : {}),
-      })),
-    );
+        needsAccounts: true,
+        accountCount: summary.length,
+        suggestedCount: summary.filter((s) => s.suggested).length,
+      });
+    }
 
-  return NextResponse.json({
-    ok: true,
-    batchId: batch.id,
-    rowCount: mapped.length,
-    autoMappedCount,
-    needsReviewCount,
-    duplicates: mapped.filter((m) => m.isDuplicate).length,
-    skipped: parsed.skipped,
-  });
+    // Auto path: flat layout, or a grouped layout whose every account is already
+    // decided in memory. Import only the construction accounts' rows.
+    const rowsToImport =
+      parsed.layout === "grouped"
+        ? parsed.rows.filter((r) => r.glAccountRaw != null && remembered.get(r.glAccountRaw))
+        : parsed.rows;
+
+    const [batch] = await db()
+      .insert(schema.importBatches)
+      .values({
+        propertyId,
+        fileName: file.name,
+        storagePath,
+        sourceSystem,
+        status: "in_review",
+        rowCount: rowsToImport.length,
+        periodDate: parsed.periodDate,
+        uploadedBy: user.id,
+      })
+      .returning();
+
+    const counts = await insertMappedTransactions(propertyId, batch.id, rowsToImport);
+    await db()
+      .update(schema.importBatches)
+      .set({ autoMappedCount: counts.autoMappedCount, needsReviewCount: counts.needsReviewCount })
+      .where(eq(schema.importBatches.id, batch.id));
+
+    return NextResponse.json({
+      ok: true,
+      batchId: batch.id,
+      rowCount: counts.rowCount,
+      autoMappedCount: counts.autoMappedCount,
+      needsReviewCount: counts.needsReviewCount,
+      duplicates: counts.duplicates,
+      skipped: parsed.skipped,
+    });
+  } catch (err) {
+    // Roll back the stored object if the DB write failed.
+    await admin.storage.from(ATTACHMENTS_BUCKET).remove([storagePath]);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Could not save import" },
+      { status: 500 },
+    );
+  }
 }

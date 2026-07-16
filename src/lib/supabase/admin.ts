@@ -21,3 +21,6 @@ export function createAdminClient() {
 
 /** Shared bucket for project attachments (documents, and later photos/invoices). */
 export const ATTACHMENTS_BUCKET = "attachments";
+
+/** Prefix within ATTACHMENTS_BUCKET for original GL import files. */
+export const GL_IMPORTS_PREFIX = "gl-imports";

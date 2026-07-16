@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { DeleteBatchButton } from "@/components/delete-batch-button";
 import { RestoreBatchButton } from "@/components/restore-batch-button";
+import { GlAccountPicker, type AccountRow } from "@/components/gl-account-picker";
 import { GlReviewQueue } from "@/components/gl-review-queue";
 import { PropertyNav } from "@/components/property-nav";
 import { UnpostButton } from "@/components/unpost-button";
@@ -47,6 +48,54 @@ export default async function BatchDetailPage({
   ]);
   if (!property) notFound();
   if (!batch || batch.propertyId !== propertyId) notFound();
+
+  // Grouped imports pause here until the user picks which GL account sections to
+  // import — no transactions exist yet, so render the account picker instead of
+  // the review queue.
+  if (batch.status === "needs_accounts") {
+    const accounts = (batch.accountSummary ?? []) as AccountRow[];
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="text-sm">
+            <Link href={`/properties/${propertyId}/gl`} className="text-gold-link hover:underline">
+              ← Import history
+            </Link>
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-navy">{batch.fileName}</h1>
+            <Badge variant="pending">select accounts</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {batch.sourceSystem ? `${batch.sourceSystem} · ` : ""}
+            {accounts.length} account sections found
+            {batch.storagePath && (
+              <>
+                {" · "}
+                <a
+                  href={`/api/properties/${propertyId}/gl/${batch.id}/file`}
+                  className="text-gold-link hover:underline"
+                >
+                  Download original
+                </a>
+              </>
+            )}
+          </p>
+        </div>
+
+        <PropertyNav propertyId={property.id} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-navy">Which accounts are construction?</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <GlAccountPicker propertyId={propertyId} batchId={batch.id} accounts={accounts} />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const [costCodes, projects, queue, posted, [postedAgg]] = await Promise.all([
     db()
@@ -142,6 +191,17 @@ export default async function BatchDetailPage({
           {batch.sourceSystem ? `${batch.sourceSystem} · ` : ""}
           Imported {fmtDate(batch.createdAt)} · {batch.rowCount} rows · {batch.autoMappedCount}{" "}
           auto-mapped
+          {batch.storagePath && (
+            <>
+              {" · "}
+              <a
+                href={`/api/properties/${propertyId}/gl/${batch.id}/file`}
+                className="text-gold-link hover:underline"
+              >
+                Download original
+              </a>
+            </>
+          )}
         </p>
       </div>
 

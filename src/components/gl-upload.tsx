@@ -32,15 +32,21 @@ export function GlUpload({
         toast.error(data.error ?? "Could not read GL file");
         return;
       }
-      const bits = [
-        `${data.rowCount} rows`,
-        `${data.autoMappedCount} auto-mapped`,
-        `${data.needsReviewCount} need review`,
-      ];
-      if (data.duplicates) bits.push(`${data.duplicates} possible duplicates`);
-      toast.success(`Imported ${file.name}: ${bits.join(", ")}`);
+      if (data.needsAccounts) {
+        toast.success(
+          `Read ${file.name}: ${data.accountCount} accounts found — pick which to import`,
+        );
+      } else {
+        const bits = [
+          `${data.rowCount} rows`,
+          `${data.autoMappedCount} auto-mapped`,
+          `${data.needsReviewCount} need review`,
+        ];
+        if (data.duplicates) bits.push(`${data.duplicates} possible duplicates`);
+        toast.success(`Imported ${file.name}: ${bits.join(", ")}`);
+      }
       onDone?.();
-      // Land on the new batch's reconciliation detail
+      // Land on the new batch — account picker (needs_accounts) or review queue.
       router.push(`/properties/${propertyId}/gl/${data.batchId}`);
       router.refresh();
     } finally {

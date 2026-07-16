@@ -71,6 +71,13 @@
       "when": 1784043290573,
       "tag": "0009_messy_jack_murdock",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784227213619,
+      "tag": "0010_hot_spencer_smythe",
+      "breakpoints": true
     }
   ]
 }

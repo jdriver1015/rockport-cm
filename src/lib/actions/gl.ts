@@ -5,6 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import type { AccountSummary } from "@/lib/gl-import-pipeline";
+import { insertMappedTransactions, reparseStoredBatch } from "@/lib/gl-import-pipeline";
 
 async function revalidateProperty(propertyId: number) {
   revalidatePath(`/properties/${propertyId}/gl`);
@@ -248,6 +250,68 @@ export async function restoreBatch(batchId: number): Promise<ActionResult> {
 
   await revalidateProperty(batch.propertyId);
   return { ok: true };
+}
+
+/**
+ * Finish a `needs_accounts` batch: remember which GL account sections are
+ * construction for this property, then materialize only the selected accounts'
+ * rows as staged transactions. Re-parses the archived file so no giant staging
+ * blob is kept in the DB.
+ */
+export async function confirmImportAccounts(
+  batchId: number,
+  includedCodes: string[],
+): Promise<ActionResult<{ count: number }>> {
+  const batch = await db().query.importBatches.findFirst({
+    where: eq(schema.importBatches.id, batchId),
+  });
+  if (!batch) return { ok: false, error: "Import not found" };
+  if (batch.status !== "needs_accounts") {
+    return { ok: false, error: "This import has already been processed" };
+  }
+  if (!batch.storagePath) {
+    return { ok: false, error: "Original file is missing — re-upload the GL export" };
+  }
+
+  const summary = (batch.accountSummary ?? []) as AccountSummary[];
+  const included = new Set(includedCodes);
+
+  // Remember every account's decision for this property so next month's import
+  // auto-selects the same set.
+  const now = new Date();
+  for (const s of summary) {
+    await db()
+      .insert(schema.glPropertyAccounts)
+      .values({
+        propertyId: batch.propertyId,
+        accountCode: s.code,
+        accountName: s.name,
+        isConstruction: included.has(s.code),
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [schema.glPropertyAccounts.propertyId, schema.glPropertyAccounts.accountCode],
+        set: { isConstruction: included.has(s.code), accountName: s.name, updatedAt: now },
+      });
+  }
+
+  const parsed = await reparseStoredBatch(batch.storagePath);
+  const rows = parsed.rows.filter((r) => r.glAccountRaw != null && included.has(r.glAccountRaw));
+
+  const counts = await insertMappedTransactions(batch.propertyId, batchId, rows);
+  await db()
+    .update(schema.importBatches)
+    .set({
+      status: "in_review",
+      rowCount: counts.rowCount,
+      autoMappedCount: counts.autoMappedCount,
+      needsReviewCount: counts.needsReviewCount,
+      accountSummary: null,
+    })
+    .where(eq(schema.importBatches.id, batchId));
+
+  await revalidateProperty(batch.propertyId);
+  return { ok: true, count: counts.rowCount };
 }
 
 /** Post every ready (staged, cost-coded) row in a batch */

@@ -4,6 +4,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -57,6 +58,8 @@ export const txnStatus = pgEnum("txn_status", [
 export const batchStatus = pgEnum("batch_status", [
   "uploaded",
   "parsed",
+  "needs_mapping",
+  "needs_accounts",
   "in_review",
   "posted",
   "failed",
@@ -374,6 +377,14 @@ export const importBatches = pgTable("import_batches", {
   autoMappedCount: integer("auto_mapped_count").notNull().default(0),
   needsReviewCount: integer("needs_review_count").notNull().default(0),
   uploadedBy: uuid("uploaded_by").references(() => profiles.id),
+  /** Reporting period / as-of date read from the file banner (YYYY-MM-DD) */
+  periodDate: date("period_date"),
+  /**
+   * Pending account-section summaries while the batch awaits account selection.
+   * Shape: { code, name, rowCount, total, suggested }[]. Cleared once the user
+   * picks which accounts to import and the transactions are materialized.
+   */
+  accountSummary: jsonb("account_summary"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the import history but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -431,6 +442,52 @@ export const mappingRules = pgTable("mapping_rules", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Per-property memory of which GL account sections are construction/CapEx.
+ * Set when a user confirms the account-selection checklist during a GL import;
+ * future imports of the same property auto-select the same accounts.
+ */
+export const glPropertyAccounts = pgTable(
+  "gl_property_accounts",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    /** Account code exactly as printed in the PM export, e.g. "1740-0006" */
+    accountCode: text("account_code").notNull(),
+    /** Last-seen account name, for display */
+    accountName: text("account_name"),
+    /** True = import this account's rows; false = ignore it */
+    isConstruction: boolean("is_construction").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gl_property_accounts_uq").on(t.propertyId, t.accountCode)],
+);
+
+/**
+ * Learned column layouts keyed by a header fingerprint, so a repeat export from
+ * the same PM system parses deterministically (skipping heuristics/AI). Written
+ * when a user confirms a manual column mapping for an unrecognized format.
+ */
+export const glImportFormats = pgTable(
+  "gl_import_formats",
+  {
+    id: serial("id").primaryKey(),
+    /** Optional label, e.g. "Yardi" / "ResMan" */
+    sourceSystem: text("source_system"),
+    /** Hash of the normalized header labels */
+    fingerprint: text("fingerprint").notNull(),
+    /** Resolved column mapping: { headerRow, date, vendor, amount, debit, credit, ... } */
+    columnMapping: jsonb("column_mapping").notNull(),
+    createdBy: uuid("created_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gl_import_formats_fingerprint_uq").on(t.fingerprint)],
+);
 
 // ---------------------------------------------------------------------------
 // Attachments (photos, invoices, lien waivers) — always stage-tagged
