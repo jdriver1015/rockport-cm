@@ -34,6 +34,16 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
   });
   if (!costCode) return { ok: false, error: "Cost code not found" };
 
+  // The code must belong to this property's chart of accounts.
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, propertyId),
+    columns: { chartOfAccountsId: true },
+  });
+  if (!property) return { ok: false, error: "Property not found" };
+  if (costCode.chartId !== property.chartOfAccountsId) {
+    return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
+  }
+
   const existing = await db().query.budgetLines.findFirst({
     where: and(
       eq(schema.budgetLines.propertyId, propertyId),

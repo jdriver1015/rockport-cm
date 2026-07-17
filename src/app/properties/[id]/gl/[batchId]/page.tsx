@@ -144,7 +144,7 @@ export default async function BatchDetailPage({
     db()
       .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
       .from(schema.costCodes)
-      .where(eq(schema.costCodes.active, true))
+      .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), eq(schema.costCodes.active, true)))
       .orderBy(asc(schema.costCodes.code)),
     db()
       .select({

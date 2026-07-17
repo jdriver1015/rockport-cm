@@ -10,6 +10,8 @@ import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
+import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope-table";
+import type { PricingMethod } from "@/lib/pricing";
 import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { fmtDate, money, num } from "@/lib/format";
@@ -164,9 +166,34 @@ export default async function ProjectDetailPage({
     productLink: s.productLink,
   }));
 
+  // Interior projects carry generated pricing on their scope items; resolve the
+  // code strings and render the priced view instead of the spec-only table.
+  const scopeCodeIds = [...new Set(scope.map((s) => s.costCodeId).filter((c): c is number => !!c))];
+  const scopeCodes = scopeCodeIds.length
+    ? await db()
+        .select({ id: schema.costCodes.id, code: schema.costCodes.code })
+        .from(schema.costCodes)
+        .where(inArray(schema.costCodes.id, scopeCodeIds))
+    : [];
+  const codeById = new Map(scopeCodes.map((c) => [c.id, c.code]));
+  const isPriced = project.kind === "unit" && scope.some((s) => s.pricingMethod != null);
+  const pricedScopeRows: PricedScopeRow[] = scope.map((s) => ({
+    id: s.id,
+    item: s.item,
+    materialQuality: s.materialQuality,
+    pricingMethod: s.pricingMethod as PricingMethod | null,
+    unitPrice: s.unitPrice,
+    quantity: s.quantity,
+    costCode: s.costCodeId != null ? codeById.get(s.costCodeId) ?? null : null,
+  }));
+
   const overview = (
     <>
-      <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
+      {isPriced ? (
+        <PricedScopeTable items={pricedScopeRows} />
+      ) : (
+        <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
+      )}
 
       <BidsCard
         propertyId={propertyId}
@@ -182,8 +209,22 @@ export default async function ProjectDetailPage({
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:max-w-md">
+            <dt className="text-muted-foreground">Budget</dt>
+            <dd className="tabular-nums">{money(project.budgetAmount)}</dd>
+            {project.kind === "unit" && (
+              <>
+                <dt className="text-muted-foreground">Pre-walk date</dt>
+                <dd>{fmtDate(project.preWalkDate)}</dd>
+              </>
+            )}
             <dt className="text-muted-foreground">Start date</dt>
             <dd>{fmtDate(project.startDate)}</dd>
+            {project.kind === "unit" && (
+              <>
+                <dt className="text-muted-foreground">Target completion</dt>
+                <dd>{fmtDate(project.targetCompletionDate)}</dd>
+              </>
+            )}
             <dt className="text-muted-foreground">Complete date</dt>
             <dd>{fmtDate(project.completeDate)}</dd>
             {project.kind === "unit" && (

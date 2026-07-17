@@ -6,6 +6,7 @@ import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { BudgetView, type BudgetCategory } from "@/components/budget-view";
 import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
+import { PropertyChartControl } from "@/components/property-chart-control";
 import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -20,15 +21,43 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
   });
   if (!property) notFound();
 
+  // Chart-of-accounts context for the switch control in the header.
+  const [chart, allCharts, [{ glCount }], [{ codedProjects }]] = await Promise.all([
+    db().query.chartsOfAccounts.findFirst({
+      where: eq(schema.chartsOfAccounts.id, property.chartOfAccountsId),
+    }),
+    db()
+      .select({
+        id: schema.chartsOfAccounts.id,
+        name: schema.chartsOfAccounts.name,
+        isDefault: schema.chartsOfAccounts.isDefault,
+      })
+      .from(schema.chartsOfAccounts)
+      .where(isNull(schema.chartsOfAccounts.archivedAt))
+      .orderBy(asc(schema.chartsOfAccounts.name)),
+    db()
+      .select({ glCount: sql<number>`count(*)::int` })
+      .from(schema.glTransactions)
+      .where(eq(schema.glTransactions.propertyId, propertyId)),
+    db()
+      .select({ codedProjects: sql<number>`count(*)::int` })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.propertyId, propertyId), sql`${schema.projects.costCodeId} is not null`)),
+  ]);
+
   // These queries don't depend on each other, so fire them in parallel — one
   // network round-trip instead of seven against the pooled Supabase connection.
   const [categories, codes, lines, committedRows, completedRows, projectRows, jtdRows] =
     await Promise.all([
-      db().select().from(schema.costCategories).orderBy(asc(schema.costCategories.sortOrder)),
+      db()
+        .select()
+        .from(schema.costCategories)
+        .where(eq(schema.costCategories.chartId, property.chartOfAccountsId))
+        .orderBy(asc(schema.costCategories.sortOrder)),
       db()
         .select()
         .from(schema.costCodes)
-        .where(eq(schema.costCodes.active, true))
+        .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), eq(schema.costCodes.active, true)))
         .orderBy(asc(schema.costCodes.code)),
       db()
         .select()
@@ -156,6 +185,19 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       <PropertyHeader property={property} />
 
       <PropertyNav propertyId={property.id} />
+
+      {chart && (
+        <PropertyChartControl
+          propertyId={property.id}
+          chartId={chart.id}
+          chartName={chart.name}
+          charts={allCharts}
+          locked={glCount > 0}
+          glCount={glCount}
+          budgetLineCount={lines.length}
+          codedProjectCount={codedProjects}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

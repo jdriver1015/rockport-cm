@@ -90,6 +90,29 @@ export const findingSeverity = pgEnum("finding_severity", ["low", "medium", "hig
 
 export const findingStatus = pgEnum("finding_status", ["open", "resolved"]);
 
+/**
+ * How a scope item's quantity (and thus its total) is derived. Drives the
+ * pricing engine (src/lib/pricing.ts):
+ *  - sqft         → quantity = unit square footage
+ *  - fixed        → quantity = 1
+ *  - per_bedroom  → quantity = unit bedrooms
+ *  - per_bathroom → quantity = unit bathrooms
+ *  - per_window   → quantity = window count (not tracked yet → default quantity)
+ *  - per_cabinet  → quantity = cabinet count (not tracked yet → default quantity)
+ *  - percent      → total = unitPrice% of a base amount
+ *  - formula      → quantity from a user-defined expression over unit attributes
+ */
+export const pricingMethod = pgEnum("pricing_method", [
+  "sqft",
+  "fixed",
+  "per_bedroom",
+  "per_bathroom",
+  "per_window",
+  "per_cabinet",
+  "percent",
+  "formula",
+]);
+
 /** Rent roll upload lifecycle: file staged → parsing → reviewed → committed snapshot */
 export const rentRollBatchStatus = pgEnum("rent_roll_batch_status", [
   "uploaded",
@@ -127,31 +150,76 @@ export const profiles = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Chart of accounts (portfolio-level master data)
+// Chart of accounts
+//
+// A chart is a named, self-contained set of categories + cost codes + mapping
+// rules. The portfolio can hold several (e.g. a standard chart plus per-deal
+// variants). Every property binds to exactly one chart at creation; that chart
+// is locked in once the property has any GL activity (see chartOfAccountsId).
+// Codes are unique WITHIN a chart, not globally.
 // ---------------------------------------------------------------------------
 
-export const costCategories = pgTable("cost_categories", {
-  id: serial("id").primaryKey(),
-  /** 4-digit lender code, e.g. "1100" */
-  code: text("code").notNull().unique(),
-  name: text("name").notNull(),
-  sortOrder: integer("sort_order").notNull().default(0),
-  /** High-level board grouping: exterior | amenities | interiors | fees (see src/lib/divisions.ts) */
-  division: text("division"),
-});
+export const chartsOfAccounts = pgTable(
+  "charts_of_accounts",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Exactly one chart is the portfolio default, pre-selected on new properties. */
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: hidden from the chart list but restorable. Null = active. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  // Partial — at most one active default chart.
+  (t) => [
+    uniqueIndex("charts_of_accounts_default_uq")
+      .on(t.isDefault)
+      .where(sql`${t.isDefault} = true and ${t.archivedAt} is null`),
+  ],
+);
 
-export const costCodes = pgTable("cost_codes", {
-  id: serial("id").primaryKey(),
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => costCategories.id),
-  /** Full code, e.g. "1100-0001" */
-  code: text("code").notNull().unique(),
-  name: text("name").notNull(),
-  /** 4000-series interior codes; unit projects spend across all of them */
-  isInterior: boolean("is_interior").notNull().default(false),
-  active: boolean("active").notNull().default(true),
-}, (t) => [index("cost_codes_category_idx").on(t.categoryId)]);
+export const costCategories = pgTable(
+  "cost_categories",
+  {
+    id: serial("id").primaryKey(),
+    chartId: integer("chart_id")
+      .notNull()
+      .references(() => chartsOfAccounts.id),
+    /** 4-digit lender code, e.g. "1100" */
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    /** High-level board grouping: exterior | amenities | interiors | fees (see src/lib/divisions.ts) */
+    division: text("division"),
+  },
+  (t) => [uniqueIndex("cost_categories_chart_code_uq").on(t.chartId, t.code)],
+);
+
+export const costCodes = pgTable(
+  "cost_codes",
+  {
+    id: serial("id").primaryKey(),
+    // Denormalized onto the code (as well as living transitively via the category)
+    // so chart-scoped lookups and the (chartId, code) uniqueness are a single hop.
+    chartId: integer("chart_id")
+      .notNull()
+      .references(() => chartsOfAccounts.id),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => costCategories.id),
+    /** Full code, e.g. "1100-0001" */
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** 4000-series interior codes; unit projects spend across all of them */
+    isInterior: boolean("is_interior").notNull().default(false),
+    active: boolean("active").notNull().default(true),
+  },
+  (t) => [
+    index("cost_codes_category_idx").on(t.categoryId),
+    uniqueIndex("cost_codes_chart_code_uq").on(t.chartId, t.code),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Properties (the assets)
@@ -160,6 +228,11 @@ export const costCodes = pgTable("cost_codes", {
 export const properties = pgTable("properties", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  // The chart this property's budget/GL codes live in. Chosen at creation and
+  // locked once GL activity exists.
+  chartOfAccountsId: integer("chart_of_accounts_id")
+    .notNull()
+    .references(() => chartsOfAccounts.id),
   entity: text("entity"),
   address: text("address"),
   city: text("city"),
@@ -258,6 +331,8 @@ export const units = pgTable(
     /** e.g. "B1Q" — floorplan + tier suffix as used on the Unit Tracker */
     floorplan: text("floorplan"),
     bedrooms: integer("bedrooms"),
+    /** Fractional to allow 1.5/2.5 baths; populated from the rent roll */
+    baths: numeric("baths", { precision: 4, scale: 1 }),
     sqft: integer("sqft"),
     tier: unitTier("tier").notNull().default("classic"),
     occupied: boolean("occupied").notNull().default(false),
@@ -289,7 +364,11 @@ export const projects = pgTable("projects", {
   /** Contracted amount (approved bid); actuals come from posted GL transactions */
   committedCost: numeric("committed_cost", { precision: 12, scale: 2 }).notNull().default("0"),
   vendorId: integer("vendor_id").references(() => vendors.id),
+  /** Interior turns: walk-through before work starts */
+  preWalkDate: date("pre_walk_date"),
   startDate: date("start_date"),
+  /** Planned delivery/target date (distinct from completeDate, the actual finish) */
+  targetCompletionDate: date("target_completion_date"),
   completeDate: date("complete_date"),
   /** Rent economics — unit projects; drives trade-out $, %, and ROI */
   previousRent: numeric("previous_rent", { precision: 10, scale: 2 }),
@@ -364,8 +443,10 @@ export const punchItems = pgTable("punch_items", {
 }, (t) => [index("punch_items_project_idx").on(t.projectId)]);
 
 // Scope: the spec list for a project — what work/materials, at what grade, and
-// a link to the product. No pricing here; vendors price the scope via bid line
-// items (see bidLineItems).
+// a link to the product. Vendors still price scope via bid line items, but
+// interior turns generated from a scope group also carry their OWN estimate
+// pricing (method + unit price + computed quantity); the line total is derived
+// (quantity × unitPrice), and their sum seeds the project's budgetAmount.
 export const scopeItems = pgTable("scope_items", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")
@@ -376,11 +457,115 @@ export const scopeItems = pgTable("scope_items", {
   materialQuality: text("material_quality"),
   /** URL to the product/spec so anyone can view it online */
   productLink: text("product_link"),
+  // --- Estimate pricing (set for template-generated interior scope; null for
+  // legacy/manual spec-only items) ---
+  /** 4000-series code this line reconciles to, for budget-vs-actual per code */
+  costCodeId: integer("cost_code_id").references(() => costCodes.id),
+  pricingMethod: pricingMethod("pricing_method"),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }),
+  /** Computed at generation from the method + unit metadata; editable in review */
+  quantity: numeric("quantity", { precision: 12, scale: 2 }),
+  /** Provenance: the scope_group_item this line was generated from (nullable) */
+  sourceGroupItemId: integer("source_group_item_id"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the scope table but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("scope_items_project_idx").on(t.projectId)]);
+
+// ---------------------------------------------------------------------------
+// Scope groups — standardized interior renovation packages.
+//
+// Two tiers:
+//   1. Templates (scope_group_templates) — a portfolio-wide library managed
+//      under Settings. Chart-independent: each item stores its 4000-series code
+//      as a STRING (codeRef), resolved to a property's chart when instantiated.
+//   2. Property scope groups (scope_groups) — the usable packages per property,
+//      created from a template (items cloned, codeRef resolved to a costCodeId)
+//      or blank. The interior wizard picks from these.
+// A created project snapshots a group's items into scope_items (pricing baked in).
+// ---------------------------------------------------------------------------
+
+export const scopeGroupTemplates = pgTable("scope_group_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the library but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
+
+export const scopeGroupTemplateItems = pgTable(
+  "scope_group_template_items",
+  {
+    id: serial("id").primaryKey(),
+    templateId: integer("template_id")
+      .notNull()
+      .references(() => scopeGroupTemplates.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Display grouping, e.g. "Flooring", "Appliances" */
+    category: text("category"),
+    pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
+    unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
+    defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
+    /** Optional expression for pricingMethod='formula' */
+    quantityFormula: text("quantity_formula"),
+    /** 4000-series code as a string (e.g. "4000-0002"); resolved per chart on use */
+    costCodeRef: text("cost_code_ref"),
+    laborAssumptions: text("labor_assumptions"),
+    materialAssumptions: text("material_assumptions"),
+    notes: text("notes"),
+    active: boolean("active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("scope_group_template_items_template_idx").on(t.templateId)],
+);
+
+export const scopeGroups = pgTable(
+  "scope_groups",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Provenance: the library template this group was seeded from (nullable) */
+    sourceTemplateId: integer("source_template_id").references(() => scopeGroupTemplates.id),
+    active: boolean("active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: hidden from the picker but restorable. Null = active. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("scope_groups_property_idx").on(t.propertyId)],
+);
+
+export const scopeGroupItems = pgTable(
+  "scope_group_items",
+  {
+    id: serial("id").primaryKey(),
+    scopeGroupId: integer("scope_group_id")
+      .notNull()
+      .references(() => scopeGroups.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    category: text("category"),
+    pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
+    unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
+    defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
+    quantityFormula: text("quantity_formula"),
+    /** Resolved into this property's chart; null if the chart lacks the code */
+    costCodeId: integer("cost_code_id").references(() => costCodes.id),
+    laborAssumptions: text("labor_assumptions"),
+    materialAssumptions: text("material_assumptions"),
+    notes: text("notes"),
+    active: boolean("active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("scope_group_items_group_idx").on(t.scopeGroupId)],
+);
 
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
@@ -454,6 +639,10 @@ export const glTransactions = pgTable("gl_transactions", {
 
 export const mappingRules = pgTable("mapping_rules", {
   id: serial("id").primaryKey(),
+  // Rules resolve a raw GL account/vendor/keyword to a cost code within one chart.
+  chartId: integer("chart_id")
+    .notNull()
+    .references(() => chartsOfAccounts.id),
   matchType: mappingMatchType("match_type").notNull(),
   /** The string to match: a GL account number, vendor name, or description keyword */
   pattern: text("pattern").notNull(),

@@ -1,123 +1,96 @@
-import { asc, sql } from "drizzle-orm";
+import Link from "next/link";
+import { asc, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AddCategoryDialog,
-  AddCostCodeDialog,
-  CategoryDivisionSelect,
-  EditCostCodeDialog,
-} from "@/components/coa-editors";
+import { Card, CardContent } from "@/components/ui/card";
+import { ChevronRight } from "lucide-react";
+import { AddChartDialog, ChartRowActions } from "@/components/chart-list";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChartOfAccountsPage() {
-  const categories = await db()
+export default async function ChartsListPage() {
+  const charts = await db()
     .select()
-    .from(schema.costCategories)
-    .orderBy(asc(schema.costCategories.sortOrder), asc(schema.costCategories.code));
+    .from(schema.chartsOfAccounts)
+    .where(isNull(schema.chartsOfAccounts.archivedAt))
+    .orderBy(asc(schema.chartsOfAccounts.name));
 
-  const codes = await db()
-    .select()
-    .from(schema.costCodes)
-    .orderBy(asc(schema.costCodes.code));
-
-  const usage = await db()
+  const codeCounts = await db()
     .select({
-      costCodeId: schema.glTransactions.costCodeId,
+      chartId: schema.costCodes.chartId,
       count: sql<number>`count(*)::int`,
     })
-    .from(schema.glTransactions)
-    .groupBy(schema.glTransactions.costCodeId);
-  const usageByCode = new Map(usage.map((u) => [u.costCodeId, u.count]));
+    .from(schema.costCodes)
+    .groupBy(schema.costCodes.chartId);
+  const codesByChart = new Map(codeCounts.map((c) => [c.chartId, c.count]));
+
+  const propCounts = await db()
+    .select({
+      chartId: schema.properties.chartOfAccountsId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.properties)
+    .groupBy(schema.properties.chartOfAccountsId);
+  const propsByChart = new Map(propCounts.map((c) => [c.chartId, c.count]));
+
+  const chartOptions = charts.map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {categories.length} categories · {codes.length} cost codes · shared across all properties
+          {charts.length} chart{charts.length === 1 ? "" : "s"} of accounts · each property binds to one
         </p>
-        <div className="flex gap-2">
-          <AddCategoryDialog />
-          <AddCostCodeDialog categories={categories} />
-        </div>
+        <AddChartDialog charts={chartOptions} />
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-navy">Chart of accounts</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">GL rows</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Edit</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {categories.map((cat) => {
-                const catCodes = codes.filter((c) => c.categoryId === cat.id);
-                return [
-                  <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
-                    <TableCell className="font-mono text-xs font-semibold text-navy">
-                      {cat.code}
-                    </TableCell>
-                    <TableCell className="font-semibold text-navy" colSpan={4}>
-                      {cat.name}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <CategoryDivisionSelect id={cat.id} division={cat.division} />
-                    </TableCell>
-                  </TableRow>,
-                  ...catCodes.map((c) => (
-                    <TableRow key={c.id} className={c.active ? undefined : "opacity-55"}>
-                      <TableCell className="pl-6 font-mono text-xs">{c.code}</TableCell>
-                      <TableCell>{c.name}</TableCell>
-                      <TableCell>
-                        {c.isInterior ? (
-                          <Badge variant="outline">Interior</Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Common</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {usageByCode.get(c.id) ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        {c.active ? (
-                          <span className="text-xs text-muted-foreground">Active</span>
-                        ) : (
-                          <Badge variant="outline">Inactive</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <EditCostCodeDialog
-                          id={c.id}
-                          code={c.code}
-                          name={c.name}
-                          active={c.active}
-                          isInterior={c.isInterior}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  )),
-                ];
-              })}
-            </TableBody>
-          </Table>
+        <CardContent className="divide-y p-0">
+          {charts.map((chart) => {
+            const codes = codesByChart.get(chart.id) ?? 0;
+            const props = propsByChart.get(chart.id) ?? 0;
+            return (
+              <div key={chart.id} className="flex items-center gap-3 px-4 py-3">
+                <Link
+                  href={`/settings/chart-of-accounts/${chart.id}`}
+                  className="group flex min-w-0 flex-1 items-center gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-semibold text-navy group-hover:underline">
+                        {chart.name}
+                      </span>
+                      {chart.isDefault && <Badge variant="outline">Default</Badge>}
+                    </div>
+                    {chart.description && (
+                      <p className="truncate text-xs text-muted-foreground">{chart.description}</p>
+                    )}
+                  </div>
+                </Link>
+                <div className="hidden shrink-0 gap-4 text-right text-xs text-muted-foreground sm:flex">
+                  <span className="tabular-nums">{codes} codes</span>
+                  <span className="tabular-nums">
+                    {props} propert{props === 1 ? "y" : "ies"}
+                  </span>
+                </div>
+                <ChartRowActions
+                  id={chart.id}
+                  name={chart.name}
+                  description={chart.description}
+                  isDefault={chart.isDefault}
+                  propertyCount={props}
+                />
+                <Link href={`/settings/chart-of-accounts/${chart.id}`}>
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                </Link>
+              </div>
+            );
+          })}
+          {charts.length === 0 && (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No charts yet. Add one to get started.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

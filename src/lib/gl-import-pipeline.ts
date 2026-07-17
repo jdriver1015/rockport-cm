@@ -31,6 +31,14 @@ export type AccountSummary = {
 
 /** Build the auto-mapping context (rules, cost codes, units, projects, dedupe keys). */
 export async function buildMapContext(propertyId: number): Promise<MapContext> {
+  // Rules and codes are scoped to the property's chart of accounts.
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, propertyId),
+    columns: { chartOfAccountsId: true },
+  });
+  if (!property) throw new Error(`Property ${propertyId} not found`);
+  const chartId = property.chartOfAccountsId;
+
   const rules: MappingRule[] = (
     await db()
       .select({
@@ -40,14 +48,15 @@ export async function buildMapContext(propertyId: number): Promise<MapContext> {
         priority: schema.mappingRules.priority,
       })
       .from(schema.mappingRules)
-      .where(eq(schema.mappingRules.active, true))
+      .where(and(eq(schema.mappingRules.chartId, chartId), eq(schema.mappingRules.active, true)))
   )
     .map((r) => ({ ...r, matchType: r.matchType as MappingRule["matchType"] }))
     .sort((a, b) => a.priority - b.priority);
 
   const codes = await db()
     .select({ id: schema.costCodes.id, isInterior: schema.costCodes.isInterior })
-    .from(schema.costCodes);
+    .from(schema.costCodes)
+    .where(eq(schema.costCodes.chartId, chartId));
   const interiorByCode = new Map(codes.map((c) => [c.id, c.isInterior]));
 
   const units = await db()

@@ -29,11 +29,20 @@ async function learnVendorRule(vendorRaw: string | null, costCodeId: number) {
   if (!vendorRaw) return;
   const pattern = vendorRaw.toLowerCase().trim();
   if (!pattern) return;
+
+  // The rule lives in the same chart as the code it maps to.
+  const code = await db().query.costCodes.findFirst({
+    where: eq(schema.costCodes.id, costCodeId),
+    columns: { chartId: true },
+  });
+  if (!code) return;
+
   const existing = await db()
     .select({ id: schema.mappingRules.id })
     .from(schema.mappingRules)
     .where(
       and(
+        eq(schema.mappingRules.chartId, code.chartId),
         eq(schema.mappingRules.matchType, "vendor"),
         eq(schema.mappingRules.pattern, pattern),
       ),
@@ -42,7 +51,7 @@ async function learnVendorRule(vendorRaw: string | null, costCodeId: number) {
   if (existing.length > 0) return;
   await db()
     .insert(schema.mappingRules)
-    .values({ matchType: "vendor", pattern, costCodeId, priority: 90 });
+    .values({ chartId: code.chartId, matchType: "vendor", pattern, costCodeId, priority: 90 });
 }
 
 const updateSchema = z.object({
@@ -63,6 +72,24 @@ export async function updateTransaction(input: {
   if (!txn) return { ok: false, error: "Transaction not found" };
 
   const nextCostCode = parsed.costCodeId ?? null;
+
+  // A code assigned here must belong to the property's chart of accounts.
+  if (nextCostCode !== null) {
+    const [property, code] = await Promise.all([
+      db().query.properties.findFirst({
+        where: eq(schema.properties.id, txn.propertyId),
+        columns: { chartOfAccountsId: true },
+      }),
+      db().query.costCodes.findFirst({
+        where: eq(schema.costCodes.id, nextCostCode),
+        columns: { chartId: true },
+      }),
+    ]);
+    if (!code) return { ok: false, error: "Cost code not found" };
+    if (!property || code.chartId !== property.chartOfAccountsId) {
+      return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
+    }
+  }
 
   await db()
     .update(schema.glTransactions)

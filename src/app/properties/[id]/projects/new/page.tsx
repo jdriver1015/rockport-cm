@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewProjectForm } from "@/components/new-project-form";
@@ -24,7 +24,7 @@ export default async function NewProjectPage({ params }: { params: Promise<{ id:
       isInterior: schema.costCodes.isInterior,
     })
     .from(schema.costCodes)
-    .where(eq(schema.costCodes.active, true))
+    .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), eq(schema.costCodes.active, true)))
     .orderBy(asc(schema.costCodes.code));
 
   return (

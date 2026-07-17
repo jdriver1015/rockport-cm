@@ -52,12 +52,20 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
     name ??= `Unit ${parsed.unitNumber} Interior`;
   } else {
     if (!parsed.costCodeId) return { ok: false, error: "Cost code is required for a common project" };
-    if (!name) {
-      const code = await db().query.costCodes.findFirst({
-        where: eq(schema.costCodes.id, parsed.costCodeId),
-      });
-      name = code?.name ?? "Project";
+    const code = await db().query.costCodes.findFirst({
+      where: eq(schema.costCodes.id, parsed.costCodeId),
+    });
+    if (!code) return { ok: false, error: "Cost code not found" };
+    // The code must belong to this property's chart of accounts.
+    const property = await db().query.properties.findFirst({
+      where: eq(schema.properties.id, parsed.propertyId),
+      columns: { chartOfAccountsId: true },
+    });
+    if (!property) return { ok: false, error: "Property not found" };
+    if (code.chartId !== property.chartOfAccountsId) {
+      return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
     }
+    if (!name) name = code.name ?? "Project";
   }
 
   const [project] = await db()

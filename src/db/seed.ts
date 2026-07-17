@@ -9,9 +9,11 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { drizzle } from "drizzle-orm/postgres-js";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import postgres from "postgres";
-import { costCategories, costCodes, mappingRules } from "./schema";
+import { chartsOfAccounts, costCategories, costCodes, mappingRules } from "./schema";
+
+const DEFAULT_CHART_NAME = "Westcreek Standard";
 
 const CATEGORIES: { code: string; name: string }[] = [
   { code: "1000", name: "Exterior Paint / Carpentry" },
@@ -140,39 +142,69 @@ async function main() {
   const client = postgres(url, { prepare: false, ssl: "require" });
   const db = drizzle(client);
 
+  // Resolve (or create) the default chart everything seeds into.
+  const existingChart = await db
+    .select()
+    .from(chartsOfAccounts)
+    .where(eq(chartsOfAccounts.name, DEFAULT_CHART_NAME));
+  let chartId = existingChart[0]?.id;
+  if (!chartId) {
+    const [created] = await db
+      .insert(chartsOfAccounts)
+      .values({
+        name: DEFAULT_CHART_NAME,
+        description: "Portfolio standard chart of accounts.",
+        isDefault: true,
+      })
+      .returning();
+    chartId = created.id;
+    console.log(`Created default chart #${chartId} "${DEFAULT_CHART_NAME}"`);
+  } else {
+    console.log(`Using existing chart #${chartId} "${DEFAULT_CHART_NAME}"`);
+  }
+
   const insertedCategories = await db
     .insert(costCategories)
-    .values(CATEGORIES.map((c, i) => ({ ...c, sortOrder: i })))
-    .onConflictDoNothing({ target: costCategories.code })
+    .values(CATEGORIES.map((c, i) => ({ ...c, chartId, sortOrder: i })))
+    .onConflictDoNothing({ target: [costCategories.chartId, costCategories.code] })
     .returning();
   console.log(`Categories: ${insertedCategories.length} inserted, ${CATEGORIES.length - insertedCategories.length} already present`);
 
-  const allCategories = await db.select().from(costCategories);
+  const allCategories = await db
+    .select()
+    .from(costCategories)
+    .where(eq(costCategories.chartId, chartId));
   const categoryIdByCode = new Map(allCategories.map((c) => [c.code, c.id]));
 
   const rows = CODES.map((c) => {
     const prefix = c.code.slice(0, 4);
     const categoryId = categoryIdByCode.get(prefix);
     if (!categoryId) throw new Error(`No category for cost code ${c.code}`);
-    return { ...c, categoryId, isInterior: prefix === "4000" };
+    return { ...c, chartId, categoryId, isInterior: prefix === "4000" };
   });
 
   const insertedCodes = await db
     .insert(costCodes)
     .values(rows)
-    .onConflictDoNothing({ target: costCodes.code })
+    .onConflictDoNothing({ target: [costCodes.chartId, costCodes.code] })
     .returning();
   console.log(`Cost codes: ${insertedCodes.length} inserted, ${CODES.length - insertedCodes.length} already present`);
 
-  // Mapping rules — only seed when the table is empty so learned rules survive re-runs
-  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(mappingRules);
+  // Mapping rules — only seed when this chart has none so learned rules survive re-runs
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(mappingRules)
+    .where(eq(mappingRules.chartId, chartId));
   if (count === 0) {
-    const allCodes = await db.select().from(costCodes);
+    const allCodes = await db
+      .select()
+      .from(costCodes)
+      .where(eq(costCodes.chartId, chartId));
     const codeIdByCode = new Map(allCodes.map((c) => [c.code, c.id]));
     const ruleRows = RULES.map((r) => {
       const costCodeId = codeIdByCode.get(r.code);
       if (!costCodeId) throw new Error(`No cost code ${r.code} for mapping rule "${r.pattern}"`);
-      return { matchType: r.matchType, pattern: r.pattern, costCodeId, priority: r.priority };
+      return { matchType: r.matchType, pattern: r.pattern, costCodeId, chartId, priority: r.priority };
     });
     await db.insert(mappingRules).values(ruleRows);
     console.log(`Mapping rules: ${ruleRows.length} inserted`);

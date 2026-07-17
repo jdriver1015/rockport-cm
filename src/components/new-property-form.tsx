@@ -8,9 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function NewPropertyForm() {
+type ChartOption = { id: number; name: string; isDefault: boolean };
+
+export function NewPropertyForm({ charts }: { charts: ChartOption[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const defaultChartId = charts.find((c) => c.isDefault)?.id ?? charts[0]?.id;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -58,6 +61,31 @@ export function NewPropertyForm() {
           <Label htmlFor="pmSystem">PM system</Label>
           <Input id="pmSystem" name="pmSystem" placeholder="BH / Yardi" />
         </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="chartOfAccountsId">Chart of accounts</Label>
+        <select
+          id="chartOfAccountsId"
+          name="chartOfAccountsId"
+          required
+          defaultValue={defaultChartId ?? ""}
+          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {charts.length === 0 && (
+            <option value="" disabled>
+              No charts — create one in Settings first
+            </option>
+          )}
+          {charts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.isDefault ? " (default)" : ""}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          Budget lines and GL codes use this chart. It locks once GL activity is imported.
+        </p>
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button type="submit" disabled={busy}>

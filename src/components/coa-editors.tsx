@@ -63,7 +63,7 @@ export function CategoryDivisionSelect({
   );
 }
 
-export function AddCategoryDialog() {
+export function AddCategoryDialog({ chartId }: { chartId: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -97,6 +97,7 @@ export function AddCategoryDialog() {
             }
           }}
         >
+          <input type="hidden" name="chartId" value={chartId} />
           <div className="space-y-1.5">
             <Label htmlFor="cat-code">Code</Label>
             <Input id="cat-code" name="code" required placeholder="1100" />
@@ -116,7 +117,13 @@ export function AddCategoryDialog() {
   );
 }
 
-export function AddCostCodeDialog({ categories }: { categories: Category[] }) {
+export function AddCostCodeDialog({
+  chartId,
+  categories,
+}: {
+  chartId: number;
+  categories: Category[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -150,6 +157,7 @@ export function AddCostCodeDialog({ categories }: { categories: Category[] }) {
             }
           }}
         >
+          <input type="hidden" name="chartId" value={chartId} />
           <div className="space-y-1.5">
             <Label htmlFor="cc-cat">Category</Label>
             <select
