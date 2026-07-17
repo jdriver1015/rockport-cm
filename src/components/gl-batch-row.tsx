@@ -70,7 +70,7 @@ export function GlBatchRow({
       <TableCell className="text-muted-foreground">{fmtDate(batch.createdAt)}</TableCell>
       <TableCell className="text-right tabular-nums">{batch.rowCount}</TableCell>
       <TableCell className="text-right tabular-nums">
-        {queueCount > 0 ? <span className="font-medium text-[#a3641f]">{queueCount}</span> : "—"}
+        {queueCount > 0 ? <span className="font-medium text-pending">{queueCount}</span> : "—"}
       </TableCell>
       <TableCell className="text-right tabular-nums">{postedCount}</TableCell>
       <TableCell>

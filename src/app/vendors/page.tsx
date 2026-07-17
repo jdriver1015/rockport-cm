@@ -48,7 +48,7 @@ export default async function VendorsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy">Vendors</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-navy">Vendors</h1>
         <p className="text-sm text-muted-foreground">Portfolio-wide roster — shared across every property</p>
       </div>
 

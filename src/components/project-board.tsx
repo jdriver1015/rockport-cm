@@ -6,10 +6,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { differenceInCalendarDays } from "date-fns";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { AmountCell } from "@/components/ui/amount-cell";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { StageDot } from "@/components/ui/stage-dot";
+import { TableCard } from "@/components/ui/table-card";
 import {
   Table,
   TableBody,
   TableCell,
+  TableGroupRow,
   TableHead,
   TableHeader,
   TableRow,
@@ -179,24 +184,14 @@ export function ProjectBoard({
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* View switcher */}
-        <div className="inline-flex rounded-md border border-border p-0.5">
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => {
-                setView(v.key);
-                syncUrl({ view: v.key });
-              }}
-              className={cn(
-                "rounded px-3 py-1 text-sm font-medium transition-colors",
-                view === v.key ? "bg-navy text-white" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          options={VIEWS.map((v) => ({ key: v.key, label: v.label }))}
+          value={view}
+          onChange={(v) => {
+            setView(v);
+            syncUrl({ view: v });
+          }}
+        />
 
         <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
           Group
@@ -399,7 +394,7 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
   // One fixed-layout table with full-width group-header rows so every group's
   // columns line up. `table-fixed` + explicit header widths keep them aligned.
   return (
-    <div className="overflow-x-auto rounded-md border">
+    <TableCard>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -414,14 +409,7 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
         <TableBody>
           {shown.map((g) => (
             <Fragment key={g.key}>
-              <TableRow className="bg-paper hover:bg-paper">
-                <TableCell colSpan={5} className="font-bold text-navy">
-                  {g.label}
-                </TableCell>
-                <TableCell className="text-right text-xs text-muted-foreground">
-                  {g.projects.length}
-                </TableCell>
-              </TableRow>
+              <TableGroupRow label={g.label} count={g.projects.length} colSpan={6} />
               {g.projects.map((p) => (
                 <TableRow
                   key={p.id}
@@ -438,20 +426,24 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
                     <span className="font-mono text-xs">{p.lineItem}</span>
                   </TableCell>
                   <TableCell>
-                    <StageBadge stage={p.stage} />
+                    <StageDot stage={p.stage} />
                   </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums text-navy">
-                    {money(p.budget)}
+                  <TableCell>
+                    <AmountCell value={p.budget} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{money(p.committed)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(p.jtd)}</TableCell>
+                  <TableCell>
+                    <AmountCell value={p.committed} />
+                  </TableCell>
+                  <TableCell>
+                    <AmountCell value={p.jtd} positive />
+                  </TableCell>
                 </TableRow>
               ))}
             </Fragment>
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TableCard>
   );
 }
 

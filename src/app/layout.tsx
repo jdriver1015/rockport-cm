@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Playfair_Display, Mulish, Geist_Mono } from "next/font/google";
+import { Fraunces, Instrument_Sans, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
@@ -8,18 +8,18 @@ import { db, schema } from "@/db";
 import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
-// Display serif — wordmark, page titles, and large currency values only.
-const playfair = Playfair_Display({
+// Display serif — wordmark only.
+const fraunces = Fraunces({
   variable: "--font-serif",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "600"],
 });
 
-// UI / body sans — all navigation, labels, tables, and body copy.
-const mulish = Mulish({
+// UI / body sans — everything else: navigation, titles, KPIs, tables, body copy.
+const instrumentSans = Instrument_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -61,18 +61,18 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${playfair.variable} ${mulish.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} ${instrumentSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <header className="bg-navy text-white">
           <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-8 px-6">
             <Link href="/" className="flex items-baseline gap-3">
               <span className="font-serif text-[22px] font-semibold leading-none">Rockport</span>
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8FA0BA]">
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-on-navy-muted">
                 construction manager
               </span>
             </Link>
-            <nav className="ml-auto flex items-center gap-6 text-sm text-[#CBD5E4]">
+            <nav className="ml-auto flex items-center gap-6 text-sm text-on-navy">
               {user ? (
                 <>
                   <Link href="/" className="transition-colors hover:text-white">
@@ -84,7 +84,7 @@ export default async function RootLayout({
                   <Link href="/settings" className="transition-colors hover:text-white">
                     Settings
                   </Link>
-                  <span className="text-xs text-[#8FA0BA]">
+                  <span className="text-xs text-on-navy-muted">
                     {profile?.fullName ?? user.email}
                     {profile?.role ? ` · ${ROLE_LABEL[profile.role] ?? profile.role}` : ""}
                   </span>

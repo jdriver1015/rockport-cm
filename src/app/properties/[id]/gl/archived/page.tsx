@@ -52,7 +52,7 @@ export default async function ArchivedBatchesPage({
             ← Import history
           </Link>
         </p>
-        <h1 className="mt-1 font-serif text-2xl font-semibold text-navy">Archived imports</h1>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-navy">Archived imports</h1>
       </div>
 
       <Card>

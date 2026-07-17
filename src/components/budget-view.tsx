@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { money } from "@/lib/format";
+import { AmountCell } from "@/components/ui/amount-cell";
+import { TableCard } from "@/components/ui/table-card";
 import { BudgetLineDetailDialog } from "@/components/budget-line-detail-dialog";
 
 export type AttachedProject = {
@@ -74,6 +75,7 @@ export function BudgetView({
 
   return (
     <>
+    <TableCard>
     <Table>
       <TableHeader>
         <TableRow>
@@ -91,7 +93,7 @@ export function BudgetView({
           const rows = [
             <TableRow
               key={`cat-${cat.code}`}
-              className="cursor-pointer bg-muted/60 hover:bg-muted"
+              className="cursor-pointer bg-surface-sub hover:bg-muted"
               onClick={() => toggle(cat.code)}
             >
               <TableCell>
@@ -100,13 +102,15 @@ export function BudgetView({
                 </span>
               </TableCell>
               <TableCell className="font-mono text-xs text-navy">{cat.code}</TableCell>
-              <TableCell className="text-navy">{cat.name}</TableCell>
-              <TableCell className="text-right tabular-nums text-navy">{money(cat.budget)}</TableCell>
-              <TableCell className="text-right tabular-nums text-navy">
-                {money(cat.committed)}
+              <TableCell className="font-bold text-navy">{cat.name}</TableCell>
+              <TableCell>
+                <AmountCell value={cat.budget} />
               </TableCell>
-              <TableCell className="text-right tabular-nums text-navy">
-                {money(cat.completed)}
+              <TableCell>
+                <AmountCell value={cat.committed} />
+              </TableCell>
+              <TableCell>
+                <AmountCell value={cat.completed} positive />
               </TableCell>
             </TableRow>,
           ];
@@ -123,14 +127,14 @@ export function BudgetView({
                     {line.code}
                   </TableCell>
                   <TableCell className="pl-4 text-muted-foreground">{line.name}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {money(line.budget)}
+                  <TableCell>
+                    <AmountCell value={line.budget} className="font-normal text-text-body" />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {money(line.committed)}
+                  <TableCell>
+                    <AmountCell value={line.committed} className="font-normal text-text-body" />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {money(line.completed)}
+                  <TableCell>
+                    <AmountCell value={line.completed} positive />
                   </TableCell>
                 </TableRow>
               )),
@@ -142,18 +146,21 @@ export function BudgetView({
       <TableFooter>
         <TableRow>
           <TableCell />
-          <TableCell className="text-navy">Total</TableCell>
+          <TableCell className="font-bold text-navy">Total</TableCell>
           <TableCell />
-          <TableCell className="text-right tabular-nums text-navy">{money(totals.budget)}</TableCell>
-          <TableCell className="text-right tabular-nums text-navy">
-            {money(totals.committed)}
+          <TableCell>
+            <AmountCell value={totals.budget} />
           </TableCell>
-          <TableCell className="text-right tabular-nums text-navy">
-            {money(totals.completed)}
+          <TableCell>
+            <AmountCell value={totals.committed} />
+          </TableCell>
+          <TableCell>
+            <AmountCell value={totals.completed} positive />
           </TableCell>
         </TableRow>
       </TableFooter>
     </Table>
+    </TableCard>
     <BudgetLineDetailDialog
       propertyId={propertyId}
       line={selected}

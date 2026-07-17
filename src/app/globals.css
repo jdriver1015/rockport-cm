@@ -10,21 +10,31 @@
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-serif);
+  --font-heading: var(--font-sans);
   /* Rockport brand + status tokens */
   --color-navy: var(--navy);
   --color-navy-deep: var(--navy-deep);
+  --color-navy-ink: var(--navy-ink);
+  --color-on-navy: var(--on-navy);
+  --color-on-navy-muted: var(--on-navy-muted);
+  --color-track: var(--track);
   --color-gold: var(--gold);
   --color-gold-soft: var(--gold-soft);
   --color-gold-link: var(--gold-link);
   --color-paper: var(--paper);
+  --color-surface-sub: var(--surface-sub);
   --color-divider: var(--divider);
+  --color-text: var(--text);
   --color-text-body: var(--text-body);
+  --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
+  --color-border-2: var(--border-2);
   --color-positive: var(--positive);
   --color-positive-bg: var(--positive-bg);
   --color-pending: var(--pending);
   --color-pending-bg: var(--pending-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
   --color-alert: var(--alert);
   --color-alert-bg: var(--alert-bg);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -63,6 +73,9 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-card: 14px;
+  --radius-control: 9px;
+  --radius-control-active: 7px;
 }
 
 :root {
@@ -145,49 +158,58 @@
     @apply font-sans;
   }
 }
-/* Rockport brand — navy + gold on white (see Rockport Brand Style Guide) */
+/* Rockport brand — navy + gold on white, "Structured Workspace" tokens */
 :root {
   /* Surfaces & text */
   --background: #ffffff;
-  --foreground: #1c2b42;
+  --foreground: #101828;
   --card: #ffffff;
-  --card-foreground: #1c2b42;
+  --card-foreground: #101828;
   --popover: #ffffff;
-  --popover-foreground: #1c2b42;
-  /* Gold is the primary intent color (CTAs) */
-  --primary: #c1932f;
+  --popover-foreground: #101828;
+  /* Navy is the primary intent color (CTAs); gold is reserved for accents/links */
+  --primary: #131f33;
   --primary-foreground: #ffffff;
   /* Secondary = white surface with a navy outline (set per-button) */
   --secondary: #ffffff;
-  --secondary-foreground: #1c2b42;
-  /* Warm paper for recessed panels / labels */
-  --muted: #f7f6f3;
-  --muted-foreground: #5e6675;
-  --accent: #f7f6f3;
-  --accent-foreground: #1c2b42;
+  --secondary-foreground: #101828;
+  --muted: #fafbfc;
+  --muted-foreground: #667085;
+  --accent: #fafbfc;
+  --accent-foreground: #101828;
   --destructive: #b23b3b;
-  --border: #e7e5e0;
-  --input: #e7e5e0;
+  --border: #eef0f2;
+  --input: #e4e7ec;
   --ring: #e4c877;
   --radius: 0.75rem;
-  --chart-1: #1c2b42;
+  --chart-1: #131f33;
   --chart-2: #c1932f;
   --chart-3: #e4c877;
 
   /* Brand + status extensions */
-  --navy: #1c2b42;
-  --navy-deep: #16233a;
+  --navy: #131f33;
+  --navy-deep: #0e1727;
+  --navy-ink: #1c2b42;
+  --on-navy: #cbd5e4;
+  --on-navy-muted: #8fa0ba;
+  --track: #edeff2;
   --gold: #c1932f;
   --gold-soft: #e4c877;
   --gold-link: #b98a2c;
   --paper: #f7f6f3;
-  --divider: #edebe6;
-  --text-body: #3c4557;
-  --text-faint: #8a8f99;
+  --surface-sub: #fafbfc;
+  --border-2: #e4e7ec;
+  --divider: #f5f6f7;
+  --text: #101828;
+  --text-body: #344054;
+  --text-muted: #667085;
+  --text-faint: #98a2b3;
   --positive: #1a7f4b;
   --positive-bg: #e6f4ea;
   --pending: #a15c00;
   --pending-bg: #fdf2e3;
+  --info: #2e5aac;
+  --info-bg: #e7edf7;
   --alert: #b23b3b;
   --alert-bg: #fbecec;
 }

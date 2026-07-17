@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { KpiStrip, type KpiItem } from "@/components/ui/kpi-strip";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -73,15 +74,6 @@ const FIELD_COLORS: Record<string, { bg: string; label: string }> = {
   lease_start: { bg: "bg-orange-100 dark:bg-orange-950/40", label: "Lease Start" },
   lease_end: { bg: "bg-orange-100 dark:bg-orange-950/40", label: "Lease End" },
 };
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold text-navy tabular-nums">{value}</div>
-    </div>
-  );
-}
 
 export function RentRollReview({
   batchId,
@@ -154,21 +146,26 @@ export function RentRollReview({
 
   return (
     <div className="space-y-6">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Total Units" value={summary.unitCount.toLocaleString()} />
-        <StatCard
-          label="Occupancy"
-          value={summary.occupancyPct != null ? `${summary.occupancyPct.toFixed(1)}%` : "—"}
-        />
-        <StatCard label="Avg Market Rent" value={money(avgMarket)} />
-        <StatCard label="Avg In-Place Rent" value={money(avgInPlace)} />
-        <StatCard label="Loss to Lease / mo" value={money(summary.lossToLease)} />
-        <StatCard
-          label="Confidence"
-          value={confidenceScore != null ? `${confidenceScore}%` : "—"}
-        />
-      </div>
+      {/* KPI strip */}
+      <KpiStrip
+        className="overflow-x-auto"
+        items={
+          [
+            { label: "Total Units", value: summary.unitCount.toLocaleString() },
+            {
+              label: "Occupancy",
+              value: summary.occupancyPct != null ? `${summary.occupancyPct.toFixed(1)}%` : "—",
+            },
+            { label: "Avg Market Rent", value: money(avgMarket) },
+            { label: "Avg In-Place Rent", value: money(avgInPlace) },
+            { label: "Loss to Lease / mo", value: money(summary.lossToLease) },
+            {
+              label: "Confidence",
+              value: confidenceScore != null ? `${confidenceScore}%` : "—",
+            },
+          ] satisfies KpiItem[]
+        }
+      />
 
       {warnings.length > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
