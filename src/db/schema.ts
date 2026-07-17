@@ -90,6 +90,23 @@ export const findingSeverity = pgEnum("finding_severity", ["low", "medium", "hig
 
 export const findingStatus = pgEnum("finding_status", ["open", "resolved"]);
 
+/** Rent roll upload lifecycle: file staged → parsing → reviewed → committed snapshot */
+export const rentRollBatchStatus = pgEnum("rent_roll_batch_status", [
+  "uploaded",
+  "parsing",
+  "needs_review",
+  "committed",
+  "failed",
+]);
+
+/** Physical occupancy of a rent-roll unit row */
+export const rentRollUnitStatus = pgEnum("rent_roll_unit_status", [
+  "occupied",
+  "notice",
+  "vacant",
+  "future",
+]);
+
 // ---------------------------------------------------------------------------
 // Users (profile rows keyed to Supabase auth users)
 // ---------------------------------------------------------------------------
@@ -583,3 +600,141 @@ export const auditPhotos = pgTable("audit_photos", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("audit_photos_finding_idx").on(t.findingId)]);
+
+// ---------------------------------------------------------------------------
+// Rent rolls — per-property, point-in-time unit snapshots imported from PM
+// exports (Yardi/ResMan/RealPage; Excel/CSV/PDF). A three-tier engine parses
+// each upload (deterministic format replay → AI column mapper → heuristic),
+// the result is reviewed, then committed. Every upload is kept as a dated
+// snapshot (history), never auto-superseded — the "active" roll for a property
+// is simply the most recent committed batch by as-of date. batch → units;
+// mapping memory (formats, examples) is portfolio-global like the GL tables.
+// ---------------------------------------------------------------------------
+
+export const rentRollBatches = pgTable(
+  "rent_roll_batches",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    fileName: text("file_name").notNull(),
+    /** Path of the original file in Supabase Storage */
+    storagePath: text("storage_path"),
+    sourceSystem: text("source_system"),
+    /** excel | csv | pdf */
+    fileKind: text("file_kind"),
+    status: rentRollBatchStatus("status").notNull().default("uploaded"),
+    /** Snapshot as-of date read from the file banner (YYYY-MM-DD) */
+    asOfDate: date("as_of_date"),
+    rowCount: integer("row_count").notNull().default(0),
+    occupiedCount: integer("occupied_count").notNull().default(0),
+    vacantCount: integer("vacant_count").notNull().default(0),
+    noticeCount: integer("notice_count").notNull().default(0),
+    occupancyPct: numeric("occupancy_pct", { precision: 5, scale: 2 }),
+    totalMarketRent: numeric("total_market_rent", { precision: 12, scale: 2 }),
+    totalInPlaceRent: numeric("total_in_place_rent", { precision: 12, scale: 2 }),
+    lossToLease: numeric("loss_to_lease", { precision: 12, scale: 2 }),
+    /** format_replay | ai | heuristic | pdf_ai */
+    parseMethod: text("parse_method"),
+    /** 0–100 from the validation suite */
+    confidenceScore: integer("confidence_score"),
+    /** Live parse progress for client polling: { stage, pct } */
+    parseProgress: jsonb("parse_progress"),
+    parseAttempts: integer("parse_attempts").notNull().default(0),
+    /** string[] of parser caveats surfaced on the review sheet */
+    warnings: jsonb("warnings"),
+    /**
+     * Display rollups the review sheet renders without recomputing:
+     * { floorplans, stats, mapping, rowFlags, rawSheet }. Units themselves
+     * live as real rows in rentRollUnits.
+     */
+    extractedMeta: jsonb("extracted_meta"),
+    errorMessage: text("error_message"),
+    uploadedBy: uuid("uploaded_by").references(() => profiles.id),
+    committedAt: timestamp("committed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: hidden from the snapshot history but restorable. Null = active. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("rent_roll_batches_property_idx").on(t.propertyId)],
+);
+
+export const rentRollUnits = pgTable(
+  "rent_roll_units",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    batchId: integer("batch_id")
+      .notNull()
+      .references(() => rentRollBatches.id),
+    unitNumber: text("unit_number").notNull(),
+    floorPlanCode: text("floor_plan_code"),
+    beds: integer("beds"),
+    baths: numeric("baths", { precision: 4, scale: 1 }),
+    squareFeet: integer("square_feet"),
+    marketRent: numeric("market_rent", { precision: 10, scale: 2 }),
+    inPlaceRent: numeric("in_place_rent", { precision: 10, scale: 2 }),
+    leaseStart: date("lease_start"),
+    leaseEnd: date("lease_end"),
+    moveInDate: date("move_in_date"),
+    moveOutDate: date("move_out_date"),
+    status: rentRollUnitStatus("status").notNull().default("vacant"),
+    residentName: text("resident_name"),
+    residentId: text("resident_id"),
+    unitNotes: text("unit_notes"),
+    /** Parser guessed a value on this row — surfaced in the review "Needs Review" list */
+    needsReview: boolean("needs_review").notNull().default(false),
+    reviewNote: text("review_note"),
+    /** Row number in the source file for drill-back */
+    sourceRow: integer("source_row"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("rent_roll_units_property_batch_idx").on(t.propertyId, t.batchId),
+    index("rent_roll_units_batch_idx").on(t.batchId),
+  ],
+);
+
+/**
+ * Learned rent-roll column layouts keyed by a header fingerprint. On a repeat
+ * export from the same PM system the saved mapping replays deterministically,
+ * skipping every AI call. Portfolio-global (no property_id).
+ */
+export const rentRollFormats = pgTable(
+  "rent_roll_formats",
+  {
+    id: serial("id").primaryKey(),
+    sourceSystem: text("source_system"),
+    /** Hash of the normalized header labels */
+    fingerprint: text("fingerprint").notNull(),
+    /** Complete confirmed mapping: { headerRow, columns, statusMap, vacantMarkers, ... } */
+    columnMapping: jsonb("column_mapping").notNull(),
+    createdBy: uuid("created_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("rent_roll_formats_fingerprint_uq").on(t.fingerprint)],
+);
+
+/**
+ * Few-shot hints fed to the AI column mapper: a raw header label seen in a
+ * source file and the canonical field it mapped to. Grows as users confirm
+ * rolls. Portfolio-global.
+ */
+export const rentRollMappingExamples = pgTable(
+  "rent_roll_mapping_examples",
+  {
+    id: serial("id").primaryKey(),
+    /** Raw header label seen in a source file, e.g. "Mkt Rent" */
+    rawLabel: text("raw_label").notNull(),
+    /** Canonical field it mapped to, e.g. "market_rent" */
+    mappedTo: text("mapped_to").notNull(),
+    createdBy: uuid("created_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("rent_roll_mapping_examples_uq").on(t.rawLabel, t.mappedTo)],
+);

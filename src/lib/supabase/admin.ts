@@ -27,3 +27,6 @@ export const GL_IMPORTS_PREFIX = "gl-imports";
 
 /** Prefix within ATTACHMENTS_BUCKET for site-audit photos. */
 export const AUDIT_PHOTOS_PREFIX = "audit-photos";
+
+/** Prefix within ATTACHMENTS_BUCKET for original rent-roll import files. */
+export const RENT_ROLLS_PREFIX = "rent-rolls";
