@@ -130,7 +130,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
   return (
     <div
       ref={scrollRef}
-      className="max-h-[70vh] overflow-auto rounded-card border border-border bg-card"
+      className="min-h-[600px] max-h-[70vh] overflow-auto rounded-card border border-border bg-card"
     >
       <div style={{ width: NAME_COL_WIDTH + totalWidth }}>
         {/* Header: sticky top; corner cell inside is sticky left (frozen corner) */}
