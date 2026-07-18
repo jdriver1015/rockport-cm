@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "/settings/chart-of-accounts", label: "Chart of Accounts" },
-  { href: "/settings/scope-groups", label: "Scope Groups" },
+  { href: "/settings/scope-groups", label: "Interior Scope Groups" },
   { href: "/settings/users", label: "Users" },
 ];
 
