@@ -505,8 +505,14 @@ export const scopeGroupTemplateItems = pgTable(
       .notNull()
       .references(() => scopeGroupTemplates.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    /** Display grouping, e.g. "Flooring", "Appliances" */
+    /** Trade section, e.g. "Cabinets", "Lighting", "Paint & Drywall" */
     category: text("category"),
+    /** True = Add/Deduct Alternative (optional line, priced separately per project) */
+    isAlternate: boolean("is_alternate").notNull().default(false),
+    /** Where in the unit this applies, e.g. "Kitchen", "Bath", "Throughout" */
+    location: text("location"),
+    /** Link to the standard product/spec sheet (finish schedule) */
+    productLink: text("product_link"),
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
@@ -552,6 +558,12 @@ export const scopeGroupItems = pgTable(
       .references(() => scopeGroups.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     category: text("category"),
+    /** True = Add/Deduct Alternative (optional line, priced separately per project) */
+    isAlternate: boolean("is_alternate").notNull().default(false),
+    /** Where in the unit this applies, e.g. "Kitchen", "Bath", "Throughout" */
+    location: text("location"),
+    /** Link to the standard product/spec sheet (finish schedule) */
+    productLink: text("product_link"),
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),

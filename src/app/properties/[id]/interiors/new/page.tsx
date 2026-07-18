@@ -81,8 +81,10 @@ export default async function NewInteriorProjectPage({
   const groups: WizardScopeGroup[] = groupRows.map((g) => ({
     id: g.id,
     name: g.name,
+    // Add/Deduct Alternatives are opt-in per project — only base scope lines
+    // auto-load into the wizard.
     items: allItems
-      .filter((it) => it.scopeGroupId === g.id)
+      .filter((it) => it.scopeGroupId === g.id && !it.isAlternate)
       .map((it) => ({
         id: it.id,
         name: it.name,

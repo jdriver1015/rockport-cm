@@ -25,6 +25,9 @@ export type GroupItem = {
   id: number;
   name: string;
   category: string | null;
+  isAlternate: boolean;
+  location: string | null;
+  productLink: string | null;
   pricingMethod: PricingMethod;
   unitPrice: string | null;
   defaultQuantity: string | null;
@@ -95,6 +98,25 @@ function GroupItemForm({
               </option>
             ))}
           </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="gi-location">Location</Label>
+          <Input
+            id="gi-location"
+            name="location"
+            defaultValue={item?.location ?? ""}
+            placeholder="Kitchen / Bath / Throughout"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="gi-link">Product link</Label>
+          <Input
+            id="gi-link"
+            name="productLink"
+            type="url"
+            defaultValue={item?.productLink ?? ""}
+            placeholder="https://…"
+          />
         </div>
       </div>
 
@@ -176,6 +198,16 @@ function GroupItemForm({
         <Label htmlFor="gi-notes">Notes</Label>
         <Textarea id="gi-notes" name="notes" rows={2} defaultValue={item?.notes ?? ""} />
       </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="isAlternate"
+          defaultChecked={item?.isAlternate ?? false}
+          className="size-4 accent-navy"
+        />
+        Add/Deduct Alternative — optional line, priced separately per project
+      </label>
 
       <div className="flex justify-end">
         <Button type="submit" disabled={busy}>

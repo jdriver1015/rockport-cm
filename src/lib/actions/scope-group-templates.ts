@@ -5,7 +5,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
-import { PRICING_METHODS } from "@/lib/pricing";
 
 // ---------------------------------------------------------------------------
 // Scope-group templates — the portfolio library managed under Settings. These
@@ -89,6 +88,9 @@ export async function duplicateScopeTemplate(id: number): Promise<ActionResult<{
           templateId: tpl.id,
           name: it.name,
           category: it.category,
+          isAlternate: it.isAlternate,
+          location: it.location,
+          productLink: it.productLink,
           pricingMethod: it.pricingMethod,
           unitPrice: it.unitPrice,
           defaultQuantity: it.defaultQuantity,
@@ -130,14 +132,12 @@ export async function restoreScopeTemplate(id: number): Promise<ActionResult> {
 
 const itemSchema = z.object({
   templateId: z.coerce.number().int().positive(),
-  name: z.string().trim().min(1, "Name is required"),
+  name: z.string().trim().min(1, "A work description is required"),
   category: z.string().trim().optional(),
-  pricingMethod: z.enum(PRICING_METHODS),
-  unitPrice: z.coerce.number().nonnegative().optional(),
-  defaultQuantity: z.coerce.number().nonnegative().optional(),
-  quantityFormula: z.string().trim().optional(),
+  isAlternate: z.boolean(),
+  location: z.string().trim().optional(),
+  productLink: z.string().trim().optional(),
   costCodeRef: z.string().trim().optional(),
-  laborAssumptions: z.string().trim().optional(),
   materialAssumptions: z.string().trim().optional(),
   notes: z.string().trim().optional(),
 });
@@ -147,12 +147,10 @@ function parseItemForm(formData: FormData) {
     templateId: formData.get("templateId"),
     name: formData.get("name"),
     category: formData.get("category") || undefined,
-    pricingMethod: formData.get("pricingMethod"),
-    unitPrice: formData.get("unitPrice") || undefined,
-    defaultQuantity: formData.get("defaultQuantity") || undefined,
-    quantityFormula: formData.get("quantityFormula") || undefined,
+    isAlternate: formData.get("isAlternate") === "on",
+    location: formData.get("location") || undefined,
+    productLink: formData.get("productLink") || undefined,
     costCodeRef: formData.get("costCodeRef") || undefined,
-    laborAssumptions: formData.get("laborAssumptions") || undefined,
     materialAssumptions: formData.get("materialAssumptions") || undefined,
     notes: formData.get("notes") || undefined,
   };
@@ -172,12 +170,10 @@ export async function addTemplateItem(formData: FormData): Promise<ActionResult>
     templateId: d.templateId,
     name: d.name,
     category: d.category ?? null,
-    pricingMethod: d.pricingMethod,
-    unitPrice: (d.unitPrice ?? 0).toFixed(2),
-    defaultQuantity: d.defaultQuantity != null ? d.defaultQuantity.toFixed(2) : null,
-    quantityFormula: d.quantityFormula ?? null,
+    isAlternate: d.isAlternate,
+    location: d.location ?? null,
+    productLink: d.productLink ?? null,
     costCodeRef: d.costCodeRef ?? null,
-    laborAssumptions: d.laborAssumptions ?? null,
     materialAssumptions: d.materialAssumptions ?? null,
     notes: d.notes ?? null,
     sortOrder: maxOrder + 1,
@@ -200,12 +196,10 @@ export async function updateTemplateItem(formData: FormData): Promise<ActionResu
     .set({
       name: d.name,
       category: d.category ?? null,
-      pricingMethod: d.pricingMethod,
-      unitPrice: (d.unitPrice ?? 0).toFixed(2),
-      defaultQuantity: d.defaultQuantity != null ? d.defaultQuantity.toFixed(2) : null,
-      quantityFormula: d.quantityFormula ?? null,
+      isAlternate: d.isAlternate,
+      location: d.location ?? null,
+      productLink: d.productLink ?? null,
       costCodeRef: d.costCodeRef ?? null,
-      laborAssumptions: d.laborAssumptions ?? null,
       materialAssumptions: d.materialAssumptions ?? null,
       notes: d.notes ?? null,
     })
