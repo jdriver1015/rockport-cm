@@ -102,9 +102,9 @@ export function BudgetView({
                 </span>
               </TableCell>
               <TableCell className="font-mono text-xs text-navy">{cat.code}</TableCell>
-              <TableCell className="font-bold text-navy">{cat.name}</TableCell>
+              <TableCell className="font-semibold text-text-body">{cat.name}</TableCell>
               <TableCell>
-                <AmountCell value={cat.budget} />
+                <AmountCell value={cat.budget} className="text-text-body" />
               </TableCell>
               <TableCell>
                 <AmountCell value={cat.committed} />
