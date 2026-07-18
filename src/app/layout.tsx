@@ -78,6 +78,9 @@ export default async function RootLayout({
                   <Link href="/" className="transition-colors hover:text-white">
                     Portfolio
                   </Link>
+                  <Link href="/schedule" className="transition-colors hover:text-white">
+                    Schedule
+                  </Link>
                   <Link href="/vendors" className="transition-colors hover:text-white">
                     Vendors
                   </Link>
