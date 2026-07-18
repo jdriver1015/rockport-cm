@@ -148,7 +148,6 @@ export function RentRollReview({
     <div className="space-y-6">
       {/* KPI strip */}
       <KpiStrip
-        className="overflow-x-auto"
         items={
           [
             { label: "Total Units", value: summary.unitCount.toLocaleString() },

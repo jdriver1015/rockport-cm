@@ -24,18 +24,18 @@ export function KpiStrip({
 }) {
   return (
     <div
-      className={cn(
-        "grid divide-x divide-border overflow-hidden rounded-card border border-border bg-card",
-        className
-      )}
-      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      className={cn("grid gap-3.5", className)}
+      style={{ gridTemplateColumns: `repeat(auto-fit, minmax(150px, 1fr))` }}
     >
       {items.map((item) => (
-        <div key={item.label} className="px-[22px] py-[18px]">
+        <div
+          key={item.label}
+          className="rounded-card border border-border bg-card px-5 py-[18px]"
+        >
           <div className="text-[11px] font-semibold tracking-[0.05em] text-text-faint uppercase">
             {item.label}
           </div>
-          <div className="mt-1.5 text-[23px] font-bold tracking-tight text-text tabular-nums">
+          <div className="mt-2 text-[22px] font-bold tracking-tight text-text tabular-nums">
             {item.value}
           </div>
           {item.delta ? (

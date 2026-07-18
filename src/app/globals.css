@@ -158,58 +158,58 @@
     @apply font-sans;
   }
 }
-/* Rockport brand — navy + gold on white, "Structured Workspace" tokens */
+/* Rockport brand — warm cream + navy + gold, "Structured Workspace" tokens */
 :root {
   /* Surfaces & text */
-  --background: #ffffff;
-  --foreground: #101828;
-  --card: #ffffff;
-  --card-foreground: #101828;
-  --popover: #ffffff;
-  --popover-foreground: #101828;
+  --background: oklch(98.2% 0.004 90);
+  --foreground: oklch(34% 0.014 260);
+  --card: oklch(99.3% 0.002 90);
+  --card-foreground: oklch(28% 0.015 260);
+  --popover: oklch(99.3% 0.002 90);
+  --popover-foreground: oklch(28% 0.015 260);
   /* Navy is the primary intent color (CTAs); gold is reserved for accents/links */
-  --primary: #131f33;
-  --primary-foreground: #ffffff;
+  --primary: oklch(30% 0.035 258);
+  --primary-foreground: oklch(97% 0.005 90);
   /* Secondary = white surface with a navy outline (set per-button) */
-  --secondary: #ffffff;
-  --secondary-foreground: #101828;
-  --muted: #fafbfc;
-  --muted-foreground: #667085;
-  --accent: #fafbfc;
-  --accent-foreground: #101828;
+  --secondary: oklch(99.3% 0.002 90);
+  --secondary-foreground: oklch(28% 0.015 260);
+  --muted: oklch(97.3% 0.004 90);
+  --muted-foreground: oklch(52% 0.015 260);
+  --accent: oklch(97.3% 0.004 90);
+  --accent-foreground: oklch(28% 0.015 260);
   --destructive: #b23b3b;
-  --border: #eef0f2;
-  --input: #e4e7ec;
-  --ring: #e4c877;
+  --border: oklch(92% 0.006 90);
+  --input: oklch(90% 0.006 90);
+  --ring: oklch(74% 0.11 78);
   --radius: 0.75rem;
-  --chart-1: #131f33;
-  --chart-2: #c1932f;
-  --chart-3: #e4c877;
+  --chart-1: oklch(30% 0.035 258);
+  --chart-2: oklch(72% 0.115 78);
+  --chart-3: oklch(58% 0.1 55);
 
   /* Brand + status extensions */
-  --navy: #131f33;
-  --navy-deep: #0e1727;
-  --navy-ink: #1c2b42;
-  --on-navy: #cbd5e4;
-  --on-navy-muted: #8fa0ba;
-  --track: #edeff2;
-  --gold: #c1932f;
-  --gold-soft: #e4c877;
-  --gold-link: #b98a2c;
-  --paper: #f7f6f3;
-  --surface-sub: #fafbfc;
-  --border-2: #e4e7ec;
-  --divider: #f5f6f7;
-  --text: #101828;
-  --text-body: #344054;
-  --text-muted: #667085;
-  --text-faint: #98a2b3;
-  --positive: #1a7f4b;
-  --positive-bg: #e6f4ea;
-  --pending: #a15c00;
-  --pending-bg: #fdf2e3;
-  --info: #2e5aac;
-  --info-bg: #e7edf7;
+  --navy: oklch(26% 0.035 258);
+  --navy-deep: oklch(20% 0.035 258);
+  --navy-ink: oklch(26% 0.035 258);
+  --on-navy: oklch(88% 0.01 258);
+  --on-navy-muted: oklch(72% 0.02 258);
+  --track: oklch(96% 0.005 90);
+  --gold: oklch(72% 0.115 78);
+  --gold-soft: oklch(80% 0.09 78);
+  --gold-link: oklch(58% 0.1 55);
+  --paper: oklch(98.2% 0.004 90);
+  --surface-sub: oklch(97.3% 0.004 90);
+  --border-2: oklch(90% 0.006 90);
+  --divider: oklch(95% 0.004 90);
+  --text: oklch(28% 0.015 260);
+  --text-body: oklch(30% 0.015 260);
+  --text-muted: oklch(52% 0.015 260);
+  --text-faint: oklch(58% 0.015 260);
+  --positive: oklch(52% 0.13 145);
+  --positive-bg: oklch(95% 0.05 145);
+  --pending: oklch(42% 0.1 65);
+  --pending-bg: oklch(96% 0.045 75);
+  --info: oklch(55% 0.13 250);
+  --info-bg: oklch(94% 0.03 250);
   --alert: #b23b3b;
   --alert-bg: #fbecec;
 }

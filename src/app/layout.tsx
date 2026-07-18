@@ -91,9 +91,9 @@ export default async function RootLayout({
                   <form action={signOut}>
                     <button
                       type="submit"
-                      className="rounded-[5px] border border-gold px-3.5 py-1.5 text-xs font-bold uppercase tracking-[0.08em] text-gold-soft transition-colors hover:bg-gold hover:text-white"
+                      className="rounded-[8px] bg-gold px-4 py-2 text-xs font-bold tracking-[0.03em] text-navy transition-colors hover:bg-gold-soft"
                     >
-                      Sign out
+                      SIGN OUT
                     </button>
                   </form>
                 </>

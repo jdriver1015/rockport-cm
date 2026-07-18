@@ -47,7 +47,7 @@ export default async function ArchivedAuditsPage({
             ← Site Audits
           </Link>
         </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-navy">Archived audits</h1>
+        <h1 className="mt-1 font-serif text-2xl font-semibold text-navy">Archived audits</h1>
       </div>
 
       <Card>

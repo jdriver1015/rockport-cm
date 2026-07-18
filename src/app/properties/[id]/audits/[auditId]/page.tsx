@@ -82,7 +82,7 @@ export default async function AuditDetailPage({
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-navy">{audit.title}</h1>
+              <h1 className="font-serif text-2xl font-semibold text-navy">{audit.title}</h1>
               <Badge variant={audit.status === "complete" ? "positive" : "pending"}>
                 {audit.status}
               </Badge>
