@@ -63,7 +63,9 @@ export function AuditPhotoGallery({
     try {
       const pos = await getPosition();
       const takenAt = new Date().toISOString();
-      for (const file of Array.from(files)) {
+      const fileArray = Array.from(files);
+      let successCount = 0;
+      for (const file of fileArray) {
         const fd = new FormData();
         fd.append("file", file);
         fd.append("findingId", String(findingId));
@@ -81,8 +83,12 @@ export function AuditPhotoGallery({
           toast.error(data.error ?? "Upload failed");
           break;
         }
+        successCount++;
       }
-      router.refresh();
+      if (successCount > 0) {
+        toast.success(`${successCount} photo${successCount === 1 ? "" : "s"} uploaded`);
+        await router.refresh();
+      }
     } finally {
       setBusy(false);
     }
