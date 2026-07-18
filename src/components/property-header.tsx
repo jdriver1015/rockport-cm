@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { fmtDate } from "@/lib/format";
+import { EditPropertyDialog } from "@/components/edit-property-dialog";
 
 export type PropertyHeaderData = {
+  id: number;
   name: string;
   entity: string | null;
   city: string | null;
   state: string | null;
   unitCount: number | null;
+  pmSystem: string | null;
   glUpdatedThru: string | null;
 };
 
@@ -36,7 +39,10 @@ export function PropertyHeader({
             {property.glUpdatedThru ? ` · GL thru ${fmtDate(property.glUpdatedThru)}` : ""}
           </p>
         </div>
-        {action}
+        <div className="flex items-center gap-2">
+          {action}
+          <EditPropertyDialog property={property} />
+        </div>
       </div>
     </div>
   );

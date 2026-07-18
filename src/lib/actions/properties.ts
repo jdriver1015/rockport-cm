@@ -40,6 +40,50 @@ export async function createProperty(formData: FormData): Promise<ActionResult<{
   return { ok: true, propertyId: property.id };
 }
 
+const updatePropertySchema = z.object({
+  id: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1, "Name is required"),
+  entity: z.string().trim().optional(),
+  city: z.string().trim().optional(),
+  state: z.string().trim().optional(),
+  unitCount: z.coerce.number().int().positive().optional(),
+  pmSystem: z.string().trim().optional(),
+});
+
+/** Edit a property's basic fields. Chart of accounts is changed separately via updatePropertyChart. */
+export async function updateProperty(formData: FormData): Promise<ActionResult> {
+  const parsed = updatePropertySchema.safeParse({
+    id: formData.get("id"),
+    name: formData.get("name"),
+    entity: formData.get("entity") || undefined,
+    city: formData.get("city") || undefined,
+    state: formData.get("state") || undefined,
+    unitCount: formData.get("unitCount") || undefined,
+    pmSystem: formData.get("pmSystem") || undefined,
+  });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const { id, ...rest } = parsed.data;
+
+  const existing = await db().query.properties.findFirst({ where: eq(schema.properties.id, id) });
+  if (!existing) return { ok: false, error: "Property not found" };
+
+  await db()
+    .update(schema.properties)
+    .set({
+      name: rest.name,
+      entity: rest.entity ?? null,
+      city: rest.city ?? null,
+      state: rest.state ?? null,
+      unitCount: rest.unitCount ?? null,
+      pmSystem: rest.pmSystem ?? null,
+    })
+    .where(eq(schema.properties.id, id));
+
+  revalidatePath(`/properties/${id}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
 /**
  * Count GL rows (any status — staged rows already reference codes) for a property.
  * Non-zero locks the chart, since switching would orphan those transactions.
