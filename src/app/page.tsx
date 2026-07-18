@@ -100,29 +100,12 @@ export default async function PortfolioPage() {
                     </p>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Budgeted</span>
-                      <span className="font-medium tabular-nums">{money(uw)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Completed</span>
-                      <span className="font-medium tabular-nums">{money(jtd)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Projects</span>
-                      <span className="font-medium tabular-nums">
-                        {counts ? `${counts.done} / ${counts.total} complete` : "—"}
-                      </span>
-                    </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-paper">
                       <div
                         className="h-full rounded-full bg-gold"
                         style={{ width: `${Math.min(pct, 100)}%` }}
                       />
                     </div>
-                    <p className="text-right text-xs text-muted-foreground">
-                      {pct}% of budget spent
-                    </p>
                   </CardContent>
                 </Card>
               </Link>
