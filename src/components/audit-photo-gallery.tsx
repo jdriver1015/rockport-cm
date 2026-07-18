@@ -58,12 +58,11 @@ export function AuditPhotoGallery({
     return p.hasAnnotation ? `${base}?v=annotated` : base;
   }
 
-  async function handleFiles(files: FileList) {
+  async function handleFiles(fileArray: File[]) {
     setBusy(true);
     try {
       const pos = await getPosition();
       const takenAt = new Date().toISOString();
-      const fileArray = Array.from(files);
       let successCount = 0;
       for (const file of fileArray) {
         const fd = new FormData();
@@ -131,8 +130,9 @@ export function AuditPhotoGallery({
             multiple
             className="hidden"
             onChange={(e) => {
-              if (e.target.files?.length) void handleFiles(e.target.files);
+              const files = e.target.files ? Array.from(e.target.files) : [];
               e.target.value = "";
+              if (files.length) void handleFiles(files);
             }}
           />
           <Button
