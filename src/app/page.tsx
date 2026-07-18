@@ -3,7 +3,6 @@ import { isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { KpiStrip, type KpiItem } from "@/components/ui/kpi-strip";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -44,24 +43,6 @@ export default async function PortfolioPage() {
   const jtdBy = new Map(jtdTotals.map((r) => [r.propertyId, parseFloat(r.total)]));
   const countsBy = new Map(projectCounts.map((r) => [r.propertyId, r]));
 
-  const totalBudgeted = [...budgetBy.values()].reduce((sum, v) => sum + v, 0);
-  const totalCompleted = [...jtdBy.values()].reduce((sum, v) => sum + v, 0);
-  const totalProjects = [...countsBy.values()].reduce((sum, c) => sum + c.total, 0);
-  const doneProjects = [...countsBy.values()].reduce((sum, c) => sum + c.done, 0);
-  const portfolioPct = totalBudgeted > 0 ? Math.round((totalCompleted / totalBudgeted) * 100) : 0;
-
-  const portfolioKpis: KpiItem[] = [
-    { label: "Properties", value: properties.length.toLocaleString() },
-    { label: "Total Budgeted", value: money(totalBudgeted) },
-    { label: "Total Completed", value: money(totalCompleted) },
-    {
-      label: "Projects",
-      value: `${doneProjects} / ${totalProjects} complete`,
-      delta: `${portfolioPct}% of budget spent`,
-      deltaVariant: "muted",
-    },
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -73,8 +54,6 @@ export default async function PortfolioPage() {
           New property
         </Button>
       </div>
-
-      {properties.length > 0 && <KpiStrip items={portfolioKpis} />}
 
       {properties.length === 0 ? (
         <Card>
@@ -100,12 +79,29 @@ export default async function PortfolioPage() {
                     </p>
                   </CardHeader>
                   <CardContent className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Budgeted</span>
+                      <span className="font-medium tabular-nums">{money(uw)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Completed</span>
+                      <span className="font-medium tabular-nums">{money(jtd)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Projects</span>
+                      <span className="font-medium tabular-nums">
+                        {counts ? `${counts.done} / ${counts.total} complete` : "—"}
+                      </span>
+                    </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-paper">
                       <div
                         className="h-full rounded-full bg-gold"
                         style={{ width: `${Math.min(pct, 100)}%` }}
                       />
                     </div>
+                    <p className="text-right text-xs text-muted-foreground">
+                      {pct}% of budget spent
+                    </p>
                   </CardContent>
                 </Card>
               </Link>
