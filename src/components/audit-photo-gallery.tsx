@@ -19,6 +19,10 @@ export type PhotoRow = {
   id: number;
   caption: string | null;
   hasAnnotation: boolean;
+  /** Storage path of the current render (original or annotated) — changes on
+   *  every re-annotation, used to cache-bust the <img> src so the browser
+   *  refetches instead of reusing the previous render. */
+  version: string;
   /** Pre-formatted GPS/timestamp line burned into the annotated render */
   stamp: string | null;
 };
@@ -55,7 +59,8 @@ export function AuditPhotoGallery({
 
   function photoUrl(p: PhotoRow) {
     const base = `/api/properties/${propertyId}/audits/${auditId}/photos/${p.id}`;
-    return p.hasAnnotation ? `${base}?v=annotated` : base;
+    const cacheBust = `t=${encodeURIComponent(p.version)}`;
+    return p.hasAnnotation ? `${base}?v=annotated&${cacheBust}` : `${base}?${cacheBust}`;
   }
 
   async function handleFiles(fileArray: File[]) {

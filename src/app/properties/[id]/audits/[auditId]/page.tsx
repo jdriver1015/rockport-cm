@@ -67,6 +67,10 @@ export default async function AuditDetailPage({
       id: p.id,
       caption: p.caption,
       hasAnnotation: p.annotatedPath != null,
+      // Cache-bust: annotatedPath gets a fresh UUID on every re-annotation, so
+      // using it as a version tag forces the <img> to refetch instead of
+      // reusing the previous render.
+      version: p.annotatedPath ?? p.storagePath,
       stamp: stampParts.length ? stampParts.join(" · ") : null,
     });
   }
