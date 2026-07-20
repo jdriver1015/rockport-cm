@@ -4,10 +4,11 @@ import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { BudgetView, type BudgetCategory } from "@/components/budget-view";
+import { BudgetView, type BudgetCategory, type BudgetDivision } from "@/components/budget-view";
 import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
 import { PropertyChartControl } from "@/components/property-chart-control";
 import { num } from "@/lib/format";
+import { DIVISIONS, divisionLabel } from "@/lib/divisions";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       return {
         code: cat.code,
         name: cat.name,
+        division: cat.division,
         budget: lineRows.reduce((s, l) => s + l.budget, 0),
         committed: lineRows.reduce((s, l) => s + l.committed, 0),
         completed: lineRows.reduce((s, l) => s + l.completed, 0),
@@ -169,6 +171,26 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       } satisfies BudgetCategory;
     })
     .filter((c): c is BudgetCategory => c !== null);
+
+  // Group categories into the broad divisions (Exterior / Amenities / Interiors
+  // / Fees) for the overview, in canonical order; anything unassigned sinks to
+  // the end.
+  const divisionOrder = new Map<string, number>(DIVISIONS.map((d, i) => [d.key, i]));
+  const byDivision = new Map<string, BudgetCategory[]>();
+  for (const cat of budgetCategories) {
+    const key = cat.division ?? "unassigned";
+    (byDivision.get(key) ?? byDivision.set(key, []).get(key)!).push(cat);
+  }
+  const budgetDivisions: BudgetDivision[] = [...byDivision.entries()]
+    .sort(([a], [b]) => (divisionOrder.get(a) ?? 99) - (divisionOrder.get(b) ?? 99))
+    .map(([key, cats]) => ({
+      key,
+      label: key === "unassigned" ? "Unassigned" : divisionLabel(key),
+      budget: cats.reduce((s, c) => s + c.budget, 0),
+      committed: cats.reduce((s, c) => s + c.committed, 0),
+      completed: cats.reduce((s, c) => s + c.completed, 0),
+      categories: cats,
+    }));
 
   const categoryOptions = categories.map((c) => ({ id: c.id, code: c.code, name: c.name }));
   const costCodeOptions = codes.map((c) => ({
@@ -210,7 +232,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
           />
         </CardHeader>
         <CardContent>
-          <BudgetView propertyId={property.id} categories={budgetCategories} />
+          <BudgetView propertyId={property.id} divisions={budgetDivisions} />
         </CardContent>
       </Card>
     </div>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { PlusIcon, MinusIcon } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -42,140 +41,137 @@ export type BudgetLineRow = {
 export type BudgetCategory = {
   code: string;
   name: string;
+  division: string | null;
   budget: number;
   committed: number;
   completed: number;
   lines: BudgetLineRow[];
 };
 
+export type BudgetDivision = {
+  key: string;
+  label: string;
+  budget: number;
+  committed: number;
+  completed: number;
+  categories: BudgetCategory[];
+};
+
 export function BudgetView({
   propertyId,
-  categories,
+  divisions,
 }: {
   propertyId: number;
-  categories: BudgetCategory[];
+  divisions: BudgetDivision[];
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<BudgetLineRow | null>(null);
 
-  function toggle(code: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  }
+  const totals = sumTotals(divisions);
 
-  const totals = sumTotals(categories);
-
-  if (categories.length === 0) {
+  if (divisions.length === 0) {
     return <p className="py-6 text-center text-sm text-muted-foreground">No budget loaded yet.</p>;
   }
 
   return (
     <>
-    <TableCard>
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-8" />
-          <TableHead>Code</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead className="text-right">Budgeted</TableHead>
-          <TableHead className="text-right">Committed</TableHead>
-          <TableHead className="text-right">Completed</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {categories.flatMap((cat) => {
-          const isOpen = expanded.has(cat.code);
-          const rows = [
-            <TableRow
-              key={`cat-${cat.code}`}
-              className="cursor-pointer bg-surface-sub hover:bg-muted"
-              onClick={() => toggle(cat.code)}
-            >
-              <TableCell>
-                <span className="flex size-5 items-center justify-center rounded border border-border bg-card text-muted-foreground">
-                  {isOpen ? <MinusIcon className="size-3" /> : <PlusIcon className="size-3" />}
-                </span>
-              </TableCell>
-              <TableCell className="font-mono text-xs text-navy">{cat.code}</TableCell>
-              <TableCell className="font-semibold text-text-body">{cat.name}</TableCell>
-              <TableCell>
-                <AmountCell value={cat.budget} className="text-text-body" />
-              </TableCell>
-              <TableCell>
-                <AmountCell value={cat.committed} />
-              </TableCell>
-              <TableCell>
-                <AmountCell value={cat.completed} positive />
-              </TableCell>
-            </TableRow>,
-          ];
-          if (isOpen) {
-            rows.push(
-              ...cat.lines.map((line) => (
-                <TableRow
-                  key={line.code}
-                  className="cursor-pointer hover:bg-muted/40"
-                  onClick={() => setSelected(line)}
-                >
-                  <TableCell />
-                  <TableCell className="pl-8 font-mono text-xs text-muted-foreground">
-                    {line.code}
-                  </TableCell>
-                  <TableCell className="pl-4 text-muted-foreground">{line.name}</TableCell>
+      <TableCard>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Code</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead className="text-right">Budgeted</TableHead>
+              <TableHead className="text-right">Committed</TableHead>
+              <TableHead className="text-right">Completed</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {divisions.flatMap((div) => [
+              <TableRow key={`div-${div.key}`} className="bg-navy/5 hover:bg-navy/5">
+                <TableCell />
+                <TableCell className="text-sm font-bold uppercase tracking-wide text-navy">
+                  {div.label}
+                </TableCell>
+                <TableCell>
+                  <AmountCell value={div.budget} className="font-bold text-navy" />
+                </TableCell>
+                <TableCell>
+                  <AmountCell value={div.committed} className="font-bold text-navy" />
+                </TableCell>
+                <TableCell>
+                  <AmountCell value={div.completed} className="font-bold" positive />
+                </TableCell>
+              </TableRow>,
+              ...div.categories.flatMap((cat) => [
+                <TableRow key={`cat-${cat.code}`} className="bg-surface-sub hover:bg-surface-sub">
+                  <TableCell className="pl-4 font-mono text-xs text-navy">{cat.code}</TableCell>
+                  <TableCell className="font-semibold text-text-body">{cat.name}</TableCell>
                   <TableCell>
-                    <AmountCell value={line.budget} className="font-normal text-text-body" />
+                    <AmountCell value={cat.budget} className="text-text-body" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={line.committed} className="font-normal text-text-body" />
+                    <AmountCell value={cat.committed} />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={line.completed} positive />
+                    <AmountCell value={cat.completed} positive />
                   </TableCell>
-                </TableRow>
-              )),
-            );
-          }
-          return rows;
-        })}
-      </TableBody>
-      <TableFooter>
-        <TableRow>
-          <TableCell />
-          <TableCell className="font-bold text-navy">Total</TableCell>
-          <TableCell />
-          <TableCell>
-            <AmountCell value={totals.budget} />
-          </TableCell>
-          <TableCell>
-            <AmountCell value={totals.committed} />
-          </TableCell>
-          <TableCell>
-            <AmountCell value={totals.completed} positive />
-          </TableCell>
-        </TableRow>
-      </TableFooter>
-    </Table>
-    </TableCard>
-    <BudgetLineDetailDialog
-      propertyId={propertyId}
-      line={selected}
-      onClose={() => setSelected(null)}
-    />
+                </TableRow>,
+                ...cat.lines.map((line) => (
+                  <TableRow
+                    key={line.code}
+                    className="cursor-pointer hover:bg-muted/40"
+                    onClick={() => setSelected(line)}
+                  >
+                    <TableCell className="pl-8 font-mono text-xs text-muted-foreground">
+                      {line.code}
+                    </TableCell>
+                    <TableCell className="pl-4 text-muted-foreground">{line.name}</TableCell>
+                    <TableCell>
+                      <AmountCell value={line.budget} className="font-normal text-text-body" />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={line.committed} className="font-normal text-text-body" />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={line.completed} positive />
+                    </TableCell>
+                  </TableRow>
+                )),
+              ]),
+            ])}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell />
+              <TableCell className="font-bold text-navy">Total</TableCell>
+              <TableCell>
+                <AmountCell value={totals.budget} />
+              </TableCell>
+              <TableCell>
+                <AmountCell value={totals.committed} />
+              </TableCell>
+              <TableCell>
+                <AmountCell value={totals.completed} positive />
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </TableCard>
+      <BudgetLineDetailDialog
+        propertyId={propertyId}
+        line={selected}
+        onClose={() => setSelected(null)}
+      />
     </>
   );
 }
 
-function sumTotals(categories: BudgetCategory[]) {
-  return categories.reduce(
-    (acc, cat) => ({
-      budget: acc.budget + cat.budget,
-      committed: acc.committed + cat.committed,
-      completed: acc.completed + cat.completed,
+function sumTotals(divisions: BudgetDivision[]) {
+  return divisions.reduce(
+    (acc, div) => ({
+      budget: acc.budget + div.budget,
+      committed: acc.committed + div.committed,
+      completed: acc.completed + div.completed,
     }),
     { budget: 0, committed: 0, completed: 0 },
   );
