@@ -29,7 +29,8 @@ export type BudgetLineRow = {
   code: string;
   name: string;
   budget: number;
-  committed: number;
+  planned: number;
+  inProcess: number;
   completed: number;
   perUnitAmount: number | null;
   plannedUnits: number | null;
@@ -43,7 +44,8 @@ export type BudgetCategory = {
   name: string;
   division: string | null;
   budget: number;
-  committed: number;
+  planned: number;
+  inProcess: number;
   completed: number;
   lines: BudgetLineRow[];
 };
@@ -52,7 +54,8 @@ export type BudgetDivision = {
   key: string;
   label: string;
   budget: number;
-  committed: number;
+  planned: number;
+  inProcess: number;
   completed: number;
   categories: BudgetCategory[];
 };
@@ -78,17 +81,16 @@ export function BudgetView({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Code</TableHead>
               <TableHead>Description</TableHead>
               <TableHead className="text-right">Budgeted</TableHead>
-              <TableHead className="text-right">Committed</TableHead>
+              <TableHead className="text-right">Planned</TableHead>
+              <TableHead className="text-right">In Process</TableHead>
               <TableHead className="text-right">Completed</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {divisions.flatMap((div) => [
               <TableRow key={`div-${div.key}`} className="bg-navy/5 hover:bg-navy/5">
-                <TableCell />
                 <TableCell className="text-sm font-bold uppercase tracking-wide text-navy">
                   {div.label}
                 </TableCell>
@@ -96,7 +98,10 @@ export function BudgetView({
                   <AmountCell value={div.budget} className="font-bold text-navy" />
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.committed} className="font-bold text-navy" />
+                  <AmountCell value={div.planned} className="font-bold text-navy" />
+                </TableCell>
+                <TableCell>
+                  <AmountCell value={div.inProcess} className="font-bold text-navy" />
                 </TableCell>
                 <TableCell>
                   <AmountCell value={div.completed} className="font-bold" positive />
@@ -104,13 +109,15 @@ export function BudgetView({
               </TableRow>,
               ...div.categories.flatMap((cat) => [
                 <TableRow key={`cat-${cat.code}`} className="bg-surface-sub hover:bg-surface-sub">
-                  <TableCell className="pl-4 font-mono text-xs text-navy">{cat.code}</TableCell>
-                  <TableCell className="font-semibold text-text-body">{cat.name}</TableCell>
+                  <TableCell className="pl-4 font-semibold text-text-body">{cat.name}</TableCell>
                   <TableCell>
                     <AmountCell value={cat.budget} className="text-text-body" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={cat.committed} />
+                    <AmountCell value={cat.planned} />
+                  </TableCell>
+                  <TableCell>
+                    <AmountCell value={cat.inProcess} />
                   </TableCell>
                   <TableCell>
                     <AmountCell value={cat.completed} positive />
@@ -122,15 +129,15 @@ export function BudgetView({
                     className="cursor-pointer hover:bg-muted/40"
                     onClick={() => setSelected(line)}
                   >
-                    <TableCell className="pl-8 font-mono text-xs text-muted-foreground">
-                      {line.code}
-                    </TableCell>
-                    <TableCell className="pl-4 text-muted-foreground">{line.name}</TableCell>
+                    <TableCell className="pl-8 text-muted-foreground">{line.name}</TableCell>
                     <TableCell>
                       <AmountCell value={line.budget} className="font-normal text-text-body" />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={line.committed} className="font-normal text-text-body" />
+                      <AmountCell value={line.planned} className="font-normal text-text-body" />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={line.inProcess} className="font-normal text-text-body" />
                     </TableCell>
                     <TableCell>
                       <AmountCell value={line.completed} positive />
@@ -142,13 +149,15 @@ export function BudgetView({
           </TableBody>
           <TableFooter>
             <TableRow>
-              <TableCell />
               <TableCell className="font-bold text-navy">Total</TableCell>
               <TableCell>
                 <AmountCell value={totals.budget} />
               </TableCell>
               <TableCell>
-                <AmountCell value={totals.committed} />
+                <AmountCell value={totals.planned} />
+              </TableCell>
+              <TableCell>
+                <AmountCell value={totals.inProcess} />
               </TableCell>
               <TableCell>
                 <AmountCell value={totals.completed} positive />
@@ -170,9 +179,10 @@ function sumTotals(divisions: BudgetDivision[]) {
   return divisions.reduce(
     (acc, div) => ({
       budget: acc.budget + div.budget,
-      committed: acc.committed + div.committed,
+      planned: acc.planned + div.planned,
+      inProcess: acc.inProcess + div.inProcess,
       completed: acc.completed + div.completed,
     }),
-    { budget: 0, committed: 0, completed: 0 },
+    { budget: 0, planned: 0, inProcess: 0, completed: 0 },
   );
 }

@@ -9,6 +9,7 @@ import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
 import { PropertyChartControl } from "@/components/property-chart-control";
 import { num } from "@/lib/format";
 import { DIVISIONS, divisionLabel } from "@/lib/divisions";
+import { bucketForStage } from "@/lib/stage-buckets";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
   // These queries don't depend on each other, so fire them in parallel — one
   // network round-trip instead of seven against the pooled Supabase connection.
-  const [categories, codes, lines, committedRows, completedRows, projectRows, jtdRows] =
+  const [categories, codes, lines, orphanGlRows, projectRows, jtdRows] =
     await Promise.all([
       db()
         .select()
@@ -66,18 +67,8 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .where(
           and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt)),
         ),
-      // JTD committed per cost code — contracted amounts on projects coded to the line.
-      db()
-        .select({
-          costCodeId: schema.projects.costCodeId,
-          total: sql<string>`coalesce(sum(${schema.projects.committedCost}), 0)`,
-        })
-        .from(schema.projects)
-        .where(
-          sql`${schema.projects.propertyId} = ${propertyId} and ${schema.projects.costCodeId} is not null`,
-        )
-        .groupBy(schema.projects.costCodeId),
-      // JTD completed per cost code — posted GL actuals.
+      // Posted GL with no owning project — real spend with no stage to bucket
+      // by, so it always counts as Completed.
       db()
         .select({
           costCodeId: schema.glTransactions.costCodeId,
@@ -85,7 +76,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         })
         .from(schema.glTransactions)
         .where(
-          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null`,
+          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null and ${schema.glTransactions.projectId} is null`,
         )
         .groupBy(schema.glTransactions.costCodeId),
       // Projects coded to each line (common projects link to a cost code; interior
@@ -114,23 +105,43 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .groupBy(schema.glTransactions.projectId),
     ]);
 
-  const committedByCode = new Map(committedRows.map((r) => [r.costCodeId, num(r.total)]));
-  const completedByCode = new Map(completedRows.map((r) => [r.costCodeId, num(r.total)]));
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+
+  // Bucket each cost code's dollars into Planned / In Process / Completed —
+  // a project's committed cost or actual spend lands in exactly one bucket,
+  // chosen by its own current stage (see src/lib/stage-buckets.ts).
+  type CodeBuckets = { planned: number; inProcess: number; completed: number };
+  const bucketsByCode = new Map<number, CodeBuckets>();
+  function addToBucket(codeId: number, key: keyof CodeBuckets, amount: number) {
+    const b = bucketsByCode.get(codeId) ?? { planned: 0, inProcess: 0, completed: 0 };
+    b[key] += amount;
+    bucketsByCode.set(codeId, b);
+  }
 
   const projectsByCode = new Map<number, BudgetCategory["lines"][number]["projects"]>();
   for (const p of projectRows) {
     if (p.costCodeId == null) continue;
+    const completedAmount = jtdByProject.get(p.id) ?? 0;
+    const committedAmount = num(p.committedCost);
     const list = projectsByCode.get(p.costCodeId) ?? [];
     list.push({
       id: p.id,
       name: p.name,
       stage: p.stage,
       budget: num(p.budgetAmount),
-      committed: num(p.committedCost),
-      completed: jtdByProject.get(p.id) ?? 0,
+      committed: committedAmount,
+      completed: completedAmount,
     });
     projectsByCode.set(p.costCodeId, list);
+
+    const bucket = bucketForStage(p.stage);
+    if (bucket === "planned") addToBucket(p.costCodeId, "planned", committedAmount);
+    else if (bucket === "in_process") addToBucket(p.costCodeId, "inProcess", committedAmount);
+    else addToBucket(p.costCodeId, "completed", completedAmount);
+  }
+  for (const r of orphanGlRows) {
+    if (r.costCodeId == null) continue;
+    addToBucket(r.costCodeId, "completed", num(r.total));
   }
 
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
@@ -145,27 +156,32 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .filter((x) => x.line);
       if (catLines.length === 0) return null;
 
-      const lineRows = catLines.map(({ code, line }) => ({
-        id: line!.id,
-        costCodeId: code.id,
-        code: code.code,
-        name: code.name,
-        budget: num(line!.uwAmount),
-        committed: committedByCode.get(code.id) ?? 0,
-        completed: completedByCode.get(code.id) ?? 0,
-        perUnitAmount: line!.perUnitAmount ? num(line!.perUnitAmount) : null,
-        plannedUnits: line!.plannedUnits ?? null,
-        isInterior: code.isInterior,
-        note: line!.note,
-        projects: projectsByCode.get(code.id) ?? [],
-      }));
+      const lineRows = catLines.map(({ code, line }) => {
+        const b = bucketsByCode.get(code.id) ?? { planned: 0, inProcess: 0, completed: 0 };
+        return {
+          id: line!.id,
+          costCodeId: code.id,
+          code: code.code,
+          name: code.name,
+          budget: num(line!.uwAmount),
+          planned: b.planned,
+          inProcess: b.inProcess,
+          completed: b.completed,
+          perUnitAmount: line!.perUnitAmount ? num(line!.perUnitAmount) : null,
+          plannedUnits: line!.plannedUnits ?? null,
+          isInterior: code.isInterior,
+          note: line!.note,
+          projects: projectsByCode.get(code.id) ?? [],
+        };
+      });
 
       return {
         code: cat.code,
         name: cat.name,
         division: cat.division,
         budget: lineRows.reduce((s, l) => s + l.budget, 0),
-        committed: lineRows.reduce((s, l) => s + l.committed, 0),
+        planned: lineRows.reduce((s, l) => s + l.planned, 0),
+        inProcess: lineRows.reduce((s, l) => s + l.inProcess, 0),
         completed: lineRows.reduce((s, l) => s + l.completed, 0),
         lines: lineRows,
       } satisfies BudgetCategory;
@@ -187,7 +203,8 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
       key,
       label: key === "unassigned" ? "Unassigned" : divisionLabel(key),
       budget: cats.reduce((s, c) => s + c.budget, 0),
-      committed: cats.reduce((s, c) => s + c.committed, 0),
+      planned: cats.reduce((s, c) => s + c.planned, 0),
+      inProcess: cats.reduce((s, c) => s + c.inProcess, 0),
       completed: cats.reduce((s, c) => s + c.completed, 0),
       categories: cats,
     }));

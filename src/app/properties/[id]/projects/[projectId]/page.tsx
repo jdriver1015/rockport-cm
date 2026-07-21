@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { fmtDate, money, num } from "@/lib/format";
 import { stageLabel } from "@/lib/stages";
+import { bucketForStage } from "@/lib/stage-buckets";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,8 @@ export default async function ProjectDetailPage({
 
   // None of these depend on each other — run them as one parallel batch rather
   // than six sequential round-trips to the pooled Supabase connection.
-  const [scope, auditLog, docs, bidJoins, activeVendors, activeContacts] = await Promise.all([
+  const [scope, auditLog, docs, bidJoins, activeVendors, activeContacts, [{ actualTotal }]] =
+    await Promise.all([
     db()
       .select()
       .from(schema.scopeItems)
@@ -100,7 +102,24 @@ export default async function ProjectDetailPage({
       .from(schema.vendorContacts)
       .where(eq(schema.vendorContacts.active, true))
       .orderBy(asc(schema.vendorContacts.name)),
+    // Actual posted GL spend for this project — used for the Completed figure.
+    db()
+      .select({ actualTotal: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)` })
+      .from(schema.glTransactions)
+      .where(
+        and(
+          eq(schema.glTransactions.projectId, projectId),
+          eq(schema.glTransactions.status, "posted"),
+        ),
+      ),
   ]);
+
+  // A project sits in exactly one lifecycle bucket at a time — its committed
+  // cost shows as Planned or In Process, or its actual spend as Completed.
+  const stageBucket = bucketForStage(project.stage);
+  const plannedFigure = stageBucket === "planned" ? num(project.committedCost) : 0;
+  const inProcessFigure = stageBucket === "in_process" ? num(project.committedCost) : 0;
+  const completedFigure = stageBucket === "completed" ? num(actualTotal) : 0;
 
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
@@ -189,6 +208,20 @@ export default async function ProjectDetailPage({
 
   const overview = (
     <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">Financials</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ProjectFigure label="Budgeted" value={money(project.budgetAmount)} />
+            <ProjectFigure label="Planned" value={money(plannedFigure)} />
+            <ProjectFigure label="In Process" value={money(inProcessFigure)} />
+            <ProjectFigure label="Completed" value={money(completedFigure)} />
+          </dl>
+        </CardContent>
+      </Card>
+
       {isPriced ? (
         <PricedScopeTable items={pricedScopeRows} />
       ) : (
@@ -341,6 +374,15 @@ export default async function ProjectDetailPage({
         }
         log={log}
       />
+    </div>
+  );
+}
+
+function ProjectFigure({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-paper/60 px-3 py-2">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="tabular-nums font-medium text-navy">{value}</dd>
     </div>
   );
 }

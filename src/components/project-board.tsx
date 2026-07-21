@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { money } from "@/lib/format";
 import { PROJECT_STAGES, stageIndex, stageLabel } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
+import { bucketForStage } from "@/lib/stage-buckets";
 import { setProjectStage } from "@/lib/actions/projects";
 
 export type BoardProject = {
@@ -221,7 +222,7 @@ export function ProjectBoard({
             options={[
               ["name", "Name"],
               ["budget", "Budgeted"],
-              ["committed", "Committed"],
+              ["committed", "Committed cost"],
               ["jtd", "Completed"],
               ["stage", "Stage"],
             ]}
@@ -398,47 +399,57 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[26%]">Project</TableHead>
-            <TableHead className="w-[28%]">UW line item</TableHead>
-            <TableHead className="w-[14%]">Stage</TableHead>
-            <TableHead className="w-[11%] text-right">Budgeted</TableHead>
-            <TableHead className="w-[11%] text-right">Committed</TableHead>
-            <TableHead className="w-[10%] text-right">Completed</TableHead>
+            <TableHead className="w-[22%]">Project</TableHead>
+            <TableHead className="w-[24%]">UW line item</TableHead>
+            <TableHead className="w-[12%]">Stage</TableHead>
+            <TableHead className="w-[10%] text-right">Budgeted</TableHead>
+            <TableHead className="w-[10%] text-right">Planned</TableHead>
+            <TableHead className="w-[11%] text-right">In Process</TableHead>
+            <TableHead className="w-[11%] text-right">Completed</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {shown.map((g) => (
             <Fragment key={g.key}>
-              <TableGroupRow label={g.label} count={g.projects.length} colSpan={6} />
-              {g.projects.map((p) => (
-                <TableRow
-                  key={p.id}
-                  onClick={() => router.push(`/properties/${propertyId}/projects/${p.id}`)}
-                  className="cursor-pointer hover:bg-muted/50"
-                >
-                  <TableCell className="truncate">
-                    <ProjectLink project={p} propertyId={propertyId} />
-                    {p.unitLabel && (
-                      <span className="ml-2 text-xs text-muted-foreground">{p.unitLabel}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="truncate text-muted-foreground">
-                    <span className="font-mono text-xs">{p.lineItem}</span>
-                  </TableCell>
-                  <TableCell>
-                    <StageDot stage={p.stage} />
-                  </TableCell>
-                  <TableCell>
-                    <AmountCell value={p.budget} />
-                  </TableCell>
-                  <TableCell>
-                    <AmountCell value={p.committed} />
-                  </TableCell>
-                  <TableCell>
-                    <AmountCell value={p.jtd} positive />
-                  </TableCell>
-                </TableRow>
-              ))}
+              <TableGroupRow label={g.label} count={g.projects.length} colSpan={7} />
+              {g.projects.map((p) => {
+                const bucket = bucketForStage(p.stage);
+                const planned = bucket === "planned" ? p.committed : 0;
+                const inProcess = bucket === "in_process" ? p.committed : 0;
+                const completed = bucket === "completed" ? p.jtd : 0;
+                return (
+                  <TableRow
+                    key={p.id}
+                    onClick={() => router.push(`/properties/${propertyId}/projects/${p.id}`)}
+                    className="cursor-pointer hover:bg-muted/50"
+                  >
+                    <TableCell className="truncate">
+                      <ProjectLink project={p} propertyId={propertyId} />
+                      {p.unitLabel && (
+                        <span className="ml-2 text-xs text-muted-foreground">{p.unitLabel}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="truncate text-muted-foreground">
+                      <span className="font-mono text-xs">{p.lineItem}</span>
+                    </TableCell>
+                    <TableCell>
+                      <StageDot stage={p.stage} />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={p.budget} />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={planned} />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={inProcess} />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell value={completed} positive />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </Fragment>
           ))}
         </TableBody>

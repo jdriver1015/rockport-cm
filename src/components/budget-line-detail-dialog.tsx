@@ -173,9 +173,10 @@ function DialogBody({
         </form>
       ) : (
         <div className="space-y-4">
-          <dl className="grid grid-cols-3 gap-3">
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Figure label="Budgeted" value={money(line.budget)} />
-            <Figure label="Committed" value={money(line.committed)} />
+            <Figure label="Planned" value={money(line.planned)} />
+            <Figure label="In Process" value={money(line.inProcess)} />
             <Figure label="Completed" value={money(line.completed)} />
           </dl>
 
