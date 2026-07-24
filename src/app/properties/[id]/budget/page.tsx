@@ -49,7 +49,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
 
   // These queries don't depend on each other, so fire them in parallel — one
   // network round-trip instead of seven against the pooled Supabase connection.
-  const [categories, codes, lines, orphanGlRows, projectRows, jtdRows] =
+  const [categories, codes, lines, unattributedGlRows, projectRows, jtdRows] =
     await Promise.all([
       db()
         .select()
@@ -67,16 +67,22 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .where(
           and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt)),
         ),
-      // Posted GL with no owning project — real spend with no stage to bucket
-      // by, so it always counts as Completed.
+      // Posted GL that a per-project rollup can't attribute to a code: rows
+      // with no owning project (real spend, nothing to bucket by), plus rows
+      // on a completed-stage *unit* project — those have no project-level
+      // costCodeId (a unit turn's cost is broken out per code in its own
+      // scopeItems, not one code per project), so their spend only surfaces
+      // here, credited to the transaction's own cost code.
       db()
         .select({
           costCodeId: schema.glTransactions.costCodeId,
           total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
         })
         .from(schema.glTransactions)
+        .leftJoin(schema.projects, eq(schema.glTransactions.projectId, schema.projects.id))
         .where(
-          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null and ${schema.glTransactions.projectId} is null`,
+          sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null
+              and (${schema.glTransactions.projectId} is null or (${schema.projects.kind} = 'unit' and ${schema.projects.stage} in ('complete', 'invoiced', 'closed')))`,
         )
         .groupBy(schema.glTransactions.costCodeId),
       // Projects coded to each line (common projects link to a cost code; interior
@@ -134,12 +140,17 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     });
     projectsByCode.set(p.costCodeId, list);
 
+    // Never hide real spend: a project can have posted GL before its contract
+    // amount was ever recorded (or before it's formally marked complete), so
+    // Planned/In Process show whichever is larger — the committed figure or
+    // what's actually been spent so far.
     const bucket = bucketForStage(p.stage);
-    if (bucket === "planned") addToBucket(p.costCodeId, "planned", committedAmount);
-    else if (bucket === "in_process") addToBucket(p.costCodeId, "inProcess", committedAmount);
+    if (bucket === "planned") addToBucket(p.costCodeId, "planned", Math.max(committedAmount, completedAmount));
+    else if (bucket === "in_process")
+      addToBucket(p.costCodeId, "inProcess", Math.max(committedAmount, completedAmount));
     else addToBucket(p.costCodeId, "completed", completedAmount);
   }
-  for (const r of orphanGlRows) {
+  for (const r of unattributedGlRows) {
     if (r.costCodeId == null) continue;
     addToBucket(r.costCodeId, "completed", num(r.total));
   }

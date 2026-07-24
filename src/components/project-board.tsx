@@ -413,9 +413,13 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
             <Fragment key={g.key}>
               <TableGroupRow label={g.label} count={g.projects.length} colSpan={7} />
               {g.projects.map((p) => {
+                // Never hide real spend: a project can have posted GL before
+                // its contract amount was recorded, so Planned/In Process show
+                // whichever is larger — committed cost or actual spend so far.
                 const bucket = bucketForStage(p.stage);
-                const planned = bucket === "planned" ? p.committed : 0;
-                const inProcess = bucket === "in_process" ? p.committed : 0;
+                const inPlaceAmount = Math.max(p.committed, p.jtd);
+                const planned = bucket === "planned" ? inPlaceAmount : 0;
+                const inProcess = bucket === "in_process" ? inPlaceAmount : 0;
                 const completed = bucket === "completed" ? p.jtd : 0;
                 return (
                   <TableRow

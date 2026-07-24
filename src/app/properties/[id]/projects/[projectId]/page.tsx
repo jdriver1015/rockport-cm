@@ -116,9 +116,13 @@ export default async function ProjectDetailPage({
 
   // A project sits in exactly one lifecycle bucket at a time — its committed
   // cost shows as Planned or In Process, or its actual spend as Completed.
+  // Never hide real spend: a project can have posted GL before its contract
+  // amount was recorded, so Planned/In Process show whichever is larger —
+  // the committed figure or what's actually been spent so far.
   const stageBucket = bucketForStage(project.stage);
-  const plannedFigure = stageBucket === "planned" ? num(project.committedCost) : 0;
-  const inProcessFigure = stageBucket === "in_process" ? num(project.committedCost) : 0;
+  const inPlaceAmount = Math.max(num(project.committedCost), num(actualTotal));
+  const plannedFigure = stageBucket === "planned" ? inPlaceAmount : 0;
+  const inProcessFigure = stageBucket === "in_process" ? inPlaceAmount : 0;
   const completedFigure = stageBucket === "completed" ? num(actualTotal) : 0;
 
   const documentRows: DocumentRow[] = docs.map((d) => ({
