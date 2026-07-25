@@ -14,7 +14,7 @@ import {
 import { PropertyHeader } from "@/components/property-header";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { fmtDate } from "@/lib/format";
-import { stageLabel } from "@/lib/stages";
+import { phaseLabel } from "@/lib/stages";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +85,7 @@ export default async function ArchivedProjectsPage({
                         </Link>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {stageLabel(p.stage)}
+                        {phaseLabel(p.phase)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {p.archivedAt ? fmtDate(p.archivedAt) : "—"}

@@ -1,28 +1,22 @@
 import { cn } from "@/lib/utils";
-import { stageLabel, type ProjectStageKey } from "@/lib/stages";
+import { phaseLabel, type ProjectPhaseKey } from "@/lib/stages";
 
-// Not-started stages read muted; Ready/In Progress are the active "info" blue;
-// Punch is the pending amber; anything past Complete reads positive/done.
-const STAGE_COLOR: Record<ProjectStageKey, string> = {
-  planned: "text-text-muted",
-  bidding: "text-text-muted",
-  ready: "text-info",
-  in_progress: "text-info",
+const PHASE_COLOR: Record<ProjectPhaseKey, string> = {
+  precon: "text-text-muted",
+  in_process: "text-info",
   punch: "text-pending",
   complete: "text-positive",
-  invoiced: "text-positive",
-  closed: "text-positive",
 };
 
 export function StageDot({
-  stage,
+  phase,
   className,
 }: {
-  stage: ProjectStageKey | string;
+  phase: ProjectPhaseKey | string;
   className?: string;
 }) {
-  const color = STAGE_COLOR[stage as ProjectStageKey] ?? "text-text-muted";
-  const label = stageLabel(stage);
+  const color = PHASE_COLOR[phase as ProjectPhaseKey] ?? "text-text-muted";
+  const label = phaseLabel(phase);
   return (
     <span className={cn("inline-flex items-center gap-1.5 text-[13px] font-semibold", color, className)}>
       <span className="size-[7px] shrink-0 rounded-full bg-current" />

@@ -1,25 +1,42 @@
-export const PROJECT_STAGES = [
-  { key: "planned", label: "Planned", gate: "Scoped with a budget amount" },
-  { key: "bidding", label: "Bidding", gate: "Bids collected; vendor selected" },
-  { key: "ready", label: "Ready", gate: "Contract committed / unit vacant, scheduled" },
-  { key: "in_progress", label: "In Progress", gate: "Work started; photos as trades finish" },
-  { key: "punch", label: "Punch", gate: "Punch walk done; items logged with photos" },
-  { key: "complete", label: "Complete", gate: "All punch items resolved" },
-  { key: "invoiced", label: "Invoiced", gate: "All costs posted from GL" },
-  { key: "closed", label: "Closed", gate: "Reconciled to budget" },
+/**
+ * The four operational phases a project moves through. Collapsed from the
+ * original eight-stage system — planned/bidding/ready → precon,
+ * in_progress → in_process, punch stays, complete/invoiced/closed → complete.
+ */
+export const PROJECT_PHASES = [
+  { key: "precon", label: "Pre-Con", gate: "Scoped, budgeted, contracted, vendor assigned" },
+  { key: "in_process", label: "In Process", gate: "Work substantially complete" },
+  { key: "punch", label: "Punch", gate: "All punch items resolved" },
+  { key: "complete", label: "Complete", gate: "Costs posted and reconciled" },
 ] as const;
 
-export type ProjectStageKey = (typeof PROJECT_STAGES)[number]["key"];
+export type ProjectPhaseKey = (typeof PROJECT_PHASES)[number]["key"];
 
-export function stageIndex(key: string): number {
-  return PROJECT_STAGES.findIndex((s) => s.key === key);
+export function phaseIndex(key: string): number {
+  return PROJECT_PHASES.findIndex((p) => p.key === key);
 }
 
-export function stageLabel(key: string): string {
-  return PROJECT_STAGES.find((s) => s.key === key)?.label ?? key;
+export function phaseLabel(key: string): string {
+  return PROJECT_PHASES.find((p) => p.key === key)?.label ?? key;
 }
 
-export function nextStage(key: string) {
-  const i = stageIndex(key);
-  return i >= 0 && i < PROJECT_STAGES.length - 1 ? PROJECT_STAGES[i + 1] : null;
+export function nextPhase(key: string) {
+  const i = phaseIndex(key);
+  return i >= 0 && i < PROJECT_PHASES.length - 1 ? PROJECT_PHASES[i + 1] : null;
+}
+
+/** Map legacy 8-stage keys to the 4-phase model. */
+const STAGE_TO_PHASE: Record<string, ProjectPhaseKey> = {
+  planned: "precon",
+  bidding: "precon",
+  ready: "precon",
+  in_progress: "in_process",
+  punch: "punch",
+  complete: "complete",
+  invoiced: "complete",
+  closed: "complete",
+};
+
+export function stageToPhase(stage: string): ProjectPhaseKey {
+  return STAGE_TO_PHASE[stage] ?? "complete";
 }

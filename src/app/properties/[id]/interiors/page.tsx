@@ -9,11 +9,11 @@ import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { ManageScopeGroupsButton } from "@/components/interior-scope-groups";
 import { num } from "@/lib/format";
-import { PROJECT_STAGES } from "@/lib/stages";
+import { PROJECT_PHASES } from "@/lib/stages";
 
 export const dynamic = "force-dynamic";
 
-const stageLabel = new Map(PROJECT_STAGES.map((s) => [s.key, s.label]));
+const phaseLabelMap = new Map(PROJECT_PHASES.map((p) => [p.key, p.label]));
 
 export default async function InteriorsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -47,7 +47,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ id: 
       .select({
         id: schema.projects.id,
         name: schema.projects.name,
-        stage: schema.projects.stage,
+        phase: schema.projects.phase,
         budgetAmount: schema.projects.budgetAmount,
         unitNumber: schema.units.unitNumber,
       })
@@ -115,7 +115,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ id: 
                     <span className="tabular-nums text-sm text-muted-foreground">
                       ${num(p.budgetAmount).toLocaleString()}
                     </span>
-                    <Badge variant="outline">{stageLabel.get(p.stage) ?? p.stage}</Badge>
+                    <Badge variant="outline">{phaseLabelMap.get(p.phase) ?? p.phase}</Badge>
                   </div>
                 </Link>
               ))}

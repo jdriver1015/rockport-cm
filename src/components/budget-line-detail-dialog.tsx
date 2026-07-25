@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
-import { stageLabel } from "@/lib/stages";
+import { phaseLabel } from "@/lib/stages";
 import { updateBudgetLine, deleteBudgetLine, restoreBudgetLine } from "@/lib/actions/budget";
 import type { BudgetLineRow } from "@/components/budget-view";
 
@@ -204,7 +204,7 @@ function DialogBody({
                       {p.name}
                     </Link>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {stageLabel(p.stage)}
+                      {phaseLabel(p.phase)}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
                       {money(p.completed)} / {money(p.budget)}

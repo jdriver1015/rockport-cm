@@ -1,16 +1,16 @@
-import { PROJECT_STAGES, stageIndex } from "@/lib/stages";
+import { PROJECT_PHASES, phaseIndex } from "@/lib/stages";
 import { cn } from "@/lib/utils";
 
 export function StagePipeline({ current }: { current: string }) {
-  const activeIdx = stageIndex(current);
+  const activeIdx = phaseIndex(current);
   return (
     <ol className="flex flex-wrap gap-1.5">
-      {PROJECT_STAGES.map((stage, i) => {
+      {PROJECT_PHASES.map((phase, i) => {
         const state = i < activeIdx ? "done" : i === activeIdx ? "active" : "todo";
         return (
           <li
-            key={stage.key}
-            title={stage.gate}
+            key={phase.key}
+            title={phase.gate}
             className={cn(
               "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
               state === "done" && "border-transparent bg-band text-navy",
@@ -19,7 +19,7 @@ export function StagePipeline({ current }: { current: string }) {
             )}
           >
             {state === "done" && <span aria-hidden>✓</span>}
-            {stage.label}
+            {phase.label}
           </li>
         );
       })}

@@ -7,7 +7,7 @@ export type ScheduleProject = {
   propertyName: string;
   name: string;
   kind: string;
-  stage: string;
+  phase: string;
   unitLabel: string | null;
   preWalkDate: string | null;
   startDate: string | null;
@@ -30,7 +30,7 @@ export async function getScheduleProjects(opts?: {
       propertyName: schema.properties.name,
       name: schema.projects.name,
       kind: schema.projects.kind,
-      stage: schema.projects.stage,
+      phase: schema.projects.phase,
       unitNumber: schema.units.unitNumber,
       preWalkDate: schema.projects.preWalkDate,
       startDate: schema.projects.startDate,
@@ -60,7 +60,7 @@ export async function getScheduleProjects(opts?: {
     propertyName: r.propertyName,
     name: r.name,
     kind: r.kind,
-    stage: r.stage,
+    phase: r.phase,
     unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
     preWalkDate: r.preWalkDate,
     startDate: r.startDate,

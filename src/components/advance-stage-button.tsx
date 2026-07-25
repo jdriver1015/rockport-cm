@@ -4,16 +4,16 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { setProjectStage } from "@/lib/actions/projects";
+import { setProjectPhase } from "@/lib/actions/projects";
 
-export function AdvanceStageButton({
+export function AdvancePhaseButton({
   projectId,
-  toStage,
+  toPhase,
   label,
   gate,
 }: {
   projectId: number;
-  toStage: string;
+  toPhase: string;
   label: string;
   gate: string;
 }) {
@@ -27,9 +27,9 @@ export function AdvanceStageButton({
       onClick={() => {
         const fd = new FormData();
         fd.set("projectId", String(projectId));
-        fd.set("toStage", toStage);
+        fd.set("toPhase", toPhase);
         startTransition(async () => {
-          const result = await setProjectStage(fd);
+          const result = await setProjectPhase(fd);
           if (!result.ok) {
             toast.error(result.error);
             return;

@@ -14,12 +14,16 @@ import { and, eq } from "drizzle-orm";
 import postgres from "postgres";
 import { costCodes, projects, projectStageEvents } from "../src/db/schema";
 import { CHART_ID, PROPERTY_ID, excelSerialToISO, loadWorkbook, parseConstructionSchedule } from "./lexington-workbook";
-import type { ProjectStageKey } from "../src/lib/stages";
+import { stageToPhase, type ProjectPhaseKey } from "../src/lib/stages";
 
-function stageFor(status: string, pctDone: number): ProjectStageKey {
-  if (status === "Completed") return "complete";
-  if (status === "In Progress" || pctDone > 0) return "in_progress";
-  return "planned";
+type LegacyStage = "planned" | "in_progress" | "complete";
+
+function stageFor(status: string, pctDone: number): { stage: LegacyStage; phase: ProjectPhaseKey } {
+  const stage: LegacyStage =
+    status === "Completed" ? "complete" :
+    (status === "In Progress" || pctDone > 0) ? "in_progress" :
+    "planned";
+  return { stage, phase: stageToPhase(stage) };
 }
 
 async function main() {
@@ -51,7 +55,7 @@ async function main() {
   for (const g of groups) {
     const costCodeId = idByCode.get(g.costCode);
     if (!costCodeId) throw new Error(`Cost code ${g.costCode} not found for schedule group "${g.name}"`);
-    const stage = stageFor(g.status, g.pctDone);
+    const { stage, phase } = stageFor(g.status, g.pctDone);
 
     const [project] = await db
       .insert(projects)
@@ -61,12 +65,13 @@ async function main() {
         kind: "common",
         costCodeId,
         stage,
+        phase,
         startDate: excelSerialToISO(g.start),
         completeDate: stage === "complete" ? excelSerialToISO(g.end) : null,
         targetCompletionDate: stage !== "complete" ? excelSerialToISO(g.end) : null,
       })
       .returning({ id: projects.id });
-    await db.insert(projectStageEvents).values({ projectId: project.id, toStage: stage });
+    await db.insert(projectStageEvents).values({ projectId: project.id, toStage: stage, toPhase: phase });
     count++;
   }
 

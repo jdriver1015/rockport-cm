@@ -21,16 +21,16 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { money } from "@/lib/format";
-import { PROJECT_STAGES, stageIndex, stageLabel } from "@/lib/stages";
+import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
-import { bucketForStage } from "@/lib/stage-buckets";
-import { setProjectStage } from "@/lib/actions/projects";
+import { bucketForPhase } from "@/lib/stage-buckets";
+import { setProjectPhase } from "@/lib/actions/projects";
 
 export type BoardProject = {
   id: number;
   name: string;
   kind: string;
-  stage: string;
+  phase: string;
   budget: number;
   committed: number;
   jtd: number;
@@ -43,8 +43,8 @@ export type BoardProject = {
 };
 
 type ViewMode = "table" | "kanban" | "gantt";
-type GroupBy = "stage" | "division" | "category" | "none";
-type SortKey = "name" | "budget" | "committed" | "jtd" | "stage";
+type GroupBy = "phase" | "division" | "category" | "none";
+type SortKey = "name" | "budget" | "committed" | "jtd" | "phase";
 type Dir = "asc" | "desc";
 type KindFilter = "all" | "common" | "unit";
 
@@ -58,10 +58,10 @@ function isView(v: string | undefined): v is ViewMode {
   return v === "table" || v === "kanban" || v === "gantt";
 }
 function isGroup(v: string | undefined): v is GroupBy {
-  return v === "stage" || v === "division" || v === "category" || v === "none";
+  return v === "phase" || v === "division" || v === "category" || v === "none";
 }
 function isSort(v: string | undefined): v is SortKey {
-  return v === "name" || v === "budget" || v === "committed" || v === "jtd" || v === "stage";
+  return v === "name" || v === "budget" || v === "committed" || v === "jtd" || v === "phase";
 }
 
 export function ProjectBoard({
@@ -88,7 +88,7 @@ export function ProjectBoard({
   const searchParams = useSearchParams();
 
   const [view, setView] = useState<ViewMode>(isView(initialView) ? initialView : "table");
-  const [group, setGroup] = useState<GroupBy>(isGroup(initialGroup) ? initialGroup : "stage");
+  const [group, setGroup] = useState<GroupBy>(isGroup(initialGroup) ? initialGroup : "phase");
   const [sort, setSort] = useState<SortKey>(isSort(initialSort) ? initialSort : "name");
   const [dir, setDir] = useState<Dir>(initialDir === "desc" ? "desc" : "asc");
   const [kind, setKind] = useState<KindFilter>(
@@ -99,8 +99,8 @@ export function ProjectBoard({
   const [pending, startTransition] = useTransition();
   const [optimistic, applyOptimistic] = useOptimistic(
     projects,
-    (state: BoardProject[], move: { id: number; stage: string }) =>
-      state.map((p) => (p.id === move.id ? { ...p, stage: move.stage } : p)),
+    (state: BoardProject[], move: { id: number; phase: string }) =>
+      state.map((p) => (p.id === move.id ? { ...p, phase: move.phase } : p)),
   );
 
   // Keep the URL in sync so a view is shareable and survives reload.
@@ -117,7 +117,7 @@ export function ProjectBoard({
     };
     const defaults: Record<string, string> = {
       view: "table",
-      group: "stage",
+      group: "phase",
       sort: "name",
       dir: "asc",
       kind: "all",
@@ -156,8 +156,8 @@ export function ProjectBoard({
       case "jtd":
         cmp = a.jtd - b.jtd;
         break;
-      case "stage":
-        cmp = stageIndex(a.stage) - stageIndex(b.stage);
+      case "phase":
+        cmp = phaseIndex(a.phase) - phaseIndex(b.phase);
         break;
     }
     return dir === "asc" ? cmp : -cmp;
@@ -165,13 +165,13 @@ export function ProjectBoard({
 
   const groups = buildGroups(sorted, group);
 
-  function advanceStage(projectId: number, toStage: string) {
+  function advancePhase(projectId: number, toPhase: string) {
     startTransition(async () => {
-      applyOptimistic({ id: projectId, stage: toStage });
+      applyOptimistic({ id: projectId, phase: toPhase });
       const fd = new FormData();
       fd.set("projectId", String(projectId));
-      fd.set("toStage", toStage);
-      const res = await setProjectStage(fd);
+      fd.set("toPhase", toPhase);
+      const res = await setProjectPhase(fd);
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -203,7 +203,7 @@ export function ProjectBoard({
               syncUrl({ group: v });
             }}
             options={[
-              ["stage", "Stage"],
+              ["phase", "Phase"],
               ["division", "Division"],
               ["category", "Category"],
               ["none", "None"],
@@ -224,7 +224,7 @@ export function ProjectBoard({
               ["budget", "Budgeted"],
               ["committed", "Committed cost"],
               ["jtd", "Completed"],
-              ["stage", "Stage"],
+              ["phase", "Phase"],
             ]}
           />
           <button
@@ -280,7 +280,7 @@ export function ProjectBoard({
           groupBy={group}
           propertyId={propertyId}
           pending={pending}
-          onDropToStage={advanceStage}
+          onDropToPhase={advancePhase}
         />
       ) : (
         <GanttView groups={groups} propertyId={propertyId} />
@@ -299,11 +299,11 @@ function buildGroups(projects: BoardProject[], groupBy: GroupBy): Group[] {
   if (groupBy === "none") {
     return [{ key: "all", label: "All projects", projects }];
   }
-  if (groupBy === "stage") {
-    return PROJECT_STAGES.map((s) => ({
-      key: s.key,
-      label: s.label,
-      projects: projects.filter((p) => p.stage === s.key),
+  if (groupBy === "phase") {
+    return PROJECT_PHASES.map((ph) => ({
+      key: ph.key,
+      label: ph.label,
+      projects: projects.filter((p) => p.phase === ph.key),
     }));
   }
   if (groupBy === "division") {
@@ -355,10 +355,10 @@ function SelectBox({
   );
 }
 
-function StageBadge({ stage }: { stage: string }) {
+function PhaseBadge({ phase }: { phase: string }) {
   return (
     <Badge variant="secondary" className="border border-border">
-      {stageLabel(stage)}
+      {phaseLabel(phase)}
     </Badge>
   );
 }
@@ -401,7 +401,7 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
           <TableRow>
             <TableHead className="w-[22%]">Project</TableHead>
             <TableHead className="w-[24%]">UW line item</TableHead>
-            <TableHead className="w-[12%]">Stage</TableHead>
+            <TableHead className="w-[12%]">Phase</TableHead>
             <TableHead className="w-[10%] text-right">Budgeted</TableHead>
             <TableHead className="w-[10%] text-right">Planned</TableHead>
             <TableHead className="w-[11%] text-right">In Process</TableHead>
@@ -416,7 +416,7 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
                 // Never hide real spend: a project can have posted GL before
                 // its contract amount was recorded, so Planned/In Process show
                 // whichever is larger — committed cost or actual spend so far.
-                const bucket = bucketForStage(p.stage);
+                const bucket = bucketForPhase(p.phase);
                 const inPlaceAmount = Math.max(p.committed, p.jtd);
                 const planned = bucket === "planned" ? inPlaceAmount : 0;
                 const inProcess = bucket === "in_process" ? inPlaceAmount : 0;
@@ -437,7 +437,7 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
                       <span className="font-mono text-xs">{p.lineItem}</span>
                     </TableCell>
                     <TableCell>
-                      <StageDot stage={p.stage} />
+                      <StageDot phase={p.phase} />
                     </TableCell>
                     <TableCell>
                       <AmountCell value={p.budget} />
@@ -471,22 +471,22 @@ function KanbanView({
   groupBy,
   propertyId,
   pending,
-  onDropToStage,
+  onDropToPhase,
 }: {
   groups: Group[];
   groupBy: GroupBy;
   propertyId: number;
   pending: boolean;
-  onDropToStage: (projectId: number, toStage: string) => void;
+  onDropToPhase: (projectId: number, toPhase: string) => void;
 }) {
-  const draggable = groupBy === "stage";
+  const draggable = groupBy === "phase";
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   return (
     <div>
       {!draggable && (
         <p className="mb-2 text-xs text-muted-foreground">
-          Drag-to-move is available when grouped by Stage.
+          Drag-to-move is available when grouped by Phase.
         </p>
       )}
       <div className="flex gap-3 overflow-x-auto pb-2">
@@ -504,7 +504,7 @@ function KanbanView({
               e.preventDefault();
               setDragOver(null);
               const pid = Number(e.dataTransfer.getData("text/plain"));
-              if (pid) onDropToStage(pid, g.key);
+              if (pid) onDropToPhase(pid, g.key);
             }}
             className={cn(
               "flex w-64 shrink-0 flex-col rounded-lg border bg-muted",
@@ -534,7 +534,7 @@ function KanbanView({
                     <span className="text-xs font-semibold tabular-nums text-navy">
                       {money(p.budget)}
                     </span>
-                    {groupBy !== "stage" && <StageBadge stage={p.stage} />}
+                    {groupBy !== "phase" && <PhaseBadge phase={p.phase} />}
                   </div>
                   {p.unitLabel && (
                     <div className="mt-1 text-[11px] text-muted-foreground">{p.unitLabel}</div>
@@ -614,7 +614,7 @@ function GanttView({ groups, propertyId }: { groups: Group[]; propertyId: number
                       }}
                       title={`${p.startDate} → ${p.completeDate ?? "in progress"}`}
                     >
-                      <span className="truncate">{stageLabel(p.stage)}</span>
+                      <span className="truncate">{phaseLabel(p.phase)}</span>
                     </div>
                   ) : (
                     <span className="absolute left-2 top-1 text-[11px] text-muted-foreground">

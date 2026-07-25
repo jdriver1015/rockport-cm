@@ -18,7 +18,7 @@ import { BudgetLineDetailDialog } from "@/components/budget-line-detail-dialog";
 export type AttachedProject = {
   id: number;
   name: string;
-  stage: string;
+  phase: string;
   budget: number;
   committed: number;
   completed: number;

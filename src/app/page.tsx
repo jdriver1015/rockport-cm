@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money, num } from "@/lib/format";
-import { bucketForStage } from "@/lib/stage-buckets";
+import { bucketForPhase } from "@/lib/stage-buckets";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,7 @@ export default async function PortfolioPage() {
       .select({
         id: schema.projects.id,
         propertyId: schema.projects.propertyId,
-        stage: schema.projects.stage,
+        phase: schema.projects.phase,
         committedCost: schema.projects.committedCost,
       })
       .from(schema.projects)
@@ -58,7 +58,7 @@ export default async function PortfolioPage() {
   const jtdByProject = new Map(projectJtdRows.map((r) => [r.projectId, num(r.total)]));
   const committedBy = new Map<number, { planned: number; inProcess: number }>();
   for (const p of projectRows) {
-    const bucket = bucketForStage(p.stage);
+    const bucket = bucketForPhase(p.phase);
     if (bucket === "completed") continue;
     const amount = Math.max(num(p.committedCost), jtdByProject.get(p.id) ?? 0);
     const entry = committedBy.get(p.propertyId) ?? { planned: 0, inProcess: 0 };

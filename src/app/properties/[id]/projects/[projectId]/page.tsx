@@ -17,8 +17,8 @@ import { DocumentManager, type DocumentRow } from "@/components/document-manager
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
 import { fmtDate, money, num } from "@/lib/format";
-import { stageLabel } from "@/lib/stages";
-import { bucketForStage } from "@/lib/stage-buckets";
+import { phaseLabel } from "@/lib/stages";
+import { bucketForPhase } from "@/lib/stage-buckets";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -159,7 +159,7 @@ export default async function ProjectDetailPage({
   // Never hide real spend: a project can have posted GL before its contract
   // amount was recorded, so Planned/In Process show whichever is larger —
   // the committed figure or what's actually been spent so far.
-  const stageBucket = bucketForStage(project.stage);
+  const stageBucket = bucketForPhase(project.phase);
   const inPlaceAmount = Math.max(num(project.committedCost), num(actualTotal));
   const plannedFigure = stageBucket === "planned" ? inPlaceAmount : 0;
   const inProcessFigure = stageBucket === "in_process" ? inPlaceAmount : 0;
@@ -368,8 +368,8 @@ export default async function ProjectDetailPage({
               <li key={e.id} className="flex items-center gap-3 text-sm">
                 <span className="w-32 shrink-0 text-muted-foreground">{fmtDate(e.createdAt)}</span>
                 <Badge variant="secondary" className="border border-border">
-                  {e.fromStage ? `${stageLabel(e.fromStage)} → ` : ""}
-                  {stageLabel(e.toStage)}
+                  {e.fromPhase ? `${phaseLabel(e.fromPhase)} → ` : ""}
+                  {e.toPhase ? phaseLabel(e.toPhase) : e.fromPhase ? "" : "Created"}
                 </Badge>
                 {e.note && <span className="text-muted-foreground">{e.note}</span>}
               </li>
@@ -391,7 +391,7 @@ export default async function ProjectDetailPage({
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
-            <StatusBadgeDropdown projectId={project.id} stage={project.stage} />
+            <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
             {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
           </div>
           <div className="flex items-center gap-2">

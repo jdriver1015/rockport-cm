@@ -379,6 +379,7 @@ export const projects = pgTable("projects", {
   /** Unit projects only */
   unitId: integer("unit_id").references(() => units.id),
   stage: projectStage("stage").notNull().default("planned"),
+  phase: projectPhase("phase").notNull().default("precon"),
   /** This project's own planned cost (e.g. ~$12K for a unit turn) */
   budgetAmount: numeric("budget_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   /** Contracted amount (approved bid); actuals come from posted GL transactions */
@@ -411,6 +412,8 @@ export const projectStageEvents = pgTable("project_stage_events", {
     .references(() => projects.id),
   fromStage: projectStage("from_stage"),
   toStage: projectStage("to_stage").notNull(),
+  fromPhase: projectPhase("from_phase"),
+  toPhase: projectPhase("to_phase"),
   note: text("note"),
   userId: uuid("user_id").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

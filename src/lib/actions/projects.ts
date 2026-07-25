@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { PROJECT_STAGES } from "@/lib/stages";
+import { PROJECT_PHASES } from "@/lib/stages";
 import type { ActionResult } from "@/lib/action-result";
 
 const createProjectSchema = z.object({
@@ -84,6 +84,7 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
   await db().insert(schema.projectStageEvents).values({
     projectId: project.id,
     toStage: "planned",
+    toPhase: "precon",
     note: "Project created",
   });
 
@@ -160,18 +161,18 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
-const stageKeys = PROJECT_STAGES.map((s) => s.key) as [string, ...string[]];
+const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
 
-const setStageSchema = z.object({
+const setPhaseSchema = z.object({
   projectId: z.coerce.number().int().positive(),
-  toStage: z.enum(stageKeys),
+  toPhase: z.enum(phaseKeys),
   note: z.string().trim().optional(),
 });
 
-export async function setProjectStage(formData: FormData): Promise<ActionResult> {
-  const parsed = setStageSchema.parse({
+export async function setProjectPhase(formData: FormData): Promise<ActionResult> {
+  const parsed = setPhaseSchema.parse({
     projectId: formData.get("projectId"),
-    toStage: formData.get("toStage"),
+    toPhase: formData.get("toPhase"),
     note: formData.get("note") || undefined,
   });
 
@@ -179,20 +180,18 @@ export async function setProjectStage(formData: FormData): Promise<ActionResult>
     where: eq(schema.projects.id, parsed.projectId),
   });
   if (!project) return { ok: false, error: "Project not found" };
-  if (project.stage === parsed.toStage) return { ok: true };
+  if (project.phase === parsed.toPhase) return { ok: true };
 
-  const toStage = parsed.toStage as typeof project.stage;
+  const toPhase = parsed.toPhase as typeof project.phase;
 
   await db()
     .update(schema.projects)
     .set({
-      stage: toStage,
-      // Stage timestamps drive days-to-complete analytics.
-      // toLocaleDateString("en-CA") = YYYY-MM-DD in server-local time, not UTC.
-      ...(toStage === "in_progress" && !project.startDate
+      phase: toPhase,
+      ...(toPhase === "in_process" && !project.startDate
         ? { startDate: new Date().toLocaleDateString("en-CA") }
         : {}),
-      ...(toStage === "complete" && !project.completeDate
+      ...(toPhase === "complete" && !project.completeDate
         ? { completeDate: new Date().toLocaleDateString("en-CA") }
         : {}),
     })
@@ -200,8 +199,9 @@ export async function setProjectStage(formData: FormData): Promise<ActionResult>
 
   await db().insert(schema.projectStageEvents).values({
     projectId: parsed.projectId,
-    fromStage: project.stage,
-    toStage,
+    toStage: project.stage,
+    fromPhase: project.phase,
+    toPhase,
     note: parsed.note,
   });
 
@@ -213,11 +213,6 @@ export async function setProjectStage(formData: FormData): Promise<ActionResult>
 
 const projectIdSchema = z.object({ projectId: z.coerce.number().int().positive() });
 
-/**
- * Soft-delete — hides the project from active views but keeps its scope,
- * bids, and GL history intact so nothing downstream (budget rollups, JTD)
- * loses data. Reversible via restoreProject.
- */
 export async function archiveProject(formData: FormData): Promise<ActionResult> {
   const parsed = projectIdSchema.safeParse({ projectId: formData.get("projectId") });
   if (!parsed.success) return { ok: false, error: "Invalid project" };

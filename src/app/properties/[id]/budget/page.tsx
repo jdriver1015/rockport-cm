@@ -9,7 +9,7 @@ import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
 import { PropertyChartControl } from "@/components/property-chart-control";
 import { num } from "@/lib/format";
 import { DIVISIONS, divisionLabel } from "@/lib/divisions";
-import { bucketForStage } from "@/lib/stage-buckets";
+import { bucketForPhase } from "@/lib/stage-buckets";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +82,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .leftJoin(schema.projects, eq(schema.glTransactions.projectId, schema.projects.id))
         .where(
           sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.costCodeId} is not null
-              and (${schema.glTransactions.projectId} is null or (${schema.projects.kind} = 'unit' and ${schema.projects.stage} in ('complete', 'invoiced', 'closed')))`,
+              and (${schema.glTransactions.projectId} is null or (${schema.projects.kind} = 'unit' and ${schema.projects.phase} = 'complete'))`,
         )
         .groupBy(schema.glTransactions.costCodeId),
       // Projects coded to each line (common projects link to a cost code; interior
@@ -91,7 +91,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
         .select({
           id: schema.projects.id,
           name: schema.projects.name,
-          stage: schema.projects.stage,
+          phase: schema.projects.phase,
           costCodeId: schema.projects.costCodeId,
           budgetAmount: schema.projects.budgetAmount,
           committedCost: schema.projects.committedCost,
@@ -133,7 +133,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     list.push({
       id: p.id,
       name: p.name,
-      stage: p.stage,
+      phase: p.phase,
       budget: num(p.budgetAmount),
       committed: committedAmount,
       completed: completedAmount,
@@ -144,7 +144,7 @@ export default async function BudgetPage({ params }: { params: Promise<{ id: str
     // amount was ever recorded (or before it's formally marked complete), so
     // Planned/In Process show whichever is larger — the committed figure or
     // what's actually been spent so far.
-    const bucket = bucketForStage(p.stage);
+    const bucket = bucketForPhase(p.phase);
     if (bucket === "planned") addToBucket(p.costCodeId, "planned", Math.max(committedAmount, completedAmount));
     else if (bucket === "in_process")
       addToBucket(p.costCodeId, "inProcess", Math.max(committedAmount, completedAmount));

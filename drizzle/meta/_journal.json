@@ -127,6 +127,13 @@
       "when": 1784988555106,
       "tag": "0017_parched_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785022037756,
+      "tag": "0018_black_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

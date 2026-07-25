@@ -43,7 +43,7 @@ function fmtDay(date: string): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-const DONE_STAGES = new Set(["complete", "invoiced", "closed"]);
+const DONE_PHASES = new Set(["complete"]);
 
 export function AgendaView({ projects }: { projects: ScheduleProject[] }) {
   const milestones = toMilestones(projects);
@@ -52,7 +52,7 @@ export function AgendaView({ projects }: { projects: ScheduleProject[] }) {
   if (milestones.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        No scheduled milestones yet — dates are set when a project moves through its stages.
+        No scheduled milestones yet — dates are set when a project moves through its phases.
       </p>
     );
   }
@@ -74,7 +74,7 @@ export function AgendaView({ projects }: { projects: ScheduleProject[] }) {
             <TableHead>Property</TableHead>
             <TableHead>Project</TableHead>
             <TableHead>Milestone</TableHead>
-            <TableHead>Stage</TableHead>
+            <TableHead>Phase</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -108,7 +108,7 @@ function TableRowsForMonth({
         const overdue =
           m.label === "Target completion" &&
           m.date < todayIso &&
-          !DONE_STAGES.has(m.project.stage);
+          !DONE_PHASES.has(m.project.phase);
         return (
           <TableRow key={`${m.project.id}-${m.label}-${i}`}>
             <TableCell className={cn(overdue && "font-semibold text-alert")}>
@@ -131,7 +131,7 @@ function TableRowsForMonth({
             </TableCell>
             <TableCell className="text-sm text-muted-foreground">{m.label}</TableCell>
             <TableCell>
-              <StageDot stage={m.project.stage} />
+              <StageDot phase={m.project.phase} />
             </TableCell>
           </TableRow>
         );

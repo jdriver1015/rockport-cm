@@ -10,7 +10,7 @@ import {
   format,
   startOfMonth,
 } from "date-fns";
-import { stageLabel } from "@/lib/stages";
+import { phaseLabel } from "@/lib/stages";
 import { cn } from "@/lib/utils";
 import type { ScheduleProject } from "@/lib/schedule-data";
 
@@ -231,7 +231,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                         }}
                         title={`${d.p.startDate ?? d.p.preWalkDate} → ${d.p.completeDate ?? d.p.targetCompletionDate ?? "in progress"}`}
                       >
-                        <span className="truncate">{stageLabel(d.p.stage)}</span>
+                        <span className="truncate">{phaseLabel(d.p.phase)}</span>
                       </div>
                     </div>
                   </div>
