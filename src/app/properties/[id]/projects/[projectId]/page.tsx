@@ -376,7 +376,7 @@ export default async function ProjectDetailPage({
     <div className="space-y-6">
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${propertyId}`} className="text-gold-link hover:underline">
+          <Link href={`/properties/${propertyId}`} className="text-link hover:underline">
             ← All projects
           </Link>
         </p>
@@ -438,7 +438,7 @@ export default async function ProjectDetailPage({
 
 function ProjectFigure({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-paper/60 px-3 py-2">
+    <div className="rounded-md border bg-muted px-3 py-2">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="tabular-nums font-medium text-navy">{value}</dd>
     </div>

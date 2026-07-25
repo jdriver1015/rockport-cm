@@ -76,7 +76,7 @@ export function ComboboxSelect({
                   value={item}
                   className="grid cursor-default grid-cols-[14px_1fr] items-center gap-1.5 rounded px-2 py-1.5 text-xs outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
-                  <Combobox.ItemIndicator className="col-start-1 text-gold-link">
+                  <Combobox.ItemIndicator className="col-start-1 text-link">
                     <CheckIcon className="size-3.5" />
                   </Combobox.ItemIndicator>
                   <span className="col-start-2 truncate">{item.label}</span>

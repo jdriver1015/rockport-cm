@@ -67,7 +67,7 @@ export default async function BatchDetailPage({
       <div className="space-y-6">
         <div>
           <p className="text-sm">
-            <Link href={`/properties/${propertyId}/gl`} className="text-gold-link hover:underline">
+            <Link href={`/properties/${propertyId}/gl`} className="text-link hover:underline">
               ← Import history
             </Link>
           </p>
@@ -101,7 +101,7 @@ export default async function BatchDetailPage({
       <div className="space-y-6">
         <div>
           <p className="text-sm">
-            <Link href={`/properties/${propertyId}/gl`} className="text-gold-link hover:underline">
+            <Link href={`/properties/${propertyId}/gl`} className="text-link hover:underline">
               ← Import history
             </Link>
           </p>
@@ -117,7 +117,7 @@ export default async function BatchDetailPage({
                 {" · "}
                 <a
                   href={`/api/properties/${propertyId}/gl/${batch.id}/file`}
-                  className="text-gold-link hover:underline"
+                  className="text-link hover:underline"
                 >
                   Download original
                 </a>
@@ -215,7 +215,7 @@ export default async function BatchDetailPage({
         <p className="text-sm">
           <Link
             href={`/properties/${propertyId}/gl`}
-            className="text-gold-link hover:underline"
+            className="text-link hover:underline"
           >
             ← Import history
           </Link>
@@ -239,7 +239,7 @@ export default async function BatchDetailPage({
               {" · "}
               <a
                 href={`/api/properties/${propertyId}/gl/${batch.id}/file`}
-                className="text-gold-link hover:underline"
+                className="text-link hover:underline"
               >
                 Download original
               </a>

@@ -118,7 +118,7 @@ export default async function NewInteriorProjectPage({
             {missingRentRoll && (
               <p>
                 This property has no committed rent roll, so there are no units to choose from.{" "}
-                <Link href={`/properties/${propertyId}/rent-rolls`} className="text-gold-link hover:underline">
+                <Link href={`/properties/${propertyId}/rent-rolls`} className="text-link hover:underline">
                   Import a rent roll
                 </Link>{" "}
                 first.
@@ -127,7 +127,7 @@ export default async function NewInteriorProjectPage({
             {missingGroups && (
               <p>
                 No scope groups yet. Open{" "}
-                <Link href={`/properties/${propertyId}/interiors`} className="text-gold-link hover:underline">
+                <Link href={`/properties/${propertyId}/interiors`} className="text-link hover:underline">
                   Interiors → Manage Scope Groups
                 </Link>{" "}
                 to create one.

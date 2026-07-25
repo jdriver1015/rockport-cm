@@ -50,7 +50,7 @@ export default async function UsersPage({
           {archivedCount > 0 && (
             <Link
               href={showArchived ? "/settings/users" : "/settings/users?archived=1"}
-              className="text-sm text-gold-link hover:underline"
+              className="text-sm text-link hover:underline"
             >
               {showArchived ? "Back to active" : `Archived (${archivedCount})`}
             </Link>

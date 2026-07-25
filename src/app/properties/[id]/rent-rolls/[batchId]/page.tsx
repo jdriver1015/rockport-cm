@@ -57,7 +57,7 @@ export default async function RentRollDetailPage({
       <p className="text-sm">
         <Link
           href={`/properties/${propertyId}/rent-rolls`}
-          className="text-gold-link hover:underline"
+          className="text-link hover:underline"
         >
           ← Rent roll snapshots
         </Link>
@@ -83,7 +83,7 @@ export default async function RentRollDetailPage({
             {" · "}
             <a
               href={`/api/properties/${propertyId}/rent-rolls/${batch.id}/file`}
-              className="text-gold-link hover:underline"
+              className="text-link hover:underline"
             >
               Download original
             </a>

@@ -1,22 +1,23 @@
 import type { Metadata } from "next";
-import { Fraunces, Instrument_Sans, Geist_Mono } from "next/font/google";
+import { Newsreader, Inter, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
+import { TopNavLink } from "@/components/top-nav-link";
 import { createClient } from "@/lib/supabase/server";
 import { db, schema } from "@/db";
 import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
-// Display serif — wordmark only.
-const fraunces = Fraunces({
+// Display serif — wordmark, page titles, and card titles only.
+const newsreader = Newsreader({
   variable: "--font-serif",
   subsets: ["latin"],
   weight: ["500", "600"],
 });
 
-// UI / body sans — everything else: navigation, titles, KPIs, tables, body copy.
-const instrumentSans = Instrument_Sans({
+// UI / body sans — everything else: navigation, KPIs, tables, body copy.
+const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -61,32 +62,24 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${instrumentSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${newsreader.variable} ${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <header className="bg-navy text-white">
           <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-8 px-6">
             <Link href="/" className="flex items-baseline gap-3">
               <span className="font-serif text-[22px] font-semibold leading-none">Rockport</span>
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-on-navy-muted">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-on-navy-muted">
                 construction manager
               </span>
             </Link>
-            <nav className="ml-auto flex items-center gap-6 text-sm text-on-navy">
+            <nav className="ml-auto flex items-center gap-6 text-sm text-on-navy-muted">
               {user ? (
                 <>
-                  <Link href="/" className="transition-colors hover:text-white">
-                    Portfolio
-                  </Link>
-                  <Link href="/schedule" className="transition-colors hover:text-white">
-                    Schedule
-                  </Link>
-                  <Link href="/vendors" className="transition-colors hover:text-white">
-                    Vendors
-                  </Link>
-                  <Link href="/settings" className="transition-colors hover:text-white">
-                    Settings
-                  </Link>
+                  <TopNavLink href="/">Portfolio</TopNavLink>
+                  <TopNavLink href="/schedule">Schedule</TopNavLink>
+                  <TopNavLink href="/vendors">Vendors</TopNavLink>
+                  <TopNavLink href="/settings">Settings</TopNavLink>
                   <span className="text-xs text-on-navy-muted">
                     {profile?.fullName ?? user.email}
                     {profile?.role ? ` · ${ROLE_LABEL[profile.role] ?? profile.role}` : ""}
@@ -94,7 +87,7 @@ export default async function RootLayout({
                   <form action={signOut}>
                     <button
                       type="submit"
-                      className="rounded-[8px] bg-gold px-4 py-2 text-xs font-bold tracking-[0.03em] text-navy transition-colors hover:bg-gold-soft"
+                      className="rounded-control bg-gold px-4 py-2 text-xs font-bold tracking-[0.03em] text-navy transition-colors hover:bg-gold-soft"
                     >
                       SIGN OUT
                     </button>

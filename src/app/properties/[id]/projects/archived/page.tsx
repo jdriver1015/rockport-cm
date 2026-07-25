@@ -44,7 +44,7 @@ export default async function ArchivedProjectsPage({
 
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${propertyId}`} className="text-gold-link hover:underline">
+          <Link href={`/properties/${propertyId}`} className="text-link hover:underline">
             ← All projects
           </Link>
         </p>

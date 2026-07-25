@@ -13,7 +13,7 @@ export default function ForgotPasswordPage() {
         <CardContent className="space-y-4">
           <ForgotPasswordForm />
           <p className="text-center text-sm text-muted-foreground">
-            <Link href="/sign-in" className="text-gold-link hover:underline">
+            <Link href="/sign-in" className="text-link hover:underline">
               Back to sign in
             </Link>
           </p>

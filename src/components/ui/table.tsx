@@ -44,7 +44,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
     <tfoot
       data-slot="table-footer"
       className={cn(
-        "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+        "border-t border-border bg-band font-medium [&>tr]:last:border-b-0",
         className
       )}
       {...props}
@@ -57,7 +57,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b border-divider transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+        "border-b border-hairline transition-colors hover:bg-hover has-aria-expanded:bg-hover data-[state=selected]:bg-hover",
         className
       )}
       {...props}
@@ -70,7 +70,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-9 px-3 text-left align-middle text-[11px] font-semibold tracking-[0.05em] whitespace-nowrap text-text-faint uppercase [&:has([role=checkbox])]:pr-0",
+        "h-9 px-3 text-left align-middle text-[10.5px] font-semibold tracking-[0.09em] whitespace-nowrap text-ink-300 uppercase [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -83,7 +83,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "px-3 py-2.5 align-middle text-sm whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "px-3 py-2.5 align-middle text-[13.5px] whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -91,6 +91,10 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   )
 }
 
+/**
+ * Section header row — the one saturated gray band in a table. Sections read as
+ * discrete blocks rather than one striped mass, so these don't react to hover.
+ */
 function TableGroupRow({
   label,
   count,
@@ -101,16 +105,28 @@ function TableGroupRow({
   colSpan: number;
 }) {
   return (
-    <tr data-slot="table-group-row" className="bg-surface-sub">
+    <tr data-slot="table-group-row" className="bg-band">
       <td
         colSpan={colSpan}
-        className="px-3 py-2 text-[11px] font-bold tracking-[0.04em] text-text-muted uppercase"
+        className="px-3 py-2.5 text-[11.5px] font-bold tracking-[0.09em] text-ink-900 uppercase"
       >
         <div className="flex items-center justify-between">
           <span>{label}</span>
-          {count != null ? <span className="text-text-faint">{count}</span> : null}
+          {count != null ? <span className="text-ink-400">{count}</span> : null}
         </div>
       </td>
+    </tr>
+  )
+}
+
+/**
+ * 14px of white air before a section band. This is what stops consecutive
+ * sections from running together — use before every band except the first.
+ */
+function TableSpacerRow({ colSpan }: { colSpan: number }) {
+  return (
+    <tr data-slot="table-spacer-row" aria-hidden>
+      <td colSpan={colSpan} className="h-3.5 p-0" />
     </tr>
   )
 }
@@ -138,4 +154,5 @@ export {
   TableCell,
   TableCaption,
   TableGroupRow,
+  TableSpacerRow,
 }

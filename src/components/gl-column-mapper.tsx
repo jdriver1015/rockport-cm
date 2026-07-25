@@ -140,7 +140,7 @@ export function GlColumnMapper({
                 key={r}
                 onClick={() => setHeaderRow(r)}
                 className={`cursor-pointer border-b last:border-0 ${
-                  r === headerRow ? "bg-gold/15 font-medium" : "hover:bg-muted/40"
+                  r === headerRow ? "bg-band font-medium" : "hover:bg-muted/40"
                 }`}
               >
                 <td className="whitespace-nowrap px-2 py-1 text-muted-foreground">

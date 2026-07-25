@@ -69,7 +69,7 @@ export default async function AuditsPage({ params }: { params: Promise<{ id: str
             {archivedCount > 0 && (
               <Link
                 href={`/properties/${propertyId}/audits/archived`}
-                className="text-sm text-gold-link hover:underline"
+                className="text-sm text-link hover:underline"
               >
                 Archived ({archivedCount})
               </Link>

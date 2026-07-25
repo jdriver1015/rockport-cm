@@ -39,7 +39,7 @@ export default async function ArchivedRentRollsPage({
         <p className="text-sm">
           <Link
             href={`/properties/${propertyId}/rent-rolls`}
-            className="text-gold-link hover:underline"
+            className="text-link hover:underline"
           >
             ← Rent roll snapshots
           </Link>

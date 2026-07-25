@@ -60,7 +60,7 @@ export function GlUpload({
     <div
       className={cn(
         "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
-        dragging ? "border-gold bg-paper" : "border-muted-foreground/25 hover:bg-muted/50",
+        dragging ? "border-ink-900 bg-hover" : "border-muted-foreground/25 hover:bg-muted/50",
       )}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => {

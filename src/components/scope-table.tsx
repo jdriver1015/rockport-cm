@@ -109,7 +109,7 @@ function ScopeItemRow({
             href={row.productLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-gold-link hover:underline"
+            className="inline-flex items-center gap-1 text-link hover:underline"
           >
             View <ExternalLinkIcon className="size-3.5" />
           </a>

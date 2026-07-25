@@ -199,7 +199,7 @@ function DialogBody({
                   <li key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                     <Link
                       href={`/properties/${propertyId}/projects/${p.id}`}
-                      className="min-w-0 flex-1 truncate font-medium text-navy hover:text-gold-link hover:underline"
+                      className="min-w-0 flex-1 truncate font-medium text-navy hover:text-link hover:underline"
                     >
                       {p.name}
                     </Link>
@@ -231,7 +231,7 @@ function DialogBody({
 
 function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-paper/60 px-3 py-2">
+    <div className="rounded-md border bg-muted px-3 py-2">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="tabular-nums font-medium text-navy">{value}</dd>
     </div>

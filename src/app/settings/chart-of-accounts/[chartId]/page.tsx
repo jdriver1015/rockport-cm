@@ -103,8 +103,11 @@ export default async function ChartEditorPage({
               {categories.map((cat) => {
                 const catCodes = codes.filter((c) => c.categoryId === cat.id);
                 return [
-                  <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
-                    <TableCell className="font-semibold text-navy" colSpan={4}>
+                  <TableRow key={`cat-${cat.id}`} className="bg-band hover:bg-band">
+                    <TableCell
+                      className="text-[11.5px] font-bold uppercase tracking-[0.09em] text-ink-900"
+                      colSpan={4}
+                    >
                       {cat.name}
                     </TableCell>
                     <TableCell className="text-right">

@@ -73,7 +73,7 @@ export default async function GlPage({ params }: { params: Promise<{ id: string 
             {archivedCount.count > 0 && (
               <Link
                 href={`/properties/${propertyId}/gl/archived`}
-                className="text-sm text-gold-link hover:underline"
+                className="text-sm text-link hover:underline"
               >
                 Archived ({archivedCount.count})
               </Link>

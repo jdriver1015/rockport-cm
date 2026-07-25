@@ -9,6 +9,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSpacerRow,
 } from "@/components/ui/table";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { TableCard } from "@/components/ui/table-card";
@@ -60,6 +61,9 @@ export type BudgetDivision = {
   categories: BudgetCategory[];
 };
 
+/** Description + the four money columns. */
+const COLS = 5;
+
 export function BudgetView({
   propertyId,
   divisions,
@@ -80,67 +84,70 @@ export function BudgetView({
       <TableCard>
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="hover:bg-transparent">
               <TableHead>Description</TableHead>
-              <TableHead className="text-right">Budgeted</TableHead>
-              <TableHead className="text-right">Planned</TableHead>
-              <TableHead className="text-right">In Process</TableHead>
-              <TableHead className="text-right">Completed</TableHead>
+              <TableHead className="w-[15%] text-right">Budgeted</TableHead>
+              <TableHead className="w-[15%] text-right">Planned</TableHead>
+              <TableHead className="w-[15%] text-right">In Process</TableHead>
+              <TableHead className="w-[15%] text-right">Completed</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {divisions.flatMap((div) => [
-              <TableRow key={`div-${div.key}`} className="bg-navy/5 hover:bg-navy/5">
-                <TableCell className="text-sm font-bold uppercase tracking-wide text-navy">
+            {divisions.flatMap((div, divIndex) => [
+              // 14px of white air before each band but the first — this is what
+              // keeps consecutive sections from reading as one striped mass.
+              ...(divIndex > 0 ? [<TableSpacerRow key={`sp-${div.key}`} colSpan={COLS} />] : []),
+              <TableRow key={`div-${div.key}`} className="border-0 bg-band hover:bg-band">
+                <TableCell className="text-[11.5px] font-bold uppercase tracking-[0.09em] text-ink-900">
                   {div.label}
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.budget} className="font-bold text-navy" />
+                  <AmountCell value={div.budget} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.planned} className="font-bold text-navy" />
+                  <AmountCell value={div.planned} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.inProcess} className="font-bold text-navy" />
+                  <AmountCell value={div.inProcess} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.completed} className="font-bold" positive />
+                  <AmountCell value={div.completed} className="font-bold" positive emptyClassName="text-ink-200" />
                 </TableCell>
               </TableRow>,
               ...div.categories.flatMap((cat) => [
-                <TableRow key={`cat-${cat.code}`} className="bg-surface-sub hover:bg-surface-sub">
-                  <TableCell className="pl-4 font-semibold text-text-body">{cat.name}</TableCell>
+                <TableRow key={`cat-${cat.code}`}>
+                  <TableCell className="font-semibold text-ink-700">{cat.name}</TableCell>
                   <TableCell>
-                    <AmountCell value={cat.budget} className="text-text-body" />
+                    <AmountCell value={cat.budget} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={cat.planned} />
+                    <AmountCell value={cat.planned} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={cat.inProcess} />
+                    <AmountCell value={cat.inProcess} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={cat.completed} positive />
+                    <AmountCell value={cat.completed} className="font-semibold" positive emptyClassName="text-ink-200" />
                   </TableCell>
                 </TableRow>,
                 ...cat.lines.map((line) => (
                   <TableRow
                     key={line.code}
-                    className="cursor-pointer hover:bg-muted/40"
+                    className="cursor-pointer"
                     onClick={() => setSelected(line)}
                   >
-                    <TableCell className="pl-8 text-muted-foreground">{line.name}</TableCell>
+                    <TableCell className="pl-12 text-ink-500">{line.name}</TableCell>
                     <TableCell>
-                      <AmountCell value={line.budget} className="font-normal text-text-body" />
+                      <AmountCell value={line.budget} className="font-normal text-ink-500" />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={line.planned} className="font-normal text-text-body" />
+                      <AmountCell value={line.planned} className="font-normal text-ink-500" />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={line.inProcess} className="font-normal text-text-body" />
+                      <AmountCell value={line.inProcess} className="font-normal text-ink-500" />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={line.completed} positive />
+                      <AmountCell value={line.completed} className="font-normal" positive />
                     </TableCell>
                   </TableRow>
                 )),
@@ -148,19 +155,19 @@ export function BudgetView({
             ])}
           </TableBody>
           <TableFooter>
-            <TableRow>
-              <TableCell className="font-bold text-navy">Total</TableCell>
+            <TableRow className="hover:bg-band">
+              <TableCell className="font-bold text-ink-900">Total</TableCell>
               <TableCell>
-                <AmountCell value={totals.budget} />
+                <AmountCell value={totals.budget} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
               </TableCell>
               <TableCell>
-                <AmountCell value={totals.planned} />
+                <AmountCell value={totals.planned} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
               </TableCell>
               <TableCell>
-                <AmountCell value={totals.inProcess} />
+                <AmountCell value={totals.inProcess} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
               </TableCell>
               <TableCell>
-                <AmountCell value={totals.completed} positive />
+                <AmountCell value={totals.completed} className="font-bold" positive emptyClassName="text-ink-200" />
               </TableCell>
             </TableRow>
           </TableFooter>

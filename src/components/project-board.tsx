@@ -375,7 +375,7 @@ function ProjectLink({
   return (
     <Link
       href={`/properties/${propertyId}/projects/${project.id}`}
-      className={cn("font-medium text-navy hover:text-gold-link hover:underline", className)}
+      className={cn("font-medium text-navy hover:text-link hover:underline", className)}
     >
       {project.name}
     </Link>
@@ -507,7 +507,7 @@ function KanbanView({
               if (pid) onDropToStage(pid, g.key);
             }}
             className={cn(
-              "flex w-64 shrink-0 flex-col rounded-lg border bg-paper/60",
+              "flex w-64 shrink-0 flex-col rounded-lg border bg-muted",
               dragOver === g.key && "ring-2 ring-gold",
             )}
           >
@@ -604,7 +604,7 @@ function GanttView({ groups, propertyId }: { groups: Group[]; propertyId: number
             return (
               <div key={p.id} className="grid grid-cols-[minmax(9rem,14rem)_1fr] items-center gap-3">
                 <ProjectLink project={p} propertyId={propertyId} className="truncate text-sm" />
-                <div className="relative h-6 rounded bg-paper">
+                <div className="relative h-6 rounded bg-track">
                   {d ? (
                     <div
                       className="absolute top-0 flex h-6 items-center rounded bg-navy px-2 text-[11px] font-medium text-white"

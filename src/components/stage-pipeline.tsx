@@ -13,7 +13,7 @@ export function StagePipeline({ current }: { current: string }) {
             title={stage.gate}
             className={cn(
               "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
-              state === "done" && "border-transparent bg-paper text-navy",
+              state === "done" && "border-transparent bg-band text-navy",
               state === "active" && "border-transparent bg-navy text-white",
               state === "todo" && "border-dashed text-muted-foreground",
             )}

@@ -92,7 +92,7 @@ export function GlAccountPicker({
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="text-sm text-gold-link hover:underline"
+            className="text-sm text-link hover:underline"
           >
             {showAll ? "Hide operational accounts" : `Show all ${accounts.length} accounts`}
           </button>
@@ -132,7 +132,7 @@ export function GlAccountPicker({
                 <TableCell className="text-sm">
                   {a.name ?? "—"}
                   {a.suggested && (
-                    <span className="ml-2 rounded bg-gold/15 px-1.5 py-0.5 text-[10px] font-medium text-gold-link">
+                    <span className="ml-2 rounded bg-band px-1.5 py-0.5 text-[10px] font-medium text-ink-700">
                       {a.remembered ? "remembered" : "suggested"}
                     </span>
                   )}

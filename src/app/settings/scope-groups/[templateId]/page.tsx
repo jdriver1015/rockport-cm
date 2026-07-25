@@ -120,7 +120,7 @@ function SectionRows({
                 href={it.productLink}
                 target="_blank"
                 rel="noreferrer"
-                className="ml-1.5 inline-flex items-center gap-0.5 text-xs text-gold-link hover:underline"
+                className="ml-1.5 inline-flex items-center gap-0.5 text-xs text-link hover:underline"
               >
                 spec
                 <ExternalLink className="size-3" />

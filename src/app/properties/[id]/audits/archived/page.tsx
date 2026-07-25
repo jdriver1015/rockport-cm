@@ -43,7 +43,7 @@ export default async function ArchivedAuditsPage({
 
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${propertyId}/audits`} className="text-gold-link hover:underline">
+          <Link href={`/properties/${propertyId}/audits`} className="text-link hover:underline">
             ← Site Audits
           </Link>
         </p>

@@ -206,7 +206,7 @@ export function InteriorWizard({
                   onClick={() => setUnit(u)}
                   className={cn(
                     "flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50",
-                    unit?.unitNumber === u.unitNumber && "bg-paper",
+                    unit?.unitNumber === u.unitNumber && "bg-muted",
                   )}
                 >
                   <span className="font-medium text-navy">Unit {u.unitNumber}</span>
@@ -234,7 +234,7 @@ export function InteriorWizard({
                 onClick={() => chooseGroup(g)}
                 className={cn(
                   "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
-                  groupId === g.id ? "border-navy bg-paper" : "border-input hover:bg-muted/50",
+                  groupId === g.id ? "border-navy bg-muted" : "border-input hover:bg-muted/50",
                 )}
               >
                 <span className="font-medium text-navy">{g.name}</span>
@@ -254,7 +254,7 @@ export function InteriorWizard({
             </p>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
-                <thead className="bg-paper/60 text-xs text-muted-foreground">
+                <thead className="bg-muted text-xs text-muted-foreground">
                   <tr>
                     <th className="px-2 py-2 text-left">Item</th>
                     <th className="px-2 py-2 text-left">Method</th>
@@ -307,7 +307,7 @@ export function InteriorWizard({
                   )}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t bg-paper/40 font-semibold text-navy">
+                  <tr className="border-t bg-muted font-semibold text-navy">
                     <td className="px-2 py-2" colSpan={4}>
                       Estimated total
                     </td>
@@ -406,10 +406,10 @@ function Stepper({ step }: { step: number }) {
             className={cn(
               "flex size-5 items-center justify-center rounded-full text-[10px] font-semibold",
               i < step
-                ? "bg-navy text-white"
+                ? "bg-ink-400 text-white"
                 : i === step
-                  ? "bg-gold text-navy"
-                  : "bg-muted text-muted-foreground",
+                  ? "bg-ink-900 text-white"
+                  : "bg-band text-ink-400",
             )}
           >
             {i < step ? <Check className="size-3" /> : i + 1}

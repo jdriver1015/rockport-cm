@@ -79,7 +79,7 @@ export default async function AuditDetailPage({
     <div className="space-y-6">
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${propertyId}/audits`} className="text-gold-link hover:underline">
+          <Link href={`/properties/${propertyId}/audits`} className="text-link hover:underline">
             ← Site Audits
           </Link>
         </p>

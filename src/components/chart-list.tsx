@@ -229,7 +229,7 @@ export function AddChartDialog({ charts }: { charts: ChartOption[] }) {
               </div>
 
               {preview && mapping && (
-                <div className="space-y-3 rounded-md border bg-paper/50 p-3">
+                <div className="space-y-3 rounded-md border bg-muted p-3">
                   <p className="text-xs font-medium text-navy">Match columns</p>
                   <div className="grid grid-cols-2 gap-2">
                     {COLUMN_ROLES.map((role) => (

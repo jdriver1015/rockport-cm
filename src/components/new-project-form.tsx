@@ -60,7 +60,7 @@ export function NewProjectForm({
               className={cn(
                 "rounded-md border p-3 text-left text-sm transition-colors",
                 kind === opt.key
-                  ? "border-navy bg-paper"
+                  ? "border-navy bg-muted"
                   : "border-input hover:bg-muted/50",
               )}
             >

@@ -102,7 +102,7 @@ export default async function PropertyBoardPage({
             {archivedCount.count > 0 && (
               <Link
                 href={`/properties/${propertyId}/projects/archived`}
-                className="text-sm text-gold-link hover:underline"
+                className="text-sm text-link hover:underline"
               >
                 Archived ({archivedCount.count})
               </Link>

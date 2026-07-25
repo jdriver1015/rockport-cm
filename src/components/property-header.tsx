@@ -24,7 +24,7 @@ export function PropertyHeader({
   return (
     <div>
       <p className="text-sm">
-        <Link href="/" className="text-gold-link hover:underline">
+        <Link href="/" className="text-link hover:underline">
           ← Portfolio
         </Link>
       </p>

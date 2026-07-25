@@ -48,7 +48,7 @@ export default async function ArchivedBatchesPage({
 
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${propertyId}/gl`} className="text-gold-link hover:underline">
+          <Link href={`/properties/${propertyId}/gl`} className="text-link hover:underline">
             ← Import history
           </Link>
         </p>

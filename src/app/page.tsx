@@ -118,9 +118,9 @@ export default async function PortfolioPage() {
                       <span className="text-muted-foreground">Completed</span>
                       <span className="font-medium tabular-nums">{money(jtd)}</span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-paper">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-track">
                       <div
-                        className="h-full rounded-full bg-gold"
+                        className="h-full rounded-full bg-ink-900"
                         style={{ width: `${Math.min(pct, 100)}%` }}
                       />
                     </div>
