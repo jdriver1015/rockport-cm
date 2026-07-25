@@ -145,6 +145,7 @@ export async function createInteriorProject(
     await tx.insert(schema.projectStageEvents).values({
       projectId: project.id,
       toStage: "planned",
+      toPhase: "precon",
       note: `Created from scope group "${group.name}"`,
     });
 

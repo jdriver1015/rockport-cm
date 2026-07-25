@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
@@ -204,6 +204,19 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
     toPhase,
     note: parsed.note,
   });
+
+  // Auto-stamp actual date on milestones tied to the new phase
+  const today = new Date().toLocaleDateString("en-CA");
+  await db()
+    .update(schema.projectMilestones)
+    .set({ actualDate: today })
+    .where(
+      and(
+        eq(schema.projectMilestones.projectId, parsed.projectId),
+        eq(schema.projectMilestones.phase, toPhase),
+        isNull(schema.projectMilestones.actualDate),
+      ),
+    );
 
   revalidatePath(`/properties/${project.propertyId}`);
   revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);

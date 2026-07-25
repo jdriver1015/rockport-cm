@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { KpiStrip, type KpiItem } from "@/components/ui/kpi-strip";
 import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
@@ -11,14 +12,19 @@ import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
 import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope-table";
+import { ProjectMilestones, type MilestoneRow } from "@/components/project-milestones";
+import { AdvancePhaseDialog } from "@/components/advance-phase-dialog";
+import { ProjectCostTable, type CostRow } from "@/components/project-cost-table";
+import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
+import { StagePipeline } from "@/components/stage-pipeline";
 import type { PricingMethod } from "@/lib/pricing";
 import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
 import { fmtDate, money, num } from "@/lib/format";
-import { phaseLabel } from "@/lib/stages";
-import { bucketForPhase } from "@/lib/stage-buckets";
+import { nextPhase, phaseLabel } from "@/lib/stages";
+import { evaluateGates } from "@/lib/phase-gates";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -51,8 +57,6 @@ export default async function ProjectDetailPage({
   if (!data || data.project.propertyId !== propertyId) notFound();
   const { project, costCode, unit, vendor } = data;
 
-  // None of these depend on each other — run them as one parallel batch rather
-  // than six sequential round-trips to the pooled Supabase connection.
   const [
     scope,
     auditLog,
@@ -64,6 +68,9 @@ export default async function ProjectDetailPage({
     projectAudits,
     otherProjects,
     findingCounts,
+    milestones,
+    glRows,
+    openFindings,
   ] = await Promise.all([
     db()
       .select()
@@ -89,7 +96,6 @@ export default async function ProjectDetailPage({
         ),
       )
       .orderBy(desc(schema.attachments.createdAt)),
-    // Bids with their vendor/contact names.
     db()
       .select({
         bid: schema.bids,
@@ -104,7 +110,6 @@ export default async function ProjectDetailPage({
       )
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt)))
       .orderBy(asc(schema.bids.bidNumber)),
-    // Active-vendor roster for the add-bid dropdowns.
     db()
       .select()
       .from(schema.vendors)
@@ -115,7 +120,6 @@ export default async function ProjectDetailPage({
       .from(schema.vendorContacts)
       .where(eq(schema.vendorContacts.active, true))
       .orderBy(asc(schema.vendorContacts.name)),
-    // Actual posted GL spend for this project — used for the Completed figure.
     db()
       .select({ actualTotal: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)` })
       .from(schema.glTransactions)
@@ -125,13 +129,11 @@ export default async function ProjectDetailPage({
           eq(schema.glTransactions.status, "posted"),
         ),
       ),
-    // Site audits tied to this project.
     db()
       .select()
       .from(schema.siteAudits)
       .where(and(eq(schema.siteAudits.projectId, projectId), isNull(schema.siteAudits.archivedAt)))
       .orderBy(desc(schema.siteAudits.auditDate), desc(schema.siteAudits.id)),
-    // Every other active project on this property, for the New Audit project picker.
     db()
       .select({ id: schema.projects.id, name: schema.projects.name })
       .from(schema.projects)
@@ -142,6 +144,55 @@ export default async function ProjectDetailPage({
       .from(schema.auditFindings)
       .where(isNull(schema.auditFindings.archivedAt))
       .groupBy(schema.auditFindings.auditId),
+    // Milestones for this project
+    db()
+      .select()
+      .from(schema.projectMilestones)
+      .where(
+        and(
+          eq(schema.projectMilestones.projectId, projectId),
+          isNull(schema.projectMilestones.archivedAt),
+        ),
+      )
+      .orderBy(asc(schema.projectMilestones.sortOrder), asc(schema.projectMilestones.id)),
+    // Posted GL transactions for cost detail
+    db()
+      .select({
+        id: schema.glTransactions.id,
+        txnDate: schema.glTransactions.txnDate,
+        vendorRaw: schema.glTransactions.vendorRaw,
+        vendorName: schema.vendors.name,
+        description: schema.glTransactions.description,
+        invoiceNo: schema.glTransactions.invoiceNo,
+        costCodeName: schema.costCodes.name,
+        amount: schema.glTransactions.amount,
+      })
+      .from(schema.glTransactions)
+      .leftJoin(schema.vendors, eq(schema.glTransactions.vendorId, schema.vendors.id))
+      .leftJoin(schema.costCodes, eq(schema.glTransactions.costCodeId, schema.costCodes.id))
+      .where(
+        and(
+          eq(schema.glTransactions.projectId, projectId),
+          eq(schema.glTransactions.status, "posted"),
+        ),
+      )
+      .orderBy(asc(schema.glTransactions.txnDate), asc(schema.glTransactions.id)),
+    // Open audit findings for this project (via siteAudits)
+    db()
+      .select({
+        id: schema.auditFindings.id,
+        dueDate: schema.auditFindings.dueDate,
+      })
+      .from(schema.auditFindings)
+      .innerJoin(schema.siteAudits, eq(schema.auditFindings.auditId, schema.siteAudits.id))
+      .where(
+        and(
+          eq(schema.siteAudits.projectId, projectId),
+          isNull(schema.siteAudits.archivedAt),
+          isNull(schema.auditFindings.archivedAt),
+          eq(schema.auditFindings.status, "open"),
+        ),
+      ),
   ]);
 
   const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
@@ -154,16 +205,86 @@ export default async function ProjectDetailPage({
     ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
     : null;
 
-  // A project sits in exactly one lifecycle bucket at a time — its committed
-  // cost shows as Planned or In Process, or its actual spend as Completed.
-  // Never hide real spend: a project can have posted GL before its contract
-  // amount was recorded, so Planned/In Process show whichever is larger —
-  // the committed figure or what's actually been spent so far.
-  const stageBucket = bucketForPhase(project.phase);
-  const inPlaceAmount = Math.max(num(project.committedCost), num(actualTotal));
-  const plannedFigure = stageBucket === "planned" ? inPlaceAmount : 0;
-  const inProcessFigure = stageBucket === "in_process" ? inPlaceAmount : 0;
-  const completedFigure = stageBucket === "completed" ? num(actualTotal) : 0;
+  // --- KPI strip: Budget / Planned / Committed / Spent + Over/Under delta ---
+  const budgetAmt = num(project.budgetAmount);
+  const committedAmt = num(project.committedCost);
+  const spentAmt = num(actualTotal);
+  const scopeTotal = scope.reduce(
+    (s, r) => s + (r.quantity != null && r.unitPrice != null ? Number(r.quantity) * Number(r.unitPrice) : 0),
+    0,
+  );
+  const overUnder = budgetAmt - Math.max(committedAmt, spentAmt);
+  const kpiItems: KpiItem[] = [
+    { label: "Budget", value: money(budgetAmt) },
+    { label: "Planned", value: money(scopeTotal) },
+    { label: "Committed", value: money(committedAmt) },
+    { label: "Spent", value: money(spentAmt) },
+  ];
+  if (budgetAmt > 0) {
+    kpiItems.push({
+      label: "Over / Under",
+      value: money(Math.abs(overUnder)),
+      delta: overUnder >= 0 ? "Under budget" : "Over budget",
+      deltaVariant: overUnder >= 0 ? "positive" : "pending",
+    });
+  }
+
+  // --- Open items tri-split ---
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sevenDaysOut = new Date(today);
+  sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
+
+  const openItemsSummary: OpenItemsSummary = { overdue: 0, dueSoon: 0, later: 0 };
+  for (const f of openFindings) {
+    if (!f.dueDate) {
+      openItemsSummary.later++;
+      continue;
+    }
+    const due = new Date(f.dueDate + "T00:00:00");
+    if (due < today) openItemsSummary.overdue++;
+    else if (due <= sevenDaysOut) openItemsSummary.dueSoon++;
+    else openItemsSummary.later++;
+  }
+
+  // --- Phase gate evaluation ---
+  const next = nextPhase(project.phase);
+  const startMilestone = milestones.find((m) => m.phase === "in_process");
+  const gateResult = next
+    ? evaluateGates(project.phase as Parameters<typeof evaluateGates>[0], next.key as Parameters<typeof evaluateGates>[1], {
+        scopeLineCount: scope.length,
+        budgetAmount: budgetAmt,
+        committedCost: committedAmt,
+        vendorAssigned: !!project.vendorId,
+        scopeNotStartedCount: scope.filter((s) => s.status === "not_started").length,
+        scopeCompleteCount: scope.filter((s) => s.status === "complete").length,
+        scopeTotalCount: scope.length,
+        hasStartMilestoneActual: !!startMilestone?.actualDate,
+        openFindingCount: openFindings.length,
+        postedGlTotal: spentAmt,
+      })
+    : null;
+
+  // --- Milestone rows ---
+  const milestoneRows: MilestoneRow[] = milestones.map((m) => ({
+    id: m.id,
+    label: m.label,
+    phase: m.phase,
+    plannedDate: m.plannedDate,
+    actualDate: m.actualDate,
+    sortOrder: m.sortOrder,
+  }));
+
+  // --- Cost table rows ---
+  const costRows: CostRow[] = glRows.map((r) => ({
+    id: r.id,
+    txnDate: r.txnDate,
+    vendor: r.vendorName ?? r.vendorRaw ?? "—",
+    description: r.description,
+    invoiceNo: r.invoiceNo,
+    costCodeName: r.costCodeName,
+    amount: r.amount,
+  }));
 
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
@@ -172,8 +293,7 @@ export default async function ProjectDetailPage({
     createdAt: d.createdAt,
   }));
 
-  // Line items for every bid on this project, grouped per bid; the bid total is
-  // the sum of its lines (derived, not stored).
+  // Line items for every bid on this project
   const bidIds = bidJoins.map((b) => b.bid.id);
   const allLines = bidIds.length
     ? await db()
@@ -231,8 +351,6 @@ export default async function ProjectDetailPage({
     status: s.status,
   }));
 
-  // Interior projects carry generated pricing on their scope items; resolve the
-  // cost-code names and render the priced view instead of the spec-only table.
   const scopeCodeIds = [...new Set(scope.map((s) => s.costCodeId).filter((c): c is number => !!c))];
   const scopeCodes = scopeCodeIds.length
     ? await db()
@@ -256,20 +374,30 @@ export default async function ProjectDetailPage({
 
   const overview = (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-navy">Financials</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <ProjectFigure label="Budgeted" value={money(project.budgetAmount)} />
-            <ProjectFigure label="Planned" value={money(plannedFigure)} />
-            <ProjectFigure label="In Process" value={money(inProcessFigure)} />
-            <ProjectFigure label="Completed" value={money(completedFigure)} />
-          </dl>
-        </CardContent>
-      </Card>
+      {/* Milestone strip + Advance button */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <ProjectMilestones milestones={milestoneRows} projectId={projectId} />
+        {gateResult && next && !project.archivedAt && (
+          <div className="shrink-0">
+            <AdvancePhaseDialog
+              projectId={projectId}
+              gateResult={gateResult}
+              toLabel={next.label}
+            />
+          </div>
+        )}
+      </div>
 
+      {/* Phase pipeline */}
+      <StagePipeline current={project.phase} />
+
+      {/* Financial KPI strip */}
+      <KpiStrip items={kpiItems} />
+
+      {/* Open items */}
+      <OpenItemsStrip items={openItemsSummary} />
+
+      {/* Scope & progress */}
       {isPriced ? (
         <PricedScopeTable
           items={pricedScopeRows}
@@ -280,6 +408,10 @@ export default async function ProjectDetailPage({
         <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
       )}
 
+      {/* Cost detail */}
+      <ProjectCostTable rows={costRows} total={spentAmt} />
+
+      {/* Bids */}
       <BidsCard
         propertyId={propertyId}
         projectId={projectId}
@@ -288,14 +420,13 @@ export default async function ProjectDetailPage({
         scopeItems={scope.map((s) => ({ id: s.id, item: s.item }))}
       />
 
+      {/* Details — trimmed (no duplicate budget) */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base text-navy">Details</CardTitle>
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:max-w-md">
-            <dt className="text-muted-foreground">Budget</dt>
-            <dd className="tabular-nums">{money(project.budgetAmount)}</dd>
             {project.kind === "unit" && (
               <>
                 <dt className="text-muted-foreground">Pre-walk date</dt>
@@ -440,15 +571,6 @@ export default async function ProjectDetailPage({
         audits={audits}
         log={log}
       />
-    </div>
-  );
-}
-
-function ProjectFigure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-muted px-3 py-2">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums font-medium text-navy">{value}</dd>
     </div>
   );
 }
