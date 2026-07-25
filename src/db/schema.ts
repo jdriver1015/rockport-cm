@@ -45,6 +45,18 @@ export const projectStage = pgEnum("project_stage", [
   "closed",
 ]);
 
+/**
+ * The four operational phases a project moves through — see src/lib/stages.ts
+ * for labels and the gate that must be satisfied to leave each one. Replaces
+ * the eight-value `projectStage` above, which is being retired.
+ */
+export const projectPhase = pgEnum("project_phase", [
+  "precon",
+  "in_process",
+  "punch",
+  "complete",
+]);
+
 export const projectKind = pgEnum("project_kind", ["unit", "common"]);
 
 /** GL transaction state within the intake pipeline */
@@ -83,6 +95,14 @@ export const mappingMatchType = pgEnum("mapping_match_type", [
 export const unitTier = pgEnum("unit_tier", ["classic", "upgraded", "renovated"]);
 
 export const punchStatus = pgEnum("punch_status", ["open", "resolved"]);
+
+/** Per-scope-line progress, rolled up by trade category on the project dashboard */
+export const scopeItemStatus = pgEnum("scope_item_status", [
+  "not_started",
+  "in_progress",
+  "complete",
+  "blocked",
+]);
 
 export const auditStatus = pgEnum("audit_status", ["draft", "complete"]);
 
@@ -396,6 +416,30 @@ export const projectStageEvents = pgTable("project_stage_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("project_stage_events_project_idx").on(t.projectId)]);
 
+/**
+ * Dated checkpoints on a project's timeline. Two dates carry the whole
+ * mechanic: `plannedDate` is the target, `actualDate` is when it really
+ * happened, and their difference is the schedule variance the dashboard shows.
+ *
+ * A milestone tied to a `phase` gets its `actualDate` stamped automatically the
+ * first time the project enters that phase; untied milestones are set by hand.
+ */
+export const projectMilestones = pgTable("project_milestones", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
+  label: text("label").notNull(),
+  /** Auto-stamps actualDate on first entry into this phase. Null = manual only. */
+  phase: projectPhase("phase"),
+  plannedDate: date("planned_date"),
+  actualDate: date("actual_date"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete: hidden from the timeline but restorable. Null = active. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (t) => [index("project_milestones_project_idx").on(t.projectId)]);
+
 export const bids = pgTable("bids", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")
@@ -457,6 +501,14 @@ export const scopeItems = pgTable("scope_items", {
   materialQuality: text("material_quality"),
   /** URL to the product/spec so anyone can view it online */
   productLink: text("product_link"),
+  /**
+   * Trade section, e.g. "Cabinets", "Flooring" — snapshotted from the source
+   * scope-group item (see src/lib/scope-sections.ts). Groups the scope table
+   * and drives the per-trade progress rollup.
+   */
+  category: text("category"),
+  /** Where this line stands; rolls up per category on the project dashboard */
+  status: scopeItemStatus("status").notNull().default("not_started"),
   // --- Estimate pricing (set for template-generated interior scope; null for
   // legacy/manual spec-only items) ---
   /** 4000-series code this line reconciles to, for budget-vs-actual per code */
@@ -759,7 +811,11 @@ export const siteAudits = pgTable("site_audits", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the list but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (t) => [index("site_audits_property_idx").on(t.propertyId)]);
+}, (t) => [
+  index("site_audits_property_idx").on(t.propertyId),
+  // The project dashboard reads a project's findings on every load.
+  index("site_audits_project_idx").on(t.projectId),
+]);
 
 export const auditFindings = pgTable("audit_findings", {
   id: serial("id").primaryKey(),

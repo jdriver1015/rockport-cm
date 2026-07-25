@@ -35,6 +35,7 @@ export type WizardGroupItem = {
   quantityFormula: string | null;
   costCodeId: number | null;
   materialAssumptions: string | null;
+  productLink: string | null;
 };
 export type WizardScopeGroup = { id: number; name: string; items: WizardGroupItem[] };
 export type WizardVendor = { id: number; name: string; trade: string | null };
@@ -46,6 +47,7 @@ type Line = {
   pricingMethod: PricingMethod;
   costCodeId: number | null;
   materialAssumptions: string | null;
+  productLink: string | null;
   quantity: number;
   unitPrice: number;
   note?: string;
@@ -89,6 +91,7 @@ function generateLines(group: WizardScopeGroup, unit: UnitMeta): Line[] {
       pricingMethod: it.pricingMethod,
       costCodeId: it.costCodeId,
       materialAssumptions: it.materialAssumptions,
+      productLink: it.productLink,
       quantity,
       unitPrice,
       note: res.note,
@@ -172,6 +175,7 @@ export function InteriorWizard({
           costCodeId: l.costCodeId,
           sourceGroupItemId: l.sourceGroupItemId,
           materialAssumptions: l.materialAssumptions,
+          productLink: l.productLink,
         })),
       });
       if (!result.ok) return toast.error(result.error);

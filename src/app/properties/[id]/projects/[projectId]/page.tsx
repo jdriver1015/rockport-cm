@@ -227,23 +227,27 @@ export default async function ProjectDetailPage({
     item: s.item,
     materialQuality: s.materialQuality,
     productLink: s.productLink,
+    category: s.category,
+    status: s.status,
   }));
 
   // Interior projects carry generated pricing on their scope items; resolve the
-  // code strings and render the priced view instead of the spec-only table.
+  // cost-code names and render the priced view instead of the spec-only table.
   const scopeCodeIds = [...new Set(scope.map((s) => s.costCodeId).filter((c): c is number => !!c))];
   const scopeCodes = scopeCodeIds.length
     ? await db()
-        .select({ id: schema.costCodes.id, code: schema.costCodes.code })
+        .select({ id: schema.costCodes.id, name: schema.costCodes.name })
         .from(schema.costCodes)
         .where(inArray(schema.costCodes.id, scopeCodeIds))
     : [];
-  const codeById = new Map(scopeCodes.map((c) => [c.id, c.code]));
+  const codeById = new Map(scopeCodes.map((c) => [c.id, c.name]));
   const isPriced = project.kind === "unit" && scope.some((s) => s.pricingMethod != null);
   const pricedScopeRows: PricedScopeRow[] = scope.map((s) => ({
     id: s.id,
     item: s.item,
     materialQuality: s.materialQuality,
+    category: s.category,
+    status: s.status,
     pricingMethod: s.pricingMethod as PricingMethod | null,
     unitPrice: s.unitPrice,
     quantity: s.quantity,
@@ -267,7 +271,11 @@ export default async function ProjectDetailPage({
       </Card>
 
       {isPriced ? (
-        <PricedScopeTable items={pricedScopeRows} />
+        <PricedScopeTable
+          items={pricedScopeRows}
+          propertyId={propertyId}
+          projectId={projectId}
+        />
       ) : (
         <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
       )}

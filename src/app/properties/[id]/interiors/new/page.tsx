@@ -95,6 +95,7 @@ export default async function NewInteriorProjectPage({
         quantityFormula: it.quantityFormula,
         costCodeId: it.costCodeId,
         materialAssumptions: it.materialAssumptions,
+        productLink: it.productLink,
       })),
   }));
 

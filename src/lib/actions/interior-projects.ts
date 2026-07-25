@@ -22,6 +22,7 @@ const lineSchema = z.object({
   costCodeId: z.coerce.number().int().positive().optional().nullable(),
   sourceGroupItemId: z.coerce.number().int().positive().optional().nullable(),
   materialAssumptions: z.string().trim().optional().nullable(),
+  productLink: z.string().trim().optional().nullable(),
 });
 
 const optDate = z
@@ -127,6 +128,10 @@ export async function createInteriorProject(
           projectId: project.id,
           item: l.name,
           materialQuality: l.materialAssumptions ?? null,
+          productLink: l.productLink ?? null,
+          // Snapshotted so the scope table can group by trade even if the
+          // source scope-group item is later edited or removed.
+          category: l.category ?? null,
           costCodeId: l.costCodeId ?? null,
           pricingMethod: l.pricingMethod,
           unitPrice: l.unitPrice.toFixed(2),
