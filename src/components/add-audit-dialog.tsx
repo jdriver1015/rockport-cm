@@ -19,9 +19,13 @@ import { createAudit } from "@/lib/actions/audits";
 export function AddAuditDialog({
   propertyId,
   defaultAuditor,
+  projects = [],
+  defaultProjectId,
 }: {
   propertyId: number;
   defaultAuditor?: string | null;
+  projects?: { id: number; name: string }[];
+  defaultProjectId?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -60,6 +64,24 @@ export function AddAuditDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <input type="hidden" name="propertyId" value={propertyId} />
+          {projects.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="audit-project">Project</Label>
+              <select
+                id="audit-project"
+                name="projectId"
+                defaultValue={defaultProjectId ?? ""}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <option value="">No project (property-wide)</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="audit-title">Title</Label>
             <Input

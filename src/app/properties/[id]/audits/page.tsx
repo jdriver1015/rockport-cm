@@ -2,21 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
+import { SiteAuditsTable } from "@/components/site-audits-table";
 import { createClient } from "@/lib/supabase/server";
-import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +29,7 @@ export default async function AuditsPage({ params }: { params: Promise<{ id: str
     ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
     : null;
 
-  const [audits, findingCounts, archivedCount] = await Promise.all([
+  const [audits, findingCounts, archivedCount, projects] = await Promise.all([
     db()
       .select()
       .from(schema.siteAudits)
@@ -56,6 +47,11 @@ export default async function AuditsPage({ params }: { params: Promise<{ id: str
       schema.siteAudits,
       and(eq(schema.siteAudits.propertyId, propertyId), isNotNull(schema.siteAudits.archivedAt)),
     ),
+    db()
+      .select({ id: schema.projects.id, name: schema.projects.name })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
+      .orderBy(schema.projects.name),
   ]);
 
   const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
@@ -78,54 +74,15 @@ export default async function AuditsPage({ params }: { params: Promise<{ id: str
                 Archived ({archivedCount})
               </Link>
             )}
-            <AddAuditDialog propertyId={property.id} defaultAuditor={profile?.fullName ?? null} />
+            <AddAuditDialog
+              propertyId={property.id}
+              defaultAuditor={profile?.fullName ?? null}
+              projects={projects}
+            />
           </div>
         </CardHeader>
         <CardContent>
-          {audits.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No audits yet. Click <span className="font-medium">New audit</span> to start a
-              walk-through.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Auditor</TableHead>
-                    <TableHead className="text-right">Findings</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {audits.map((a) => (
-                    <TableRow key={a.id} className="cursor-pointer">
-                      <TableCell className="font-medium text-navy">
-                        <Link
-                          href={`/properties/${propertyId}/audits/${a.id}`}
-                          className="hover:underline"
-                        >
-                          {a.title}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{fmtDate(a.auditDate)}</TableCell>
-                      <TableCell className="text-muted-foreground">{a.auditorName ?? "—"}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {findingsByAudit.get(a.id) ?? 0}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={a.status === "complete" ? "positive" : "pending"}>
-                          {a.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+          <SiteAuditsTable propertyId={propertyId} audits={audits} findingsByAudit={findingsByAudit} />
         </CardContent>
       </Card>
     </div>

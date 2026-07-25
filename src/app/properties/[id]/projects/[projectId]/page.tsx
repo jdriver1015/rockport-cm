@@ -14,9 +14,12 @@ import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope
 import type { PricingMethod } from "@/lib/pricing";
 import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
+import { AddAuditDialog } from "@/components/add-audit-dialog";
+import { SiteAuditsTable } from "@/components/site-audits-table";
 import { fmtDate, money, num } from "@/lib/format";
 import { stageLabel } from "@/lib/stages";
 import { bucketForStage } from "@/lib/stage-buckets";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +53,18 @@ export default async function ProjectDetailPage({
 
   // None of these depend on each other — run them as one parallel batch rather
   // than six sequential round-trips to the pooled Supabase connection.
-  const [scope, auditLog, docs, bidJoins, activeVendors, activeContacts, [{ actualTotal }]] =
-    await Promise.all([
+  const [
+    scope,
+    auditLog,
+    docs,
+    bidJoins,
+    activeVendors,
+    activeContacts,
+    [{ actualTotal }],
+    projectAudits,
+    otherProjects,
+    findingCounts,
+  ] = await Promise.all([
     db()
       .select()
       .from(schema.scopeItems)
@@ -112,7 +125,34 @@ export default async function ProjectDetailPage({
           eq(schema.glTransactions.status, "posted"),
         ),
       ),
+    // Site audits tied to this project.
+    db()
+      .select()
+      .from(schema.siteAudits)
+      .where(and(eq(schema.siteAudits.projectId, projectId), isNull(schema.siteAudits.archivedAt)))
+      .orderBy(desc(schema.siteAudits.auditDate), desc(schema.siteAudits.id)),
+    // Every other active project on this property, for the New Audit project picker.
+    db()
+      .select({ id: schema.projects.id, name: schema.projects.name })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
+      .orderBy(asc(schema.projects.name)),
+    db()
+      .select({ auditId: schema.auditFindings.auditId, count: sql<number>`count(*)::int` })
+      .from(schema.auditFindings)
+      .where(isNull(schema.auditFindings.archivedAt))
+      .groupBy(schema.auditFindings.auditId),
   ]);
+
+  const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const profile = user
+    ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
+    : null;
 
   // A project sits in exactly one lifecycle bucket at a time — its committed
   // cost shows as Planned or In Process, or its actual spend as Completed.
@@ -288,6 +328,24 @@ export default async function ProjectDetailPage({
     </>
   );
 
+  const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
+  const audits = (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base text-navy">Site Audits</CardTitle>
+        <AddAuditDialog
+          propertyId={propertyId}
+          defaultAuditor={profile?.fullName ?? null}
+          projects={[{ id: projectId, name: project.name }, ...otherProjectOptions]}
+          defaultProjectId={projectId}
+        />
+      </CardHeader>
+      <CardContent>
+        <SiteAuditsTable propertyId={propertyId} audits={projectAudits} findingsByAudit={findingsByAudit} />
+      </CardContent>
+    </Card>
+  );
+
   const log = (
     <Card>
       <CardHeader>
@@ -371,6 +429,7 @@ export default async function ProjectDetailPage({
         documents={
           <DocumentManager propertyId={propertyId} projectId={projectId} documents={documentRows} />
         }
+        audits={audits}
         log={log}
       />
     </div>

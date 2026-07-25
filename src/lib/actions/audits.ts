@@ -7,9 +7,10 @@ import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/action-result";
 
-function revalidateAudits(propertyId: number, auditId?: number) {
+function revalidateAudits(propertyId: number, auditId?: number, projectId?: number | null) {
   revalidatePath(`/properties/${propertyId}/audits`);
   if (auditId) revalidatePath(`/properties/${propertyId}/audits/${auditId}`);
+  if (projectId) revalidatePath(`/properties/${propertyId}/projects/${projectId}`);
 }
 
 async function currentUser() {
@@ -26,6 +27,7 @@ async function currentUser() {
 
 const createAuditSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
+  projectId: z.coerce.number().int().positive().optional(),
   title: z.string().trim().min(1, "Title is required"),
   auditDate: z.string().trim().min(1, "Date is required"),
   auditorName: z
@@ -45,6 +47,7 @@ export async function createAudit(
 ): Promise<ActionResult<{ auditId: number }>> {
   const parsed = createAuditSchema.safeParse({
     propertyId: formData.get("propertyId"),
+    projectId: formData.get("projectId") || undefined,
     title: formData.get("title"),
     auditDate: formData.get("auditDate"),
     auditorName: formData.get("auditorName"),
@@ -58,6 +61,7 @@ export async function createAudit(
     .insert(schema.siteAudits)
     .values({
       propertyId: d.propertyId,
+      projectId: d.projectId ?? null,
       title: d.title,
       auditDate: d.auditDate,
       auditorName: d.auditorName,
@@ -66,7 +70,7 @@ export async function createAudit(
     })
     .returning({ id: schema.siteAudits.id });
 
-  revalidateAudits(d.propertyId);
+  revalidateAudits(d.propertyId, undefined, d.projectId);
   return { ok: true, auditId: row.id };
 }
 
