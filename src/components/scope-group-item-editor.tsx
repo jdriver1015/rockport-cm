@@ -89,12 +89,12 @@ function GroupItemForm({
           <Input id="gi-category" name="category" defaultValue={item?.category ?? ""} placeholder="Flooring" />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="gi-code">4000-series code</Label>
+          <Label htmlFor="gi-code">Interior cost code</Label>
           <select id="gi-code" name="costCodeId" defaultValue={item?.costCodeId ?? ""} className={selectClass}>
             <option value="">—</option>
             {interiorCodes.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.code} — {c.name}
+                {c.name}
               </option>
             ))}
           </select>

@@ -52,7 +52,7 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
     ),
   });
   if (existing) {
-    return { ok: false, error: `${costCode.code} already has a budget line for this property` };
+    return { ok: false, error: `${costCode.name} already has a budget line for this property` };
   }
 
   const uwAmount =

@@ -39,9 +39,7 @@ export default async function PropertyBoardPage({
         committedCost: schema.projects.committedCost,
         startDate: schema.projects.startDate,
         completeDate: schema.projects.completeDate,
-        costCodeCode: schema.costCodes.code,
         costCodeName: schema.costCodes.name,
-        categoryCode: schema.costCategories.code,
         categoryName: schema.costCategories.name,
         division: schema.costCategories.division,
         unitNumber: schema.units.unitNumber,
@@ -87,18 +85,10 @@ export default async function PropertyBoardPage({
       jtd: jtdByProject.get(r.id) ?? 0,
       startDate: r.startDate,
       completeDate: r.completeDate,
-      // Unit turns spend across the 4000-series → Interiors bucket.
+      // Unit turns spend across all interior codes → Interiors bucket.
       division: isUnit ? "interiors" : r.division ?? null,
-      categoryLabel: isUnit
-        ? "Interiors"
-        : r.categoryCode
-          ? `${r.categoryCode} ${r.categoryName}`
-          : "Uncategorized",
-      lineItem: isUnit
-        ? "4000 Interiors (all codes)"
-        : r.costCodeCode
-          ? `${r.costCodeCode} · ${r.costCodeName}`
-          : "—",
+      categoryLabel: isUnit ? "Interiors" : r.categoryName ?? "Uncategorized",
+      lineItem: isUnit ? "Interiors (all codes)" : r.costCodeName ?? "—",
       unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
     };
   });

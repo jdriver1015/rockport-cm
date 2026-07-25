@@ -357,14 +357,9 @@ export default async function ProjectDetailPage({
         </div>
         <p className="text-sm text-muted-foreground">
           {costCode ? (
-            <>
-              UW line item:{" "}
-              <span className="font-mono text-xs">
-                {costCode.code} · {costCode.name}
-              </span>
-            </>
+            <>UW line item: {costCode.name}</>
           ) : (
-            "Interior unit turn — spend across 4000-series codes"
+            "Interior unit turn — spend across all interior codes"
           )}
           {unit ? ` · Unit ${unit.unitNumber}` : ""}
           {vendor ? ` · ${vendor.name}` : ""}

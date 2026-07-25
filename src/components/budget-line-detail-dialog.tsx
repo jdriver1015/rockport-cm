@@ -109,9 +109,7 @@ function DialogBody({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>
-          <span className="font-mono text-sm">{line.code}</span> {line.name}
-        </DialogTitle>
+        <DialogTitle>{line.name}</DialogTitle>
         <DialogDescription>Underwriting budget line for this cost code.</DialogDescription>
       </DialogHeader>
 

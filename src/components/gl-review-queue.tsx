@@ -59,7 +59,7 @@ export function GlReviewQueue({
   const [pending, startTransition] = useTransition();
 
   const costCodeOptions = useMemo(
-    () => costCodes.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),
+    () => costCodes.map((c) => ({ value: c.id, label: c.name })),
     [costCodes],
   );
   const projectOptions = useMemo(

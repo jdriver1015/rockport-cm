@@ -172,7 +172,7 @@ export function AddCostCodeDialog({
               </option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
+                  {c.name}
                 </option>
               ))}
             </select>
@@ -204,13 +204,11 @@ export function AddCostCodeDialog({
 
 export function EditCostCodeDialog({
   id,
-  code,
   name,
   active,
   isInterior,
 }: {
   id: number;
-  code: string;
   name: string;
   active: boolean;
   isInterior: boolean;
@@ -242,9 +240,7 @@ export function EditCostCodeDialog({
       <DialogTrigger render={<Button size="sm" variant="ghost" />}>Edit</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            <span className="font-mono">{code}</span>
-          </DialogTitle>
+          <DialogTitle>{name}</DialogTitle>
           <DialogDescription>Rename, change type, or activate/deactivate.</DialogDescription>
         </DialogHeader>
         <form

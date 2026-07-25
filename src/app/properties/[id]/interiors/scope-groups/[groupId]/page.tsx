@@ -94,7 +94,7 @@ export default async function ScopeGroupEditorPage({
                 <TableHead>Category</TableHead>
                 <TableHead>Pricing</TableHead>
                 <TableHead className="text-right">Unit price</TableHead>
-                <TableHead>Code</TableHead>
+                <TableHead>Cost code</TableHead>
                 <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
@@ -109,8 +109,8 @@ export default async function ScopeGroupEditorPage({
                       {PRICING_METHOD_LABELS[it.pricingMethod as PricingMethod] ?? it.pricingMethod}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{money(it.unitPrice)}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {code ? code.code : it.costCodeId != null ? "?" : "—"}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {code ? code.name : it.costCodeId != null ? "?" : "—"}
                     </TableCell>
                     <TableCell className="text-right">
                       <EditGroupItemDialog

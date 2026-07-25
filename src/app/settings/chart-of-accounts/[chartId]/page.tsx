@@ -92,7 +92,6 @@ export default async function ChartEditorPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead className="text-right">GL rows</TableHead>
@@ -105,9 +104,6 @@ export default async function ChartEditorPage({
                 const catCodes = codes.filter((c) => c.categoryId === cat.id);
                 return [
                   <TableRow key={`cat-${cat.id}`} className="bg-paper/60 hover:bg-paper/60">
-                    <TableCell className="font-mono text-xs font-semibold text-navy">
-                      {cat.code}
-                    </TableCell>
                     <TableCell className="font-semibold text-navy" colSpan={4}>
                       {cat.name}
                     </TableCell>
@@ -117,8 +113,7 @@ export default async function ChartEditorPage({
                   </TableRow>,
                   ...catCodes.map((c) => (
                     <TableRow key={c.id} className={c.active ? undefined : "opacity-55"}>
-                      <TableCell className="pl-6 font-mono text-xs">{c.code}</TableCell>
-                      <TableCell>{c.name}</TableCell>
+                      <TableCell className="pl-6">{c.name}</TableCell>
                       <TableCell>
                         {c.isInterior ? (
                           <Badge variant="outline">Interior</Badge>
@@ -139,7 +134,6 @@ export default async function ChartEditorPage({
                       <TableCell className="text-right">
                         <EditCostCodeDialog
                           id={c.id}
-                          code={c.code}
                           name={c.name}
                           active={c.active}
                           isInterior={c.isInterior}
@@ -151,7 +145,7 @@ export default async function ChartEditorPage({
               })}
               {categories.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                     No categories yet. Add a category, then add cost codes under it.
                   </TableCell>
                 </TableRow>

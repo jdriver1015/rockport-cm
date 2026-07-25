@@ -125,7 +125,7 @@ export function AddBudgetLineDialog({
               </option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.code} {c.name}
+                  {c.name}
                 </option>
               ))}
             </select>
@@ -147,7 +147,7 @@ export function AddBudgetLineDialog({
               </option>
               {availableCodes.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.code} {c.name}
+                  {c.name}
                 </option>
               ))}
             </select>

@@ -150,7 +150,7 @@ function TemplateItemForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ti-code">4000-series code</Label>
+          <Label htmlFor="ti-code">Interior cost code</Label>
           <select
             id="ti-code"
             name="costCodeRef"
@@ -160,7 +160,7 @@ function TemplateItemForm({
             <option value="">—</option>
             {codeOptions.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.code} — {c.name}
+                {c.name}
               </option>
             ))}
           </select>
