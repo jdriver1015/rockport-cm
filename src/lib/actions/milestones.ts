@@ -25,7 +25,7 @@ const createSchema = z.object({
 });
 
 export async function createMilestone(formData: FormData): Promise<ActionResult<{ milestoneId: number }>> {
-  const parsed = createSchema.parse({
+  const parsed = createSchema.safeParse({
     projectId: formData.get("projectId"),
     label: formData.get("label"),
     phase: formData.get("phase") || undefined,
@@ -33,21 +33,23 @@ export async function createMilestone(formData: FormData): Promise<ActionResult<
     actualDate: formData.get("actualDate") || undefined,
     sortOrder: formData.get("sortOrder") ?? 0,
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
 
   const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, parsed.projectId),
+    where: eq(schema.projects.id, d.projectId),
   });
   if (!project) return { ok: false, error: "Project not found" };
 
   const [ms] = await db()
     .insert(schema.projectMilestones)
     .values({
-      projectId: parsed.projectId,
-      label: parsed.label,
-      phase: parsed.phase as typeof project.phase | null,
-      plannedDate: parsed.plannedDate,
-      actualDate: parsed.actualDate,
-      sortOrder: parsed.sortOrder,
+      projectId: d.projectId,
+      label: d.label,
+      phase: d.phase as typeof project.phase | null,
+      plannedDate: d.plannedDate,
+      actualDate: d.actualDate,
+      sortOrder: d.sortOrder,
     })
     .returning({ id: schema.projectMilestones.id });
 
@@ -65,7 +67,7 @@ const updateSchema = z.object({
 });
 
 export async function updateMilestone(formData: FormData): Promise<ActionResult> {
-  const parsed = updateSchema.parse({
+  const parsed = updateSchema.safeParse({
     milestoneId: formData.get("milestoneId"),
     label: formData.get("label") || undefined,
     phase: formData.get("phase") || undefined,
@@ -73,9 +75,11 @@ export async function updateMilestone(formData: FormData): Promise<ActionResult>
     actualDate: formData.get("actualDate"),
     sortOrder: formData.get("sortOrder") ?? undefined,
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
 
   const milestone = await db().query.projectMilestones.findFirst({
-    where: eq(schema.projectMilestones.id, parsed.milestoneId),
+    where: eq(schema.projectMilestones.id, d.milestoneId),
   });
   if (!milestone) return { ok: false, error: "Milestone not found" };
 
@@ -87,23 +91,26 @@ export async function updateMilestone(formData: FormData): Promise<ActionResult>
   await db()
     .update(schema.projectMilestones)
     .set({
-      ...(parsed.label != null ? { label: parsed.label } : {}),
-      phase: parsed.phase as typeof project.phase | null,
-      plannedDate: parsed.plannedDate,
-      actualDate: parsed.actualDate,
-      ...(parsed.sortOrder != null ? { sortOrder: parsed.sortOrder } : {}),
+      ...(d.label != null ? { label: d.label } : {}),
+      phase: d.phase as typeof project.phase | null,
+      plannedDate: d.plannedDate,
+      actualDate: d.actualDate,
+      ...(d.sortOrder != null ? { sortOrder: d.sortOrder } : {}),
     })
-    .where(eq(schema.projectMilestones.id, parsed.milestoneId));
+    .where(eq(schema.projectMilestones.id, d.milestoneId));
 
   revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
   return { ok: true };
 }
 
 export async function archiveMilestone(formData: FormData): Promise<ActionResult> {
-  const milestoneId = z.coerce.number().int().positive().parse(formData.get("milestoneId"));
+  const parsed = z.object({ milestoneId: z.coerce.number().int().positive() }).safeParse({
+    milestoneId: formData.get("milestoneId"),
+  });
+  if (!parsed.success) return { ok: false, error: "Invalid milestone" };
 
   const milestone = await db().query.projectMilestones.findFirst({
-    where: eq(schema.projectMilestones.id, milestoneId),
+    where: eq(schema.projectMilestones.id, parsed.data.milestoneId),
   });
   if (!milestone) return { ok: false, error: "Milestone not found" };
 
@@ -115,7 +122,7 @@ export async function archiveMilestone(formData: FormData): Promise<ActionResult
   await db()
     .update(schema.projectMilestones)
     .set({ archivedAt: new Date() })
-    .where(eq(schema.projectMilestones.id, milestoneId));
+    .where(eq(schema.projectMilestones.id, parsed.data.milestoneId));
 
   revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
   return { ok: true };

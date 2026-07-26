@@ -64,7 +64,6 @@ export default async function ProjectDetailPage({
     bidJoins,
     activeVendors,
     activeContacts,
-    [{ actualTotal }],
     projectAudits,
     otherProjects,
     findingCounts,
@@ -120,15 +119,6 @@ export default async function ProjectDetailPage({
       .from(schema.vendorContacts)
       .where(eq(schema.vendorContacts.active, true))
       .orderBy(asc(schema.vendorContacts.name)),
-    db()
-      .select({ actualTotal: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)` })
-      .from(schema.glTransactions)
-      .where(
-        and(
-          eq(schema.glTransactions.projectId, projectId),
-          eq(schema.glTransactions.status, "posted"),
-        ),
-      ),
     db()
       .select()
       .from(schema.siteAudits)
@@ -208,7 +198,7 @@ export default async function ProjectDetailPage({
   // --- KPI strip: Budget / Planned / Committed / Spent + Over/Under delta ---
   const budgetAmt = num(project.budgetAmount);
   const committedAmt = num(project.committedCost);
-  const spentAmt = num(actualTotal);
+  const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
   const scopeTotal = scope.reduce(
     (s, r) => s + (r.quantity != null && r.unitPrice != null ? Number(r.quantity) * Number(r.unitPrice) : 0),
     0,

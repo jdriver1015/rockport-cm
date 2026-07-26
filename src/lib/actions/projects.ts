@@ -18,7 +18,7 @@ const createProjectSchema = z.object({
 });
 
 export async function createProject(formData: FormData): Promise<ActionResult<{ projectId: number }>> {
-  const parsed = createProjectSchema.parse({
+  const parsed = createProjectSchema.safeParse({
     propertyId: formData.get("propertyId"),
     kind: formData.get("kind"),
     name: formData.get("name") || undefined,
@@ -27,17 +27,18 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
     budgetAmount: formData.get("budgetAmount") || undefined,
     startDate: formData.get("startDate") || undefined,
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
 
   let unitId: number | undefined;
-  let name = parsed.name;
+  let name = d.name;
 
-  if (parsed.kind === "unit") {
-    if (!parsed.unitNumber) return { ok: false, error: "Unit number is required for a unit project" };
-    // Upsert the unit inventory row and link it
+  if (d.kind === "unit") {
+    if (!d.unitNumber) return { ok: false, error: "Unit number is required for a unit project" };
     const existing = await db().query.units.findFirst({
       where: and(
-        eq(schema.units.propertyId, parsed.propertyId),
-        eq(schema.units.unitNumber, parsed.unitNumber),
+        eq(schema.units.propertyId, d.propertyId),
+        eq(schema.units.unitNumber, d.unitNumber),
       ),
     });
     if (existing) {
@@ -45,20 +46,20 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
     } else {
       const [unit] = await db()
         .insert(schema.units)
-        .values({ propertyId: parsed.propertyId, unitNumber: parsed.unitNumber })
+        .values({ propertyId: d.propertyId, unitNumber: d.unitNumber })
         .returning();
       unitId = unit.id;
     }
-    name ??= `Unit ${parsed.unitNumber} Interior`;
+    name ??= `Unit ${d.unitNumber} Interior`;
   } else {
-    if (!parsed.costCodeId) return { ok: false, error: "Cost code is required for a common project" };
+    if (!d.costCodeId) return { ok: false, error: "Cost code is required for a common project" };
     const code = await db().query.costCodes.findFirst({
-      where: eq(schema.costCodes.id, parsed.costCodeId),
+      where: eq(schema.costCodes.id, d.costCodeId),
     });
     if (!code) return { ok: false, error: "Cost code not found" };
     // The code must belong to this property's chart of accounts.
     const property = await db().query.properties.findFirst({
-      where: eq(schema.properties.id, parsed.propertyId),
+      where: eq(schema.properties.id, d.propertyId),
       columns: { chartOfAccountsId: true },
     });
     if (!property) return { ok: false, error: "Property not found" };
@@ -71,13 +72,13 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
   const [project] = await db()
     .insert(schema.projects)
     .values({
-      propertyId: parsed.propertyId,
-      kind: parsed.kind,
+      propertyId: d.propertyId,
+      kind: d.kind,
       name: name!,
-      costCodeId: parsed.kind === "common" ? parsed.costCodeId : undefined,
+      costCodeId: d.kind === "common" ? d.costCodeId : undefined,
       unitId,
-      budgetAmount: (parsed.budgetAmount ?? 0).toFixed(2),
-      startDate: parsed.startDate || undefined,
+      budgetAmount: (d.budgetAmount ?? 0).toFixed(2),
+      startDate: d.startDate || undefined,
     })
     .returning();
 
@@ -88,7 +89,7 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
     note: "Project created",
   });
 
-  revalidatePath(`/properties/${parsed.propertyId}`);
+  revalidatePath(`/properties/${d.propertyId}`);
   return { ok: true, projectId: project.id };
 }
 
@@ -170,19 +171,20 @@ const setPhaseSchema = z.object({
 });
 
 export async function setProjectPhase(formData: FormData): Promise<ActionResult> {
-  const parsed = setPhaseSchema.parse({
+  const parsed = setPhaseSchema.safeParse({
     projectId: formData.get("projectId"),
     toPhase: formData.get("toPhase"),
     note: formData.get("note") || undefined,
   });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, parsed.projectId),
+    where: eq(schema.projects.id, parsed.data.projectId),
   });
   if (!project) return { ok: false, error: "Project not found" };
-  if (project.phase === parsed.toPhase) return { ok: true };
+  if (project.phase === parsed.data.toPhase) return { ok: true };
 
-  const toPhase = parsed.toPhase as typeof project.phase;
+  const toPhase = parsed.data.toPhase as typeof project.phase;
 
   await db()
     .update(schema.projects)
@@ -195,14 +197,14 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
         ? { completeDate: new Date().toLocaleDateString("en-CA") }
         : {}),
     })
-    .where(eq(schema.projects.id, parsed.projectId));
+    .where(eq(schema.projects.id, parsed.data.projectId));
 
   await db().insert(schema.projectStageEvents).values({
-    projectId: parsed.projectId,
+    projectId: parsed.data.projectId,
     toStage: project.stage,
     fromPhase: project.phase,
     toPhase,
-    note: parsed.note,
+    note: parsed.data.note,
   });
 
   // Auto-stamp actual date on milestones tied to the new phase
@@ -212,9 +214,10 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
     .set({ actualDate: today })
     .where(
       and(
-        eq(schema.projectMilestones.projectId, parsed.projectId),
+        eq(schema.projectMilestones.projectId, parsed.data.projectId),
         eq(schema.projectMilestones.phase, toPhase),
         isNull(schema.projectMilestones.actualDate),
+        isNull(schema.projectMilestones.archivedAt),
       ),
     );
 
