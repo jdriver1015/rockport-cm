@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { PRICING_METHODS } from "@/lib/pricing";
+import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
 // Per-property scope groups — the usable renovation packages the interior
@@ -13,8 +14,9 @@ import { PRICING_METHODS } from "@/lib/pricing";
 // costCodeRef resolved to this property's chart) or blank.
 // ---------------------------------------------------------------------------
 
-function revalidateGroups(propertyId: number) {
-  revalidatePath(`/properties/${propertyId}/interiors`);
+async function revalidateGroups(propertyId: number) {
+  const path = await propertyPath(propertyId, "/interiors");
+  if (path) revalidatePath(path);
 }
 
 async function propertyChartId(propertyId: number): Promise<number | null> {
@@ -118,7 +120,7 @@ export async function createGroupFromTemplate(input: {
     );
   }
 
-  revalidateGroups(propertyId);
+  await revalidateGroups(propertyId);
   return { ok: true, groupId: group.id, unresolved };
 }
 
@@ -139,7 +141,7 @@ export async function createBlankGroup(input: {
       sortOrder: await nextGroupOrder(parsed.data.propertyId),
     })
     .returning({ id: schema.scopeGroups.id });
-  revalidateGroups(parsed.data.propertyId);
+  await revalidateGroups(parsed.data.propertyId);
   return { ok: true, groupId: group.id };
 }
 
@@ -155,7 +157,7 @@ export async function updateGroup(input: {
     .update(schema.scopeGroups)
     .set({ name: parsed.data.name, description: parsed.data.description ?? null })
     .where(eq(schema.scopeGroups.id, input.id));
-  revalidateGroups(parsed.data.propertyId);
+  await revalidateGroups(parsed.data.propertyId);
   return { ok: true };
 }
 
@@ -207,7 +209,7 @@ export async function duplicateGroup(input: {
       })),
     );
   }
-  revalidateGroups(source.propertyId);
+  await revalidateGroups(source.propertyId);
   return { ok: true, groupId: group.id };
 }
 
@@ -216,7 +218,7 @@ export async function archiveGroup(input: { id: number; propertyId: number }): P
     .update(schema.scopeGroups)
     .set({ archivedAt: new Date() })
     .where(eq(schema.scopeGroups.id, input.id));
-  revalidateGroups(input.propertyId);
+  await revalidateGroups(input.propertyId);
   return { ok: true };
 }
 
@@ -225,7 +227,7 @@ export async function restoreGroup(input: { id: number; propertyId: number }): P
     .update(schema.scopeGroups)
     .set({ archivedAt: null })
     .where(eq(schema.scopeGroups.id, input.id));
-  revalidateGroups(input.propertyId);
+  await revalidateGroups(input.propertyId);
   return { ok: true };
 }
 
@@ -313,7 +315,7 @@ export async function addGroupItem(formData: FormData): Promise<ActionResult> {
     notes: d.notes ?? null,
     sortOrder: maxOrder + 1,
   });
-  revalidateGroups(d.propertyId);
+  await revalidateGroups(d.propertyId);
   return { ok: true };
 }
 
@@ -345,7 +347,7 @@ export async function updateGroupItem(formData: FormData): Promise<ActionResult>
       notes: d.notes ?? null,
     })
     .where(eq(schema.scopeGroupItems.id, id));
-  revalidateGroups(d.propertyId);
+  await revalidateGroups(d.propertyId);
   return { ok: true };
 }
 
@@ -354,6 +356,6 @@ export async function deleteGroupItem(input: {
   propertyId: number;
 }): Promise<ActionResult> {
   await db().delete(schema.scopeGroupItems).where(eq(schema.scopeGroupItems.id, input.id));
-  revalidateGroups(input.propertyId);
+  await revalidateGroups(input.propertyId);
   return { ok: true };
 }

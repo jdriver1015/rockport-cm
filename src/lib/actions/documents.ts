@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyProjectPath } from "@/lib/property-path";
 
 /**
  * Soft-delete — the storage file is kept (not removed) so this is fully
@@ -34,7 +35,8 @@ export async function deleteDocument(input: {
     .set({ archivedAt: new Date() })
     .where(eq(schema.attachments.id, input.id));
 
-  revalidatePath(`/properties/${input.propertyId}/projects/${input.projectId}`);
+  const path = await propertyProjectPath(input.propertyId, input.projectId);
+  if (path) revalidatePath(path);
   return { ok: true };
 }
 
@@ -57,6 +59,7 @@ export async function restoreDocument(input: {
     .set({ archivedAt: null })
     .where(eq(schema.attachments.id, input.id));
 
-  revalidatePath(`/properties/${input.propertyId}/projects/${input.projectId}`);
+  const path = await propertyProjectPath(input.propertyId, input.projectId);
+  if (path) revalidatePath(path);
   return { ok: true };
 }

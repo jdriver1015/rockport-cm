@@ -5,6 +5,7 @@ import { EditPropertyDialog } from "@/components/edit-property-dialog";
 
 export type PropertyHeaderData = {
   id: number;
+  slug: string;
   name: string;
   entity: string | null;
   city: string | null;

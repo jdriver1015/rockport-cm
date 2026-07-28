@@ -134,6 +134,27 @@
       "when": 1785022037756,
       "tag": "0018_black_golden_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785174943673,
+      "tag": "0019_wide_omega_flight",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785174992589,
+      "tag": "0020_chunky_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785264000000,
+      "tag": "0021_add_scope_group_id",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { projectSlug } from "@/lib/slug";
 import type { ScheduleProject } from "@/lib/schedule-data";
 
 type Chip = {
@@ -103,7 +104,7 @@ export function CalendarView({ projects }: { projects: ScheduleProject[] }) {
                 {chips.slice(0, MAX_CHIPS_PER_DAY).map((c, i) => (
                   <Link
                     key={i}
-                    href={`/properties/${c.project.propertyId}/projects/${c.project.id}`}
+                    href={`/properties/${c.project.propertySlug}/projects/${projectSlug(c.project)}`}
                     title={`${c.label} — ${c.project.propertyName} · ${c.project.name}`}
                     className="flex items-center gap-1 truncate rounded px-1 py-0.5 text-[11px] hover:bg-surface-sub"
                   >

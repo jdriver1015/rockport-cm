@@ -9,7 +9,7 @@
  * Run: npx tsx scripts/seed-aston-post-oak.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
@@ -21,6 +21,7 @@ import {
   costCodes,
   properties,
 } from "../src/db/schema";
+import { slugify } from "../src/lib/slug";
 
 type Item = { name: string; amount: number };
 type Category = { code: string; name: string; division: string; items: Item[] };
@@ -169,6 +170,7 @@ async function main() {
     .insert(properties)
     .values({
       name: PROPERTY_NAME,
+      slug: slugify(PROPERTY_NAME),
       chartOfAccountsId: chart.id,
       unitCount: UNIT_COUNT,
     })

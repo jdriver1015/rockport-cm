@@ -17,21 +17,26 @@ import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
 import { phaseLabel } from "@/lib/stages";
 import { updateBudgetLine, deleteBudgetLine, restoreBudgetLine } from "@/lib/actions/budget";
+import { projectSlug } from "@/lib/slug";
 import type { BudgetLineRow } from "@/components/budget-view";
 
 export function BudgetLineDetailDialog({
   propertyId,
+  propertySlug,
   line,
   onClose,
 }: {
   propertyId: number;
+  propertySlug: string;
   line: BudgetLineRow | null;
   onClose: () => void;
 }) {
   return (
     <Dialog open={line !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
-        {line && <DialogBody propertyId={propertyId} line={line} onClose={onClose} />}
+        {line && (
+          <DialogBody propertyId={propertyId} propertySlug={propertySlug} line={line} onClose={onClose} />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -40,10 +45,12 @@ export function BudgetLineDetailDialog({
 // Split out so form state resets each time a different line opens (fresh mount).
 function DialogBody({
   propertyId,
+  propertySlug,
   line,
   onClose,
 }: {
   propertyId: number;
+  propertySlug: string;
   line: BudgetLineRow;
   onClose: () => void;
 }) {
@@ -198,7 +205,7 @@ function DialogBody({
                 {line.projects.map((p) => (
                   <li key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                     <Link
-                      href={`/properties/${propertyId}/projects/${p.id}`}
+                      href={`/properties/${propertySlug}/projects/${projectSlug(p)}`}
                       className="min-w-0 flex-1 truncate font-medium text-navy hover:text-link hover:underline"
                     >
                       {p.name}

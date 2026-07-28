@@ -5,7 +5,7 @@
  * Usage: npx tsx scripts/migrate-project-phases.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 import { sql } from "drizzle-orm";
 import { db } from "../src/db";
 

@@ -6,11 +6,17 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyPath, propertyProjectPath } from "@/lib/property-path";
 
-function revalidateAudits(propertyId: number, auditId?: number, projectId?: number | null) {
-  revalidatePath(`/properties/${propertyId}/audits`);
-  if (auditId) revalidatePath(`/properties/${propertyId}/audits/${auditId}`);
-  if (projectId) revalidatePath(`/properties/${propertyId}/projects/${projectId}`);
+async function revalidateAudits(propertyId: number, auditId?: number, projectId?: number | null) {
+  const base = await propertyPath(propertyId);
+  if (!base) return;
+  revalidatePath(`${base}/audits`);
+  if (auditId) revalidatePath(`${base}/audits/${auditId}`);
+  if (projectId) {
+    const projPath = await propertyProjectPath(propertyId, projectId);
+    if (projPath) revalidatePath(projPath);
+  }
 }
 
 async function currentUser() {
@@ -70,7 +76,7 @@ export async function createAudit(
     })
     .returning({ id: schema.siteAudits.id });
 
-  revalidateAudits(d.propertyId, undefined, d.projectId);
+  await revalidateAudits(d.propertyId, undefined, d.projectId);
   return { ok: true, auditId: row.id };
 }
 
@@ -97,7 +103,7 @@ export async function updateAudit(input: {
 
   if (Object.keys(set).length === 0) return { ok: true };
   await db().update(schema.siteAudits).set(set).where(eq(schema.siteAudits.id, input.id));
-  revalidateAudits(input.propertyId, input.id);
+  await revalidateAudits(input.propertyId, input.id);
   return { ok: true };
 }
 
@@ -110,7 +116,7 @@ export async function setAuditStatus(input: {
     .update(schema.siteAudits)
     .set({ status: input.status })
     .where(eq(schema.siteAudits.id, input.id));
-  revalidateAudits(input.propertyId, input.id);
+  await revalidateAudits(input.propertyId, input.id);
   return { ok: true };
 }
 
@@ -119,7 +125,7 @@ export async function deleteAudit(input: { id: number; propertyId: number }): Pr
     .update(schema.siteAudits)
     .set({ archivedAt: new Date() })
     .where(eq(schema.siteAudits.id, input.id));
-  revalidateAudits(input.propertyId, input.id);
+  await revalidateAudits(input.propertyId, input.id);
   return { ok: true };
 }
 
@@ -128,7 +134,7 @@ export async function restoreAudit(input: { id: number; propertyId: number }): P
     .update(schema.siteAudits)
     .set({ archivedAt: null })
     .where(eq(schema.siteAudits.id, input.id));
-  revalidateAudits(input.propertyId, input.id);
+  await revalidateAudits(input.propertyId, input.id);
   return { ok: true };
 }
 
@@ -157,7 +163,7 @@ export async function createFinding(input: {
     .values({ auditId: input.auditId, title, sortIndex: maxOrder + 1 })
     .returning({ id: schema.auditFindings.id });
 
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true, findingId: row.id };
 }
 
@@ -194,7 +200,7 @@ export async function updateFinding(input: {
 
   if (Object.keys(set).length === 0) return { ok: true };
   await db().update(schema.auditFindings).set(set).where(eq(schema.auditFindings.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -207,7 +213,7 @@ export async function deleteFinding(input: {
     .update(schema.auditFindings)
     .set({ archivedAt: new Date() })
     .where(eq(schema.auditFindings.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -220,7 +226,7 @@ export async function restoreFinding(input: {
     .update(schema.auditFindings)
     .set({ archivedAt: null })
     .where(eq(schema.auditFindings.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -266,7 +272,7 @@ export async function moveFinding(input: {
     .set({ sortIndex: current.sortIndex })
     .where(eq(schema.auditFindings.id, other.id));
 
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -284,7 +290,7 @@ export async function updatePhotoCaption(input: {
     .update(schema.auditPhotos)
     .set({ caption: input.caption.trim() || null })
     .where(eq(schema.auditPhotos.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -297,7 +303,7 @@ export async function deletePhoto(input: {
     .update(schema.auditPhotos)
     .set({ archivedAt: new Date() })
     .where(eq(schema.auditPhotos.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -310,7 +316,7 @@ export async function restorePhoto(input: {
     .update(schema.auditPhotos)
     .set({ archivedAt: null })
     .where(eq(schema.auditPhotos.id, input.id));
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }
 
@@ -356,6 +362,6 @@ export async function movePhoto(input: {
     .set({ sortIndex: current.sortIndex })
     .where(eq(schema.auditPhotos.id, other.id));
 
-  revalidateAudits(input.propertyId, input.auditId);
+  await revalidateAudits(input.propertyId, input.auditId);
   return { ok: true };
 }

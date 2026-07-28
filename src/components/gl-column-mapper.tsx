@@ -29,11 +29,11 @@ const FIELDS: { key: keyof Omit<ColumnOverride, "sheetName" | "headerRow">; labe
  * is remembered so the same format auto-recognizes next time.
  */
 export function GlColumnMapper({
-  propertyId,
+  propertySlug,
   batchId,
   sheets,
 }: {
-  propertyId: number;
+  propertySlug: string;
   batchId: number;
   sheets: Sheet[];
 }) {
@@ -73,7 +73,7 @@ export function GlColumnMapper({
         return;
       }
       toast.success("Columns mapped");
-      router.push(`/properties/${propertyId}/gl/${batchId}`);
+      router.push(`/properties/${propertySlug}/gl/${batchId}`);
       router.refresh();
     });
   }

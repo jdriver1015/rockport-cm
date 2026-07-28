@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ATTACHMENTS_BUCKET, createAdminClient } from "@/lib/supabase/admin";
+import { propertyProjectPath } from "@/lib/property-path";
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = /\.(pdf|png|jpe?g|webp|gif|docx?|xlsx?|csv|txt)$/i;
@@ -74,7 +75,8 @@ export async function POST(
         uploadedBy: user.id,
       })
       .returning({ id: schema.attachments.id });
-    revalidatePath(`/properties/${propertyId}/projects/${projectId}`);
+    const revalPath = await propertyProjectPath(propertyId, projectId);
+    if (revalPath) revalidatePath(revalPath);
     return NextResponse.json({ ok: true, id: row.id });
   } catch (err) {
     // Roll back the stored object if the row insert failed.

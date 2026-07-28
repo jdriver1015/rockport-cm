@@ -18,11 +18,13 @@ import { createAudit } from "@/lib/actions/audits";
 
 export function AddAuditDialog({
   propertyId,
+  propertySlug,
   defaultAuditor,
   projects = [],
   defaultProjectId,
 }: {
   propertyId: number;
+  propertySlug: string;
   defaultAuditor?: string | null;
   projects?: { id: number; name: string }[];
   defaultProjectId?: number;
@@ -43,7 +45,7 @@ export function AddAuditDialog({
       }
       toast.success("Audit created");
       setOpen(false);
-      router.push(`/properties/${propertyId}/audits/${result.auditId}`);
+      router.push(`/properties/${propertySlug}/audits/${result.auditId}`);
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create audit");

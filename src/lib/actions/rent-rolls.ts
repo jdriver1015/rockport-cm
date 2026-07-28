@@ -16,10 +16,13 @@ import {
 } from "@/lib/rent-roll-pipeline";
 import { validateRentRoll } from "@/lib/rent-roll-validation";
 import type { AiMapping } from "@/lib/rent-roll-mapping";
+import { propertyPath } from "@/lib/property-path";
 
-function revalidateProperty(propertyId: number) {
-  revalidatePath(`/properties/${propertyId}/rent-rolls`);
-  revalidatePath(`/properties/${propertyId}`);
+async function revalidateProperty(propertyId: number) {
+  const path = await propertyPath(propertyId);
+  if (!path) return;
+  revalidatePath(`${path}/rent-rolls`);
+  revalidatePath(path);
 }
 
 const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
@@ -113,7 +116,7 @@ export async function parseBatch(batchId: number, instructions?: string): Promis
       })
       .where(eq(schema.rentRollBatches.id, batchId));
 
-    revalidateProperty(batch.propertyId);
+    await revalidateProperty(batch.propertyId);
     return { ok: true };
   } catch (err) {
     await db()
@@ -124,7 +127,7 @@ export async function parseBatch(batchId: number, instructions?: string): Promis
         errorMessage: err instanceof Error ? err.message : "Could not parse the rent roll",
       })
       .where(eq(schema.rentRollBatches.id, batchId));
-    revalidateProperty(batch.propertyId);
+    await revalidateProperty(batch.propertyId);
     return { ok: false, error: err instanceof Error ? err.message : "Could not parse the rent roll" };
   }
 }
@@ -163,7 +166,7 @@ export async function commitRentRoll(batchId: number): Promise<ActionResult> {
     .set({ status: "committed", committedAt: new Date() })
     .where(eq(schema.rentRollBatches.id, batchId));
 
-  revalidateProperty(batch.propertyId);
+  await revalidateProperty(batch.propertyId);
   return { ok: true };
 }
 
@@ -207,7 +210,7 @@ export async function updateUnit(input: z.input<typeof updateUnitSchema>): Promi
     })
     .where(eq(schema.rentRollUnits.id, p.unitId));
 
-  revalidateProperty(unit.propertyId);
+  await revalidateProperty(unit.propertyId);
   return { ok: true };
 }
 
@@ -221,7 +224,7 @@ export async function deleteBatch(batchId: number): Promise<ActionResult> {
     .update(schema.rentRollBatches)
     .set({ archivedAt: new Date() })
     .where(eq(schema.rentRollBatches.id, batchId));
-  revalidateProperty(batch.propertyId);
+  await revalidateProperty(batch.propertyId);
   return { ok: true };
 }
 
@@ -234,6 +237,6 @@ export async function restoreBatch(batchId: number): Promise<ActionResult> {
     .update(schema.rentRollBatches)
     .set({ archivedAt: null })
     .where(eq(schema.rentRollBatches.id, batchId));
-  revalidateProperty(batch.propertyId);
+  await revalidateProperty(batch.propertyId);
   return { ok: true };
 }

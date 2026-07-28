@@ -30,11 +30,11 @@ export type AccountRow = {
  * Confirming imports only the checked accounts' rows and remembers the choice.
  */
 export function GlAccountPicker({
-  propertyId,
+  propertySlug,
   batchId,
   accounts,
 }: {
-  propertyId: number;
+  propertySlug: string;
   batchId: number;
   accounts: AccountRow[];
 }) {
@@ -76,7 +76,7 @@ export function GlAccountPicker({
         return;
       }
       toast.success(`Imported ${res.count} transaction${res.count === 1 ? "" : "s"}`);
-      router.push(`/properties/${propertyId}/gl/${batchId}`);
+      router.push(`/properties/${propertySlug}/gl/${batchId}`);
       router.refresh();
     });
   }

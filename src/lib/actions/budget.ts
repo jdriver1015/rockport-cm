@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyPath } from "@/lib/property-path";
 
 const createBudgetLineSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -75,7 +76,8 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
       note,
     });
 
-  revalidatePath(`/properties/${propertyId}/budget`);
+  const path = await propertyPath(propertyId, "/budget");
+  if (path) revalidatePath(path);
   revalidatePath("/");
   return { ok: true };
 }
@@ -131,7 +133,8 @@ export async function updateBudgetLine(input: {
     })
     .where(eq(schema.budgetLines.id, id));
 
-  revalidatePath(`/properties/${propertyId}/budget`);
+  const path = await propertyPath(propertyId, "/budget");
+  if (path) revalidatePath(path);
   revalidatePath("/");
   return { ok: true };
 }
@@ -152,7 +155,8 @@ export async function deleteBudgetLine(input: {
     .set({ archivedAt: new Date() })
     .where(eq(schema.budgetLines.id, input.id));
 
-  revalidatePath(`/properties/${input.propertyId}/budget`);
+  const path = await propertyPath(input.propertyId, "/budget");
+  if (path) revalidatePath(path);
   revalidatePath("/");
   return { ok: true };
 }
@@ -174,7 +178,8 @@ export async function restoreBudgetLine(input: {
     .set({ archivedAt: null })
     .where(eq(schema.budgetLines.id, input.id));
 
-  revalidatePath(`/properties/${input.propertyId}/budget`);
+  const path = await propertyPath(input.propertyId, "/budget");
+  if (path) revalidatePath(path);
   revalidatePath("/");
   return { ok: true };
 }

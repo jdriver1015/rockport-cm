@@ -1,10 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { dedupeSlug, slugify } from "@/lib/slug";
+import { propertyPath } from "@/lib/property-path";
+
+/** A unique property slug for `name`, excluding `excludeId` (used on rename). */
+async function uniquePropertySlug(name: string, excludeId?: number): Promise<string> {
+  const existing = await db()
+    .select({ slug: schema.properties.slug })
+    .from(schema.properties)
+    .where(excludeId != null ? ne(schema.properties.id, excludeId) : undefined);
+  return dedupeSlug(slugify(name), new Set(existing.map((r) => r.slug)));
+}
 
 const createPropertySchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -16,7 +27,9 @@ const createPropertySchema = z.object({
   pmSystem: z.string().trim().optional(),
 });
 
-export async function createProperty(formData: FormData): Promise<ActionResult<{ propertyId: number }>> {
+export async function createProperty(
+  formData: FormData,
+): Promise<ActionResult<{ propertyId: number; slug: string }>> {
   const parsed = createPropertySchema.safeParse({
     name: formData.get("name"),
     chartOfAccountsId: formData.get("chartOfAccountsId"),
@@ -34,10 +47,14 @@ export async function createProperty(formData: FormData): Promise<ActionResult<{
   });
   if (!chart) return { ok: false, error: "Selected chart of accounts no longer exists" };
 
-  const [property] = await db().insert(schema.properties).values(parsed.data).returning();
+  const slug = await uniquePropertySlug(parsed.data.name);
+  const [property] = await db()
+    .insert(schema.properties)
+    .values({ ...parsed.data, slug })
+    .returning();
 
   revalidatePath("/");
-  return { ok: true, propertyId: property.id };
+  return { ok: true, propertyId: property.id, slug: property.slug };
 }
 
 const updatePropertySchema = z.object({
@@ -51,7 +68,7 @@ const updatePropertySchema = z.object({
 });
 
 /** Edit a property's basic fields. Chart of accounts is changed separately via updatePropertyChart. */
-export async function updateProperty(formData: FormData): Promise<ActionResult> {
+export async function updateProperty(formData: FormData): Promise<ActionResult<{ slug: string }>> {
   const parsed = updatePropertySchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
@@ -67,10 +84,14 @@ export async function updateProperty(formData: FormData): Promise<ActionResult> 
   const existing = await db().query.properties.findFirst({ where: eq(schema.properties.id, id) });
   if (!existing) return { ok: false, error: "Property not found" };
 
+  // Renaming re-slugs the URL (old bookmarks to this property will 404).
+  const slug = rest.name !== existing.name ? await uniquePropertySlug(rest.name, id) : existing.slug;
+
   await db()
     .update(schema.properties)
     .set({
       name: rest.name,
+      slug,
       entity: rest.entity ?? null,
       city: rest.city ?? null,
       state: rest.state ?? null,
@@ -79,9 +100,9 @@ export async function updateProperty(formData: FormData): Promise<ActionResult> 
     })
     .where(eq(schema.properties.id, id));
 
-  revalidatePath(`/properties/${id}`);
+  revalidatePath(`/properties/${slug}`);
   revalidatePath("/");
-  return { ok: true };
+  return { ok: true, slug };
 }
 
 /**
@@ -154,9 +175,12 @@ export async function updatePropertyChart(input: {
     return { clearedBudgetLines: cleared.length, unlinkedProjects: unlinked.length };
   });
 
-  revalidatePath(`/properties/${propertyId}`);
-  revalidatePath(`/properties/${propertyId}/budget`);
-  revalidatePath(`/properties/${propertyId}/projects`);
+  const base = await propertyPath(propertyId);
+  if (base) {
+    revalidatePath(base);
+    revalidatePath(`${base}/budget`);
+    revalidatePath(`${base}/projects`);
+  }
   revalidatePath("/");
   return { ok: true, ...result };
 }

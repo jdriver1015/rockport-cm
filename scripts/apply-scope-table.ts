@@ -4,7 +4,7 @@
  * connection style as src/db/seed.ts. Run: npx tsx scripts/apply-scope-table.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";

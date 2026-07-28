@@ -6,9 +6,11 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { SCOPE_STATUS_KEYS } from "@/lib/scope-status";
+import { propertyProjectPath } from "@/lib/property-path";
 
-function revalidateProject(propertyId: number, projectId: number) {
-  revalidatePath(`/properties/${propertyId}/projects/${projectId}`);
+async function revalidateProject(propertyId: number, projectId: number) {
+  const path = await propertyProjectPath(propertyId, projectId);
+  if (path) revalidatePath(path);
 }
 
 // Optional URL — accept blank, otherwise require a parseable http(s) link.
@@ -61,7 +63,7 @@ export async function createScopeItem(formData: FormData): Promise<ActionResult>
     category: d.category,
     sortOrder: maxOrder + 1,
   });
-  revalidateProject(d.propertyId, d.projectId);
+  await revalidateProject(d.propertyId, d.projectId);
   return { ok: true };
 }
 
@@ -98,7 +100,7 @@ export async function updateScopeItem(input: {
 
   if (Object.keys(set).length === 0) return { ok: true };
   await db().update(schema.scopeItems).set(set).where(eq(schema.scopeItems.id, input.id));
-  revalidateProject(input.propertyId, input.projectId);
+  await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
 
@@ -111,7 +113,7 @@ export async function deleteScopeItem(input: {
     .update(schema.scopeItems)
     .set({ archivedAt: new Date() })
     .where(eq(schema.scopeItems.id, input.id));
-  revalidateProject(input.propertyId, input.projectId);
+  await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
 
@@ -125,7 +127,7 @@ export async function restoreScopeItem(input: {
     .update(schema.scopeItems)
     .set({ archivedAt: null })
     .where(eq(schema.scopeItems.id, input.id));
-  revalidateProject(input.propertyId, input.projectId);
+  await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
 
@@ -155,6 +157,6 @@ export async function setScopeItemStatus(input: {
   if (!line || line.projectId !== projectId) return { ok: false, error: "Scope item not found" };
 
   await db().update(schema.scopeItems).set({ status }).where(eq(schema.scopeItems.id, id));
-  revalidateProject(propertyId, projectId);
+  await revalidateProject(propertyId, projectId);
   return { ok: true };
 }

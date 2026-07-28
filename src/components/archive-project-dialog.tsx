@@ -17,11 +17,11 @@ import {
 import { archiveProject } from "@/lib/actions/projects";
 
 export function ArchiveProjectDialog({
-  propertyId,
+  propertySlug,
   projectId,
   projectName,
 }: {
-  propertyId: number;
+  propertySlug: string;
   projectId: number;
   projectName: string;
 }) {
@@ -40,7 +40,7 @@ export function ArchiveProjectDialog({
       }
       toast.success("Project archived");
       setOpen(false);
-      router.push(`/properties/${propertyId}`);
+      router.push(`/properties/${propertySlug}`);
       router.refresh();
     });
   }

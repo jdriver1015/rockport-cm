@@ -66,9 +66,11 @@ const COLS = 5;
 
 export function BudgetView({
   propertyId,
+  propertySlug,
   divisions,
 }: {
   propertyId: number;
+  propertySlug: string;
   divisions: BudgetDivision[];
 }) {
   const [selected, setSelected] = useState<BudgetLineRow | null>(null);
@@ -175,6 +177,7 @@ export function BudgetView({
       </TableCard>
       <BudgetLineDetailDialog
         propertyId={propertyId}
+        propertySlug={propertySlug}
         line={selected}
         onClose={() => setSelected(null)}
       />

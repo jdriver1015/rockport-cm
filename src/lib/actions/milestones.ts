@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyPath } from "@/lib/property-path";
+import { projectSlug } from "@/lib/slug";
 
 const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
 
@@ -53,7 +55,8 @@ export async function createMilestone(formData: FormData): Promise<ActionResult<
     })
     .returning({ id: schema.projectMilestones.id });
 
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  const path = await propertyPath(project.propertyId, `/projects/${projectSlug(project)}`);
+  if (path) revalidatePath(path);
   return { ok: true, milestoneId: ms.id };
 }
 
@@ -99,7 +102,8 @@ export async function updateMilestone(formData: FormData): Promise<ActionResult>
     })
     .where(eq(schema.projectMilestones.id, d.milestoneId));
 
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  const path = await propertyPath(project.propertyId, `/projects/${projectSlug(project)}`);
+  if (path) revalidatePath(path);
   return { ok: true };
 }
 
@@ -124,6 +128,7 @@ export async function archiveMilestone(formData: FormData): Promise<ActionResult
     .set({ archivedAt: new Date() })
     .where(eq(schema.projectMilestones.id, parsed.data.milestoneId));
 
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  const path = await propertyPath(project.propertyId, `/projects/${projectSlug(project)}`);
+  if (path) revalidatePath(path);
   return { ok: true };
 }

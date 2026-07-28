@@ -12,11 +12,11 @@ export type SiteAuditRow = {
 };
 
 export function SiteAuditsTable({
-  propertyId,
+  propertySlug,
   audits,
   findingsByAudit,
 }: {
-  propertyId: number;
+  propertySlug: string;
   audits: SiteAuditRow[];
   findingsByAudit: Map<number, number>;
 }) {
@@ -44,7 +44,7 @@ export function SiteAuditsTable({
           {audits.map((a) => (
             <TableRow key={a.id} className="cursor-pointer">
               <TableCell className="font-medium text-navy">
-                <Link href={`/properties/${propertyId}/audits/${a.id}`} className="hover:underline">
+                <Link href={`/properties/${propertySlug}/audits/${a.id}`} className="hover:underline">
                   {a.title}
                 </Link>
               </TableCell>

@@ -20,11 +20,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { money } from "@/lib/format";
+import { fmtDate, money } from "@/lib/format";
 import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
-import { bucketForPhase } from "@/lib/stage-buckets";
 import { setProjectPhase } from "@/lib/actions/projects";
+import { projectSlug } from "@/lib/slug";
 
 export type BoardProject = {
   id: number;
@@ -66,7 +66,7 @@ function isSort(v: string | undefined): v is SortKey {
 
 export function ProjectBoard({
   projects,
-  propertyId,
+  propertySlug,
   initialView,
   initialGroup,
   initialSort,
@@ -75,7 +75,7 @@ export function ProjectBoard({
   initialQuery,
 }: {
   projects: BoardProject[];
-  propertyId: number;
+  propertySlug: string;
   initialView?: string;
   initialGroup?: string;
   initialSort?: string;
@@ -273,17 +273,17 @@ export function ProjectBoard({
           No projects yet — add the first one with “New project”.
         </p>
       ) : view === "table" ? (
-        <TableView groups={groups} propertyId={propertyId} />
+        <TableView groups={groups} propertySlug={propertySlug} />
       ) : view === "kanban" ? (
         <KanbanView
           groups={groups}
           groupBy={group}
-          propertyId={propertyId}
+          propertySlug={propertySlug}
           pending={pending}
           onDropToPhase={advancePhase}
         />
       ) : (
-        <GanttView groups={groups} propertyId={propertyId} />
+        <GanttView groups={groups} propertySlug={propertySlug} />
       )}
     </div>
   );
@@ -355,6 +355,24 @@ function SelectBox({
   );
 }
 
+function VarianceCell({ budget, actual }: { budget: number; actual: number }) {
+  if (!actual) return <span className="block text-right font-semibold tabular-nums text-ink-100">—</span>;
+  const variance = budget - actual;
+  const formatted = money(Math.abs(variance));
+  if (formatted === "—") return <span className="block text-right font-semibold tabular-nums text-ink-100">—</span>;
+  const isPositive = variance >= 0;
+  return (
+    <span
+      className={cn(
+        "block text-right font-semibold tabular-nums",
+        isPositive ? "text-positive" : "text-red-600",
+      )}
+    >
+      {isPositive ? `+${formatted}` : `-${formatted}`}
+    </span>
+  );
+}
+
 function PhaseBadge({ phase }: { phase: string }) {
   return (
     <Badge variant="secondary" className="border border-border">
@@ -365,16 +383,16 @@ function PhaseBadge({ phase }: { phase: string }) {
 
 function ProjectLink({
   project,
-  propertyId,
+  propertySlug,
   className,
 }: {
   project: BoardProject;
-  propertyId: number;
+  propertySlug: string;
   className?: string;
 }) {
   return (
     <Link
-      href={`/properties/${propertyId}/projects/${project.id}`}
+      href={`/properties/${propertySlug}/projects/${projectSlug(project)}`}
       className={cn("font-medium text-navy hover:text-link hover:underline", className)}
     >
       {project.name}
@@ -386,7 +404,7 @@ function ProjectLink({
 // Table view
 // ---------------------------------------------------------------------------
 
-function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number }) {
+function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: string }) {
   const router = useRouter();
   const shown = groups.filter((g) => g.projects.length > 0);
   if (shown.length === 0) {
@@ -400,12 +418,12 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
         <TableHeader>
           <TableRow>
             <TableHead className="w-[22%]">Project</TableHead>
-            <TableHead className="w-[24%]">UW line item</TableHead>
-            <TableHead className="w-[12%]">Phase</TableHead>
-            <TableHead className="w-[10%] text-right">Budgeted</TableHead>
-            <TableHead className="w-[10%] text-right">Planned</TableHead>
-            <TableHead className="w-[11%] text-right">In Process</TableHead>
-            <TableHead className="w-[11%] text-right">Completed</TableHead>
+            <TableHead className="w-[10%]">Phase</TableHead>
+            <TableHead className="w-[11%]">Est. Start</TableHead>
+            <TableHead className="w-[14%] text-right">Planned Cost</TableHead>
+            <TableHead className="w-[14%] text-right">Committed</TableHead>
+            <TableHead className="w-[15%] text-right">Reconciled Cost</TableHead>
+            <TableHead className="w-[14%] text-right">Variance</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -413,43 +431,40 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
             <Fragment key={g.key}>
               <TableGroupRow label={g.label} count={g.projects.length} colSpan={7} />
               {g.projects.map((p) => {
-                // Never hide real spend: a project can have posted GL before
-                // its contract amount was recorded, so Planned/In Process show
-                // whichever is larger — committed cost or actual spend so far.
-                const bucket = bucketForPhase(p.phase);
-                const inPlaceAmount = Math.max(p.committed, p.jtd);
-                const planned = bucket === "planned" ? inPlaceAmount : 0;
-                const inProcess = bucket === "in_process" ? inPlaceAmount : 0;
-                const completed = bucket === "completed" ? p.jtd : 0;
+                // Never hide real spend: a project can have posted GL before its
+                // contract amount was recorded, so Committed shows whichever is
+                // larger — the signed contract or actual spend so far.
+                const committed = Math.max(p.committed, p.jtd);
+                // The unit is usually already in the name ("Unit 116 Interior");
+                // only show the chip when a custom name would otherwise hide it.
+                const showUnitChip = p.unitLabel && !p.name.includes(p.unitLabel);
                 return (
                   <TableRow
                     key={p.id}
-                    onClick={() => router.push(`/properties/${propertyId}/projects/${p.id}`)}
+                    onClick={() => router.push(`/properties/${propertySlug}/projects/${projectSlug(p)}`)}
                     className="cursor-pointer hover:bg-muted/50"
                   >
                     <TableCell className="truncate">
-                      <ProjectLink project={p} propertyId={propertyId} />
-                      {p.unitLabel && (
+                      <ProjectLink project={p} propertySlug={propertySlug} />
+                      {showUnitChip && (
                         <span className="ml-2 text-xs text-muted-foreground">{p.unitLabel}</span>
                       )}
-                    </TableCell>
-                    <TableCell className="truncate text-muted-foreground">
-                      <span className="font-mono text-xs">{p.lineItem}</span>
                     </TableCell>
                     <TableCell>
                       <StageDot phase={p.phase} />
                     </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{fmtDate(p.startDate)}</TableCell>
                     <TableCell>
                       <AmountCell value={p.budget} />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={planned} />
+                      <AmountCell value={committed} />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={inProcess} />
+                      <AmountCell value={p.jtd} positive />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={completed} positive />
+                      <VarianceCell budget={p.budget} actual={p.jtd} />
                     </TableCell>
                   </TableRow>
                 );
@@ -469,13 +484,13 @@ function TableView({ groups, propertyId }: { groups: Group[]; propertyId: number
 function KanbanView({
   groups,
   groupBy,
-  propertyId,
+  propertySlug,
   pending,
   onDropToPhase,
 }: {
   groups: Group[];
   groupBy: GroupBy;
-  propertyId: number;
+  propertySlug: string;
   pending: boolean;
   onDropToPhase: (projectId: number, toPhase: string) => void;
 }) {
@@ -526,7 +541,7 @@ function KanbanView({
                     draggable && "cursor-grab active:cursor-grabbing",
                   )}
                 >
-                  <ProjectLink project={p} propertyId={propertyId} className="text-sm" />
+                  <ProjectLink project={p} propertySlug={propertySlug} className="text-sm" />
                   <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
                     {p.lineItem}
                   </div>
@@ -562,7 +577,7 @@ function parseDate(s: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function GanttView({ groups, propertyId }: { groups: Group[]; propertyId: number }) {
+function GanttView({ groups, propertySlug }: { groups: Group[]; propertySlug: string }) {
   const today = new Date();
   const all = groups.flatMap((g) => g.projects);
   const dated = all
@@ -603,7 +618,7 @@ function GanttView({ groups, propertyId }: { groups: Group[]; propertyId: number
             const d = dated.find((x) => x.p.id === p.id);
             return (
               <div key={p.id} className="grid grid-cols-[minmax(9rem,14rem)_1fr] items-center gap-3">
-                <ProjectLink project={p} propertyId={propertyId} className="truncate text-sm" />
+                <ProjectLink project={p} propertySlug={propertySlug} className="truncate text-sm" />
                 <div className="relative h-6 rounded bg-track">
                   {d ? (
                     <div

@@ -40,10 +40,10 @@ function statusBadge(status: string): { label: string; variant: "positive" | "pe
   }
 }
 
-export function RentRollBatchRow({ propertyId, batch }: { propertyId: number; batch: Batch }) {
+export function RentRollBatchRow({ propertySlug, batch }: { propertySlug: string; batch: Batch }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const href = `/properties/${propertyId}/rent-rolls/${batch.id}`;
+  const href = `/properties/${propertySlug}/rent-rolls/${batch.id}`;
   const badge = statusBadge(batch.status);
 
   function handleDelete() {

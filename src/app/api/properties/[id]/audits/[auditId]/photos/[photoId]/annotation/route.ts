@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ATTACHMENTS_BUCKET, AUDIT_PHOTOS_PREFIX, createAdminClient } from "@/lib/supabase/admin";
+import { propertyPath } from "@/lib/property-path";
 
 /**
  * Save a photo annotation: stores the re-editable vector overlay (jsonb) and a
@@ -85,6 +86,7 @@ export async function POST(
     await admin.storage.from(ATTACHMENTS_BUCKET).remove([previous]);
   }
 
-  revalidatePath(`/properties/${propertyId}/audits/${auditId}`);
+  const revalPath = await propertyPath(propertyId, `/audits/${auditId}`);
+  if (revalPath) revalidatePath(revalPath);
   return NextResponse.json({ ok: true });
 }

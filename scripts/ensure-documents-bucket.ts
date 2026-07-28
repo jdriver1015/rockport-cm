@@ -4,7 +4,7 @@
  * Run: npx tsx scripts/ensure-documents-bucket.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { createClient } from "@supabase/supabase-js";
 

@@ -12,6 +12,7 @@ import {
 } from "date-fns";
 import { phaseLabel } from "@/lib/stages";
 import { cn } from "@/lib/utils";
+import { projectSlug } from "@/lib/slug";
 import type { ScheduleProject } from "@/lib/schedule-data";
 
 const DAY_WIDTH = 32;
@@ -211,7 +212,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                       style={{ width: NAME_COL_WIDTH }}
                     >
                       <Link
-                        href={`/properties/${d.p.propertyId}/projects/${d.p.id}`}
+                        href={`/properties/${d.p.propertySlug}/projects/${projectSlug(d.p)}`}
                         className="truncate text-sm font-medium text-navy hover:underline"
                       >
                         {d.p.name}

@@ -24,7 +24,7 @@ export function NewPropertyForm({ charts }: { charts: ChartOption[] }) {
         toast.error(result.error);
         return;
       }
-      router.push(`/properties/${result.propertyId}/budget`);
+      router.push(`/properties/${result.slug}/budget`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create property");
     } finally {

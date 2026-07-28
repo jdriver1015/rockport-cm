@@ -4,7 +4,7 @@
  * Settings edits are preserved. Run: npx tsx scripts/backfill-divisions.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, isNull, sql } from "drizzle-orm";

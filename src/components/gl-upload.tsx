@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 
 export function GlUpload({
   propertyId,
+  propertySlug,
   onDone,
 }: {
   propertyId: number;
+  propertySlug: string;
   /** Called after a successful upload (e.g. to close a containing dialog) */
   onDone?: () => void;
 }) {
@@ -49,7 +51,7 @@ export function GlUpload({
       }
       onDone?.();
       // Land on the new batch — account picker (needs_accounts) or review queue.
-      router.push(`/properties/${propertyId}/gl/${data.batchId}`);
+      router.push(`/properties/${propertySlug}/gl/${data.batchId}`);
       router.refresh();
     } finally {
       setBusy(false);

@@ -8,7 +8,7 @@
  * Usage: npx tsx scripts/backfill-project-dashboard.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../src/db";
 import * as schema from "../src/db/schema";

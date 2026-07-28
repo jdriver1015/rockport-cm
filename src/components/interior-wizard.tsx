@@ -101,11 +101,13 @@ function generateLines(group: WizardScopeGroup, unit: UnitMeta): Line[] {
 
 export function InteriorWizard({
   propertyId,
+  propertySlug,
   units,
   groups,
   vendors,
 }: {
   propertyId: number;
+  propertySlug: string;
   units: WizardUnit[];
   groups: WizardScopeGroup[];
   vendors: WizardVendor[];
@@ -180,7 +182,7 @@ export function InteriorWizard({
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Interior project created");
-      router.push(`/properties/${propertyId}/projects/${result.projectId}`);
+      router.push(`/properties/${propertySlug}/projects/${result.slug}`);
       router.refresh();
     } finally {
       setBusy(false);

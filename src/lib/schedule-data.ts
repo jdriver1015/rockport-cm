@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 export type ScheduleProject = {
   id: number;
   propertyId: number;
+  propertySlug: string;
   propertyName: string;
   name: string;
   kind: string;
@@ -27,6 +28,7 @@ export async function getScheduleProjects(opts?: {
     .select({
       id: schema.projects.id,
       propertyId: schema.projects.propertyId,
+      propertySlug: schema.properties.slug,
       propertyName: schema.properties.name,
       name: schema.projects.name,
       kind: schema.projects.kind,
@@ -57,6 +59,7 @@ export async function getScheduleProjects(opts?: {
   return rows.map((r) => ({
     id: r.id,
     propertyId: r.propertyId,
+    propertySlug: r.propertySlug,
     propertyName: r.propertyName,
     name: r.name,
     kind: r.kind,

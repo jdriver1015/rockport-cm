@@ -5,11 +5,18 @@ import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyPath, propertyProjectPath } from "@/lib/property-path";
 
-function revalidateBids(propertyId: number, projectId: number) {
-  revalidatePath(`/properties/${propertyId}/projects/${projectId}`);
-  revalidatePath(`/properties/${propertyId}`);
-  revalidatePath(`/properties/${propertyId}/budget`);
+async function revalidateBids(propertyId: number, projectId: number) {
+  const [projPath, base] = await Promise.all([
+    propertyProjectPath(propertyId, projectId),
+    propertyPath(propertyId),
+  ]);
+  if (projPath) revalidatePath(projPath);
+  if (base) {
+    revalidatePath(base);
+    revalidatePath(`${base}/budget`);
+  }
   revalidatePath("/vendors");
 }
 
@@ -79,7 +86,7 @@ export async function addBid(input: AddBidInput): Promise<ActionResult> {
 
   await insertLines(bid.id, d.lines);
 
-  revalidateBids(d.propertyId, d.projectId);
+  await revalidateBids(d.propertyId, d.projectId);
   return { ok: true };
 }
 
@@ -127,7 +134,7 @@ export async function editBid(input: z.input<typeof editBidSchema>): Promise<Act
       .where(eq(schema.projects.id, d.projectId));
   }
 
-  revalidateBids(d.propertyId, d.projectId);
+  await revalidateBids(d.propertyId, d.projectId);
   return { ok: true };
 }
 
@@ -154,7 +161,7 @@ export async function deleteBid(input: {
     .update(schema.bids)
     .set({ archivedAt: new Date() })
     .where(eq(schema.bids.id, input.id));
-  revalidateBids(input.propertyId, input.projectId);
+  await revalidateBids(input.propertyId, input.projectId);
   return { ok: true };
 }
 
@@ -171,7 +178,7 @@ export async function restoreBid(input: {
     .update(schema.bids)
     .set({ archivedAt: null })
     .where(eq(schema.bids.id, input.id));
-  revalidateBids(input.propertyId, input.projectId);
+  await revalidateBids(input.propertyId, input.projectId);
   return { ok: true };
 }
 
@@ -211,7 +218,7 @@ export async function setBidWinner(input: {
       .where(eq(schema.projects.id, input.projectId));
   });
 
-  revalidateBids(input.propertyId, input.projectId);
+  await revalidateBids(input.propertyId, input.projectId);
   return { ok: true };
 }
 

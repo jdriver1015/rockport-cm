@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { GlUpload } from "@/components/gl-upload";
 
-export function AddGlDialog({ propertyId }: { propertyId: number }) {
+export function AddGlDialog({
+  propertyId,
+  propertySlug,
+}: {
+  propertyId: number;
+  propertySlug: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -25,7 +31,7 @@ export function AddGlDialog({ propertyId }: { propertyId: number }) {
             codes, then you review and post.
           </DialogDescription>
         </DialogHeader>
-        <GlUpload propertyId={propertyId} onDone={() => setOpen(false)} />
+        <GlUpload propertyId={propertyId} propertySlug={propertySlug} onDone={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );

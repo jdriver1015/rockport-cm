@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 
 export function RentRollUpload({
   propertyId,
+  propertySlug,
   onDone,
 }: {
   propertyId: number;
+  propertySlug: string;
   /** Called after a successful upload (e.g. to close a containing dialog) */
   onDone?: () => void;
 }) {
@@ -35,7 +37,7 @@ export function RentRollUpload({
       toast.success(`Uploaded ${file.name} — parsing…`);
       onDone?.();
       // Land on the new batch; the detail page kicks off parsing + progress.
-      router.push(`/properties/${propertyId}/rent-rolls/${data.batchId}`);
+      router.push(`/properties/${propertySlug}/rent-rolls/${data.batchId}`);
       router.refresh();
     } finally {
       setBusy(false);

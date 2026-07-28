@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { updateProperty } from "@/lib/actions/properties";
 
 export type EditablePropertyData = {
   id: number;
+  slug: string;
   name: string;
   entity: string | null;
   city: string | null;
@@ -29,6 +30,7 @@ export type EditablePropertyData = {
 
 export function EditPropertyDialog({ property }: { property: EditablePropertyData }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -43,6 +45,13 @@ export function EditPropertyDialog({ property }: { property: EditablePropertyDat
       }
       toast.success("Property updated");
       setOpen(false);
+      // A rename changes the property's slug — swap it into the current path
+      // (preserving whatever sub-page we're on) instead of 404ing on refresh.
+      if (result.slug !== property.slug) {
+        const segments = pathname.split("/");
+        segments[2] = result.slug;
+        router.push(segments.join("/"));
+      }
       router.refresh();
     } finally {
       setBusy(false);

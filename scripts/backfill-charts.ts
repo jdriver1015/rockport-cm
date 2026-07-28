@@ -9,7 +9,7 @@
  * After this succeeds, a second migration sets the chart columns NOT NULL.
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, isNull } from "drizzle-orm";

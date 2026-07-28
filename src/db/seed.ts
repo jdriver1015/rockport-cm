@@ -6,7 +6,7 @@
  * Idempotent — safe to re-run; existing codes are left untouched.
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, sql } from "drizzle-orm";

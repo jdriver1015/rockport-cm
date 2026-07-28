@@ -13,9 +13,11 @@ type CostCode = { id: number; code: string; name: string };
 
 export function NewProjectForm({
   propertyId,
+  propertySlug,
   costCodes,
 }: {
   propertyId: number;
+  propertySlug: string;
   costCodes: CostCode[];
 }) {
   const router = useRouter();
@@ -31,7 +33,7 @@ export function NewProjectForm({
         toast.error(result.error);
         return;
       }
-      router.push(`/properties/${propertyId}/projects/${result.projectId}`);
+      router.push(`/properties/${propertySlug}/projects/${result.slug}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create project");
     } finally {

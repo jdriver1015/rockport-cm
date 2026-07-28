@@ -47,10 +47,12 @@ const selectClass =
 
 export function ManageScopeGroupsButton({
   propertyId,
+  propertySlug,
   groups,
   templates,
 }: {
   propertyId: number;
+  propertySlug: string;
   groups: GroupRow[];
   templates: TemplateOption[];
 }) {
@@ -76,7 +78,7 @@ export function ManageScopeGroupsButton({
           ? `Scope group created — ${result.unresolved} item(s) had no matching code in this chart`
           : "Scope group created",
       );
-      router.push(`/properties/${propertyId}/interiors/scope-groups/${result.groupId}`);
+      router.push(`/properties/${propertySlug}/interiors/scope-groups/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -95,7 +97,7 @@ export function ManageScopeGroupsButton({
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Scope group created");
-      router.push(`/properties/${propertyId}/interiors/scope-groups/${result.groupId}`);
+      router.push(`/properties/${propertySlug}/interiors/scope-groups/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -172,7 +174,7 @@ export function ManageScopeGroupsButton({
           {groups.map((g) => (
             <div key={g.id} className="flex items-center gap-2 py-2">
               <Link
-                href={`/properties/${propertyId}/interiors/scope-groups/${g.id}`}
+                href={`/properties/${propertySlug}/interiors/scope-groups/${g.id}`}
                 className="min-w-0 flex-1 hover:underline"
               >
                 <span className="font-medium text-navy">{g.name}</span>
@@ -180,7 +182,7 @@ export function ManageScopeGroupsButton({
                   {g.itemCount} item{g.itemCount === 1 ? "" : "s"}
                 </span>
               </Link>
-              <GroupRowActions propertyId={propertyId} group={g} />
+              <GroupRowActions propertyId={propertyId} propertySlug={propertySlug} group={g} />
             </div>
           ))}
         </div>
@@ -189,7 +191,15 @@ export function ManageScopeGroupsButton({
   );
 }
 
-function GroupRowActions({ propertyId, group }: { propertyId: number; group: GroupRow }) {
+function GroupRowActions({
+  propertyId,
+  propertySlug,
+  group,
+}: {
+  propertyId: number;
+  propertySlug: string;
+  group: GroupRow;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -228,7 +238,7 @@ function GroupRowActions({ propertyId, group }: { propertyId: number; group: Gro
 
   return (
     <>
-      <Button render={<Link href={`/properties/${propertyId}/interiors/scope-groups/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
+      <Button render={<Link href={`/properties/${propertySlug}/interiors/scope-groups/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
         Edit items
       </Button>
       <DropdownMenu>

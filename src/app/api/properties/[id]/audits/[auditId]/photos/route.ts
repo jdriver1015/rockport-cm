@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ATTACHMENTS_BUCKET, AUDIT_PHOTOS_PREFIX, createAdminClient } from "@/lib/supabase/admin";
+import { propertyPath } from "@/lib/property-path";
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = /\.(png|jpe?g|webp|gif|heic|heif)$/i;
@@ -89,7 +90,8 @@ export async function POST(
       })
       .returning({ id: schema.auditPhotos.id });
 
-    revalidatePath(`/properties/${propertyId}/audits/${auditId}`);
+    const revalPath = await propertyPath(propertyId, `/audits/${auditId}`);
+    if (revalPath) revalidatePath(revalPath);
     return NextResponse.json({ ok: true, id: row.id });
   } catch (err) {
     await admin.storage.from(ATTACHMENTS_BUCKET).remove([path]);

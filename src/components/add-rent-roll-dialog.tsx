@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { RentRollUpload } from "@/components/rent-roll-upload";
 
-export function AddRentRollDialog({ propertyId }: { propertyId: number }) {
+export function AddRentRollDialog({
+  propertyId,
+  propertySlug,
+}: {
+  propertyId: number;
+  propertySlug: string;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -25,7 +31,7 @@ export function AddRentRollDialog({ propertyId }: { propertyId: number }) {
             Columns are detected automatically, then you review the units and commit the snapshot.
           </DialogDescription>
         </DialogHeader>
-        <RentRollUpload propertyId={propertyId} onDone={() => setOpen(false)} />
+        <RentRollUpload propertyId={propertyId} propertySlug={propertySlug} onDone={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );

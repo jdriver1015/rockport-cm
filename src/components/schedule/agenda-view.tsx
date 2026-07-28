@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { projectSlug } from "@/lib/slug";
 import type { ScheduleProject } from "@/lib/schedule-data";
 
 type Milestone = {
@@ -118,7 +119,7 @@ function TableRowsForMonth({
             <TableCell className="text-muted-foreground">{m.project.propertyName}</TableCell>
             <TableCell>
               <Link
-                href={`/properties/${m.project.propertyId}/projects/${m.project.id}`}
+                href={`/properties/${m.project.propertySlug}/projects/${projectSlug(m.project)}`}
                 className="font-medium text-navy hover:underline"
               >
                 {m.project.name}

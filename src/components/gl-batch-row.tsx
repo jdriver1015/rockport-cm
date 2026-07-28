@@ -17,19 +17,19 @@ import { fmtDate } from "@/lib/format";
 import { deleteBatch, restoreBatch } from "@/lib/actions/gl";
 
 export function GlBatchRow({
-  propertyId,
+  propertySlug,
   batch,
   queueCount,
   postedCount,
 }: {
-  propertyId: number;
+  propertySlug: string;
   batch: { id: number; fileName: string; sourceSystem: string | null; createdAt: string | Date; rowCount: number; status: string };
   queueCount: number;
   postedCount: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const href = `/properties/${propertyId}/gl/${batch.id}`;
+  const href = `/properties/${propertySlug}/gl/${batch.id}`;
 
   function handleDelete() {
     if (

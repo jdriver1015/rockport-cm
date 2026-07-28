@@ -27,11 +27,11 @@ export function RetryParseButton({ batchId }: { batchId: number }) {
 }
 
 export function DeleteRentRollButton({
-  propertyId,
+  propertySlug,
   batchId,
   fileName,
 }: {
-  propertyId: number;
+  propertySlug: string;
   batchId: number;
   fileName: string;
 }) {
@@ -51,7 +51,7 @@ export function DeleteRentRollButton({
             return;
           }
           toast.success("Rent roll deleted");
-          router.push(`/properties/${propertyId}/rent-rolls`);
+          router.push(`/properties/${propertySlug}/rent-rolls`);
           router.refresh();
         });
       }}

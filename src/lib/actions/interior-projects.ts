@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { PRICING_METHODS, roundMoney } from "@/lib/pricing";
+import { propertyPath } from "@/lib/property-path";
+import { projectSlug } from "@/lib/slug";
 
 // ---------------------------------------------------------------------------
 // Interior project creation — the wizard's final step. Snapshots the reviewed,
@@ -49,7 +51,7 @@ const createSchema = z.object({
 
 export async function createInteriorProject(
   input: z.input<typeof createSchema>,
-): Promise<ActionResult<{ projectId: number }>> {
+): Promise<ActionResult<{ projectId: number; slug: string }>> {
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -107,14 +109,16 @@ export async function createInteriorProject(
       unitId = unit.id;
     }
 
+    const projectName = d.name?.trim() || `Unit ${d.unitNumber} Interior`;
     const [project] = await tx
       .insert(schema.projects)
       .values({
         propertyId: d.propertyId,
         kind: "unit",
-        name: d.name?.trim() || `Unit ${d.unitNumber} Interior`,
+        name: projectName,
         unitId,
         vendorId: d.vendorId ?? undefined,
+        scopeGroupId: d.scopeGroupId,
         budgetAmount: budget.toFixed(2),
         preWalkDate: d.preWalkDate,
         startDate: d.startDate,
@@ -149,11 +153,18 @@ export async function createInteriorProject(
       note: `Created from scope group "${group.name}"`,
     });
 
-    return { projectId: project.id };
+    return { projectId: project.id, projectName };
   });
 
-  revalidatePath(`/properties/${d.propertyId}/interiors`);
-  revalidatePath(`/properties/${d.propertyId}`);
-  revalidatePath(`/properties/${d.propertyId}/budget`);
-  return { ok: true, projectId: result.projectId };
+  const base = await propertyPath(d.propertyId);
+  if (base) {
+    revalidatePath(`${base}/interiors`);
+    revalidatePath(base);
+    revalidatePath(`${base}/budget`);
+  }
+  return {
+    ok: true,
+    projectId: result.projectId,
+    slug: projectSlug({ id: result.projectId, name: result.projectName }),
+  };
 }

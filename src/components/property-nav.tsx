@@ -7,15 +7,15 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { href: "/budget", label: "Budget" },
   { href: "", label: "Projects" },
-  { href: "/interiors", label: "Interiors" },
+  { href: "/interiors", label: "Unit Upgrades" },
   { href: "/gl", label: "Ledger" },
   { href: "/rent-rolls", label: "Rent Rolls" },
   { href: "/audits", label: "Site Audits" },
 ];
 
-export function PropertyNav({ propertyId }: { propertyId: number }) {
+export function PropertyNav({ slug }: { slug: string }) {
   const pathname = usePathname();
-  const base = `/properties/${propertyId}`;
+  const base = `/properties/${slug}`;
   return (
     <nav className="flex gap-1 border-b">
       {tabs.map((t) => {

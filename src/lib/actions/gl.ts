@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { suggestConstructionAccount, type ColumnOverride } from "@/lib/gl-import";
 import type { AccountSummary } from "@/lib/gl-import-pipeline";
+import { propertyPath } from "@/lib/property-path";
 import {
   insertMappedTransactions,
   reparseStoredBatch,
@@ -14,10 +15,12 @@ import {
 } from "@/lib/gl-import-pipeline";
 
 async function revalidateProperty(propertyId: number) {
-  revalidatePath(`/properties/${propertyId}/gl`);
-  revalidatePath(`/properties/${propertyId}`);
-  revalidatePath(`/properties/${propertyId}/projects`);
-  revalidatePath(`/properties/${propertyId}/budget`);
+  const path = await propertyPath(propertyId);
+  if (!path) return;
+  revalidatePath(`${path}/gl`);
+  revalidatePath(path);
+  revalidatePath(`${path}/projects`);
+  revalidatePath(`${path}/budget`);
   revalidatePath("/");
 }
 

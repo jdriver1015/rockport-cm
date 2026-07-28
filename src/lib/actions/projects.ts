@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
 import type { ActionResult } from "@/lib/action-result";
+import { propertyPath } from "@/lib/property-path";
+import { projectSlug } from "@/lib/slug";
 
 const createProjectSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -17,7 +19,9 @@ const createProjectSchema = z.object({
   startDate: z.string().trim().optional(),
 });
 
-export async function createProject(formData: FormData): Promise<ActionResult<{ projectId: number }>> {
+export async function createProject(
+  formData: FormData,
+): Promise<ActionResult<{ projectId: number; slug: string }>> {
   const parsed = createProjectSchema.safeParse({
     propertyId: formData.get("propertyId"),
     kind: formData.get("kind"),
@@ -89,8 +93,9 @@ export async function createProject(formData: FormData): Promise<ActionResult<{ 
     note: "Project created",
   });
 
-  revalidatePath(`/properties/${d.propertyId}`);
-  return { ok: true, projectId: project.id };
+  const createdPath = await propertyPath(d.propertyId);
+  if (createdPath) revalidatePath(createdPath);
+  return { ok: true, projectId: project.id, slug: projectSlug(project) };
 }
 
 // Optional money/date fields come off the edit form as strings; "" means clear.
@@ -157,8 +162,11 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
     })
     .where(eq(schema.projects.id, d.projectId));
 
-  revalidatePath(`/properties/${project.propertyId}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  const _base = await propertyPath(project.propertyId);
+  if (_base) {
+    revalidatePath(_base);
+    revalidatePath(`${_base}/projects/${projectSlug(project)}`);
+  }
   return { ok: true };
 }
 
@@ -221,8 +229,11 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
       ),
     );
 
-  revalidatePath(`/properties/${project.propertyId}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
+  const _base = await propertyPath(project.propertyId);
+  if (_base) {
+    revalidatePath(_base);
+    revalidatePath(`${_base}/projects/${projectSlug(project)}`);
+  }
   revalidatePath("/");
   return { ok: true };
 }
@@ -243,9 +254,12 @@ export async function archiveProject(formData: FormData): Promise<ActionResult> 
     .set({ archivedAt: new Date() })
     .where(eq(schema.projects.id, parsed.data.projectId));
 
-  revalidatePath(`/properties/${project.propertyId}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/archived`);
+  const _base = await propertyPath(project.propertyId);
+  if (_base) {
+    revalidatePath(_base);
+    revalidatePath(`${_base}/projects/${projectSlug(project)}`);
+    revalidatePath(`${_base}/projects/archived`);
+  }
   return { ok: true };
 }
 
@@ -263,8 +277,11 @@ export async function restoreProject(formData: FormData): Promise<ActionResult> 
     .set({ archivedAt: null })
     .where(eq(schema.projects.id, parsed.data.projectId));
 
-  revalidatePath(`/properties/${project.propertyId}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/${project.id}`);
-  revalidatePath(`/properties/${project.propertyId}/projects/archived`);
+  const _base = await propertyPath(project.propertyId);
+  if (_base) {
+    revalidatePath(_base);
+    revalidatePath(`${_base}/projects/${projectSlug(project)}`);
+    revalidatePath(`${_base}/projects/archived`);
+  }
   return { ok: true };
 }

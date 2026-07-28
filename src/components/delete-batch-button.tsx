@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { deleteBatch, restoreBatch } from "@/lib/actions/gl";
 
 export function DeleteBatchButton({
-  propertyId,
+  propertySlug,
   batchId,
   fileName,
 }: {
-  propertyId: number;
+  propertySlug: string;
   batchId: number;
   fileName: string;
 }) {
@@ -48,7 +48,7 @@ export function DeleteBatchButton({
               },
             },
           });
-          router.push(`/properties/${propertyId}/gl`);
+          router.push(`/properties/${propertySlug}/gl`);
         });
       }}
     >

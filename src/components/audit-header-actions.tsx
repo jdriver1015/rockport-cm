@@ -28,9 +28,11 @@ export type AuditHeader = {
 
 export function AuditHeaderActions({
   propertyId,
+  propertySlug,
   audit,
 }: {
   propertyId: number;
+  propertySlug: string;
   audit: AuditHeader;
 }) {
   const router = useRouter();
@@ -86,7 +88,7 @@ export function AuditHeaderActions({
                   }),
               },
             });
-            router.push(`/properties/${propertyId}/audits`);
+            router.push(`/properties/${propertySlug}/audits`);
             router.refresh();
           });
         }}

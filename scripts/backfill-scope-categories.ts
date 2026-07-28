@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/backfill-scope-categories.ts
  */
 import { config } from "dotenv";
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";

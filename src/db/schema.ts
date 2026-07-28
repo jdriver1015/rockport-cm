@@ -248,6 +248,8 @@ export const costCodes = pgTable(
 export const properties = pgTable("properties", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  /** URL-safe handle derived from name, e.g. "retreat-at-westpark". Regenerated on rename. */
+  slug: text("slug").notNull().unique(),
   // The chart this property's budget/GL codes live in. Chosen at creation and
   // locked once GL activity exists.
   chartOfAccountsId: integer("chart_of_accounts_id")
@@ -385,6 +387,7 @@ export const projects = pgTable("projects", {
   /** Contracted amount (approved bid); actuals come from posted GL transactions */
   committedCost: numeric("committed_cost", { precision: 12, scale: 2 }).notNull().default("0"),
   vendorId: integer("vendor_id").references(() => vendors.id),
+  scopeGroupId: integer("scope_group_id").references(() => scopeGroups.id),
   /** Interior turns: walk-through before work starts */
   preWalkDate: date("pre_walk_date"),
   startDate: date("start_date"),
