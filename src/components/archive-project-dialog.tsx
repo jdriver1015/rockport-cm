@@ -20,10 +20,12 @@ export function ArchiveProjectDialog({
   propertySlug,
   projectId,
   projectName,
+  redirectTo,
 }: {
   propertySlug: string;
   projectId: number;
   projectName: string;
+  redirectTo?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -40,7 +42,7 @@ export function ArchiveProjectDialog({
       }
       toast.success("Project archived");
       setOpen(false);
-      router.push(`/properties/${propertySlug}`);
+      router.push(redirectTo ?? `/properties/${propertySlug}`);
       router.refresh();
     });
   }

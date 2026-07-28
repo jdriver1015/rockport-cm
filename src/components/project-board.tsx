@@ -29,7 +29,6 @@ import { projectSlug } from "@/lib/slug";
 export type BoardProject = {
   id: number;
   name: string;
-  kind: string;
   phase: string;
   budget: number;
   committed: number;
@@ -39,14 +38,12 @@ export type BoardProject = {
   division: string | null;
   categoryLabel: string;
   lineItem: string;
-  unitLabel: string | null;
 };
 
 type ViewMode = "table" | "kanban" | "gantt";
 type GroupBy = "phase" | "division" | "category" | "none";
 type SortKey = "name" | "budget" | "committed" | "jtd" | "phase";
 type Dir = "asc" | "desc";
-type KindFilter = "all" | "common" | "unit";
 
 const VIEWS: { key: ViewMode; label: string }[] = [
   { key: "table", label: "Table" },
@@ -71,7 +68,6 @@ export function ProjectBoard({
   initialGroup,
   initialSort,
   initialDir,
-  initialKind,
   initialQuery,
 }: {
   projects: BoardProject[];
@@ -80,7 +76,6 @@ export function ProjectBoard({
   initialGroup?: string;
   initialSort?: string;
   initialDir?: string;
-  initialKind?: string;
   initialQuery?: string;
 }) {
   const router = useRouter();
@@ -91,9 +86,6 @@ export function ProjectBoard({
   const [group, setGroup] = useState<GroupBy>(isGroup(initialGroup) ? initialGroup : "phase");
   const [sort, setSort] = useState<SortKey>(isSort(initialSort) ? initialSort : "name");
   const [dir, setDir] = useState<Dir>(initialDir === "desc" ? "desc" : "asc");
-  const [kind, setKind] = useState<KindFilter>(
-    initialKind === "common" || initialKind === "unit" ? initialKind : "all",
-  );
   const [query, setQuery] = useState(initialQuery ?? "");
 
   const [pending, startTransition] = useTransition();
@@ -111,7 +103,6 @@ export function ProjectBoard({
       group,
       sort,
       dir,
-      kind,
       q: query,
       ...next,
     };
@@ -120,7 +111,6 @@ export function ProjectBoard({
       group: "phase",
       sort: "name",
       dir: "asc",
-      kind: "all",
       q: "",
     };
     for (const [k, v] of Object.entries(state)) {
@@ -132,10 +122,9 @@ export function ProjectBoard({
   }
 
   const filtered = optimistic.filter((p) => {
-    if (kind !== "all" && p.kind !== kind) return false;
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      const hay = `${p.name} ${p.lineItem} ${p.categoryLabel} ${p.unitLabel ?? ""}`.toLowerCase();
+      const hay = `${p.name} ${p.lineItem} ${p.categoryLabel}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -239,22 +228,6 @@ export function ProjectBoard({
           >
             {dir === "asc" ? "↑" : "↓"}
           </button>
-        </label>
-
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Kind
-          <SelectBox
-            value={kind}
-            onChange={(v) => {
-              setKind(v as KindFilter);
-              syncUrl({ kind: v });
-            }}
-            options={[
-              ["all", "All"],
-              ["common", "Common"],
-              ["unit", "Unit"],
-            ]}
-          />
         </label>
 
         <input
@@ -435,9 +408,6 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                 // contract amount was recorded, so Committed shows whichever is
                 // larger — the signed contract or actual spend so far.
                 const committed = Math.max(p.committed, p.jtd);
-                // The unit is usually already in the name ("Unit 116 Interior");
-                // only show the chip when a custom name would otherwise hide it.
-                const showUnitChip = p.unitLabel && !p.name.includes(p.unitLabel);
                 return (
                   <TableRow
                     key={p.id}
@@ -446,9 +416,6 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                   >
                     <TableCell className="truncate">
                       <ProjectLink project={p} propertySlug={propertySlug} />
-                      {showUnitChip && (
-                        <span className="ml-2 text-xs text-muted-foreground">{p.unitLabel}</span>
-                      )}
                     </TableCell>
                     <TableCell>
                       <StageDot phase={p.phase} />
@@ -551,9 +518,6 @@ function KanbanView({
                     </span>
                     {groupBy !== "phase" && <PhaseBadge phase={p.phase} />}
                   </div>
-                  {p.unitLabel && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">{p.unitLabel}</div>
-                  )}
                 </div>
               ))}
               {g.projects.length === 0 && (

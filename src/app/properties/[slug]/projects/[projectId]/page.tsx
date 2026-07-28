@@ -4,7 +4,6 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { KpiStrip, type KpiItem } from "@/components/ui/kpi-strip";
 import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
@@ -12,17 +11,15 @@ import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import { ScopeTable, type ScopeRow } from "@/components/scope-table";
 import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope-table";
-import { ProjectMilestones, type MilestoneRow } from "@/components/project-milestones";
+import { type LineTxn } from "@/components/line-transactions-dialog";
 import { AdvancePhaseDialog } from "@/components/advance-phase-dialog";
 import { ProjectCostTable, type CostRow } from "@/components/project-cost-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
-import { StagePipeline } from "@/components/stage-pipeline";
 import type { PricingMethod } from "@/lib/pricing";
-import { BidsCard, type BidRow, type BidderVendor } from "@/components/bids-card";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
-import { fmtDate, money, num } from "@/lib/format";
+import { fmtDate, num } from "@/lib/format";
 import { nextPhase, phaseLabel } from "@/lib/stages";
 import { evaluateGates } from "@/lib/phase-gates";
 import { createClient } from "@/lib/supabase/server";
@@ -70,9 +67,6 @@ export default async function ProjectDetailPage({
     scope,
     auditLog,
     docs,
-    bidJoins,
-    activeVendors,
-    activeContacts,
     projectAudits,
     otherProjects,
     findingCounts,
@@ -104,30 +98,6 @@ export default async function ProjectDetailPage({
         ),
       )
       .orderBy(desc(schema.attachments.createdAt)),
-    db()
-      .select({
-        bid: schema.bids,
-        vendorName: schema.vendors.name,
-        contactName: schema.vendorContacts.name,
-      })
-      .from(schema.bids)
-      .leftJoin(schema.vendors, eq(schema.bids.vendorId, schema.vendors.id))
-      .leftJoin(
-        schema.vendorContacts,
-        eq(schema.bids.submittedByContactId, schema.vendorContacts.id),
-      )
-      .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt)))
-      .orderBy(asc(schema.bids.bidNumber)),
-    db()
-      .select()
-      .from(schema.vendors)
-      .where(eq(schema.vendors.active, true))
-      .orderBy(asc(schema.vendors.name)),
-    db()
-      .select()
-      .from(schema.vendorContacts)
-      .where(eq(schema.vendorContacts.active, true))
-      .orderBy(asc(schema.vendorContacts.name)),
     db()
       .select()
       .from(schema.siteAudits)
@@ -163,6 +133,7 @@ export default async function ProjectDetailPage({
         vendorName: schema.vendors.name,
         description: schema.glTransactions.description,
         invoiceNo: schema.glTransactions.invoiceNo,
+        costCodeId: schema.glTransactions.costCodeId,
         costCodeName: schema.costCodes.name,
         amount: schema.glTransactions.amount,
       })
@@ -204,29 +175,10 @@ export default async function ProjectDetailPage({
     ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
     : null;
 
-  // --- KPI strip: Budget / Planned / Committed / Spent + Over/Under delta ---
+  // Totals still needed by phase-gate evaluation below (KPI strip removed).
   const budgetAmt = num(project.budgetAmount);
   const committedAmt = num(project.committedCost);
   const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
-  const scopeTotal = scope.reduce(
-    (s, r) => s + (r.quantity != null && r.unitPrice != null ? Number(r.quantity) * Number(r.unitPrice) : 0),
-    0,
-  );
-  const overUnder = budgetAmt - Math.max(committedAmt, spentAmt);
-  const kpiItems: KpiItem[] = [
-    { label: "Budget", value: money(budgetAmt) },
-    { label: "Planned", value: money(scopeTotal) },
-    { label: "Committed", value: money(committedAmt) },
-    { label: "Spent", value: money(spentAmt) },
-  ];
-  if (budgetAmt > 0) {
-    kpiItems.push({
-      label: "Over / Under",
-      value: money(Math.abs(overUnder)),
-      delta: overUnder >= 0 ? "Under budget" : "Over budget",
-      deltaVariant: overUnder >= 0 ? "positive" : "pending",
-    });
-  }
 
   // --- Open items tri-split ---
   const today = new Date();
@@ -264,16 +216,6 @@ export default async function ProjectDetailPage({
       })
     : null;
 
-  // --- Milestone rows ---
-  const milestoneRows: MilestoneRow[] = milestones.map((m) => ({
-    id: m.id,
-    label: m.label,
-    phase: m.phase,
-    plannedDate: m.plannedDate,
-    actualDate: m.actualDate,
-    sortOrder: m.sortOrder,
-  }));
-
   // --- Cost table rows ---
   const costRows: CostRow[] = glRows.map((r) => ({
     id: r.id,
@@ -291,55 +233,6 @@ export default async function ProjectDetailPage({
     caption: d.caption,
     createdAt: d.createdAt,
   }));
-
-  // Line items for every bid on this project
-  const bidIds = bidJoins.map((b) => b.bid.id);
-  const allLines = bidIds.length
-    ? await db()
-        .select()
-        .from(schema.bidLineItems)
-        .where(inArray(schema.bidLineItems.bidId, bidIds))
-        .orderBy(asc(schema.bidLineItems.sortOrder), asc(schema.bidLineItems.id))
-    : [];
-  const linesByBid = new Map<number, typeof allLines>();
-  for (const l of allLines) {
-    const arr = linesByBid.get(l.bidId) ?? [];
-    arr.push(l);
-    linesByBid.set(l.bidId, arr);
-  }
-
-  const bidRows: BidRow[] = bidJoins.map(({ bid, vendorName, contactName }) => {
-    const lines = (linesByBid.get(bid.id) ?? []).map((l) => ({
-      id: l.id,
-      scopeItemId: l.scopeItemId,
-      description: l.description,
-      amount: l.amount,
-    }));
-    const total = lines.reduce((s, l) => s + num(l.amount), 0);
-    return {
-      id: bid.id,
-      vendorName: vendorName ?? "—",
-      contactName,
-      total,
-      receivedDate: bid.receivedDate,
-      approved: bid.approved,
-      note: bid.note,
-      lines,
-    };
-  });
-
-  const bidderVendors: BidderVendor[] = activeVendors.map((v) => ({
-    id: v.id,
-    name: v.name,
-    contacts: activeContacts
-      .filter((c) => c.vendorId === v.id)
-      .map((c) => ({ id: c.id, name: c.name })),
-  }));
-
-  const tradeOut =
-    project.previousRent && project.tradeOutRent
-      ? num(project.tradeOutRent) - num(project.previousRent)
-      : null;
 
   const scopeRows: ScopeRow[] = scope.map((s) => ({
     id: s.id,
@@ -369,100 +262,52 @@ export default async function ProjectDetailPage({
     unitPrice: s.unitPrice,
     quantity: s.quantity,
     costCode: s.costCodeId != null ? codeById.get(s.costCodeId) ?? null : null,
+    costCodeId: s.costCodeId,
   }));
+
+  // Group posted GL transactions by cost code so each scope line's Actual
+  // column can drill down to the underlying invoices for its code.
+  const transactionsByCode: Record<number, LineTxn[]> = {};
+  for (const r of glRows) {
+    if (r.costCodeId == null) continue;
+    (transactionsByCode[r.costCodeId] ??= []).push({
+      id: r.id,
+      txnDate: r.txnDate,
+      vendor: r.vendorName ?? r.vendorRaw ?? "—",
+      description: r.description,
+      invoiceNo: r.invoiceNo,
+      amount: r.amount,
+    });
+  }
 
   const overview = (
     <>
-      {/* Milestone strip + Advance button */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <ProjectMilestones milestones={milestoneRows} projectId={projectId} />
-        {gateResult && next && !project.archivedAt && (
-          <div className="shrink-0">
-            <AdvancePhaseDialog
-              projectId={projectId}
-              gateResult={gateResult}
-              toLabel={next.label}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Phase pipeline */}
-      <StagePipeline current={project.phase} />
-
-      {/* Financial KPI strip */}
-      <KpiStrip items={kpiItems} />
+      {gateResult && next && !project.archivedAt && (
+        <div className="flex justify-end">
+          <AdvancePhaseDialog
+            projectId={projectId}
+            gateResult={gateResult}
+            toLabel={next.label}
+          />
+        </div>
+      )}
 
       {/* Open items */}
       <OpenItemsStrip items={openItemsSummary} />
 
-      {/* Scope & progress */}
+      {/* Scope & cost — priced projects fold GL actuals into the scope table;
+          non-priced projects keep the spec-only scope + a separate cost table. */}
       {isPriced ? (
         <PricedScopeTable
           items={pricedScopeRows}
-          propertyId={propertyId}
-          projectId={projectId}
+          transactionsByCode={transactionsByCode}
         />
       ) : (
-        <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
+        <>
+          <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
+          <ProjectCostTable rows={costRows} total={spentAmt} />
+        </>
       )}
-
-      {/* Cost detail */}
-      <ProjectCostTable rows={costRows} total={spentAmt} />
-
-      {/* Bids */}
-      <BidsCard
-        propertyId={propertyId}
-        projectId={projectId}
-        bids={bidRows}
-        vendors={bidderVendors}
-        scopeItems={scope.map((s) => ({ id: s.id, item: s.item }))}
-      />
-
-      {/* Details — trimmed (no duplicate budget) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-navy">Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:max-w-md">
-            {project.kind === "unit" && (
-              <>
-                <dt className="text-muted-foreground">Pre-walk date</dt>
-                <dd>{fmtDate(project.preWalkDate)}</dd>
-              </>
-            )}
-            <dt className="text-muted-foreground">Start date</dt>
-            <dd>{fmtDate(project.startDate)}</dd>
-            {project.kind === "unit" && (
-              <>
-                <dt className="text-muted-foreground">Target completion</dt>
-                <dd>{fmtDate(project.targetCompletionDate)}</dd>
-              </>
-            )}
-            <dt className="text-muted-foreground">Complete date</dt>
-            <dd>{fmtDate(project.completeDate)}</dd>
-            {project.kind === "unit" && (
-              <>
-                <dt className="text-muted-foreground">Previous rent</dt>
-                <dd className="tabular-nums">{money(project.previousRent)}</dd>
-                <dt className="text-muted-foreground">Trade-out rent</dt>
-                <dd className="tabular-nums">{money(project.tradeOutRent)}</dd>
-                <dt className="text-muted-foreground">Trade-out $</dt>
-                <dd className="tabular-nums">{tradeOut !== null ? money(tradeOut) : "—"}</dd>
-                <dt className="text-muted-foreground">Lease date</dt>
-                <dd>{fmtDate(project.leaseDate)}</dd>
-              </>
-            )}
-            {project.notes && (
-              <>
-                <dt className="text-muted-foreground">Notes</dt>
-                <dd>{project.notes}</dd>
-              </>
-            )}
-          </dl>
-        </CardContent>
-      </Card>
     </>
   );
 
@@ -515,8 +360,11 @@ export default async function ProjectDetailPage({
     <div className="space-y-6">
       <div>
         <p className="text-sm">
-          <Link href={`/properties/${slug}`} className="text-link hover:underline">
-            ← All projects
+          <Link
+            href={project.kind === "unit" ? `/properties/${slug}/interiors` : `/properties/${slug}`}
+            className="text-link hover:underline"
+          >
+            {project.kind === "unit" ? "← Unit Upgrades" : "← All projects"}
           </Link>
         </p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
@@ -547,6 +395,11 @@ export default async function ProjectDetailPage({
                   propertySlug={slug}
                   projectId={project.id}
                   projectName={project.name}
+                  redirectTo={
+                    project.kind === "unit"
+                      ? `/properties/${slug}/interiors`
+                      : `/properties/${slug}`
+                  }
                 />
               </>
             )}

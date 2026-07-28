@@ -9,9 +9,10 @@ import {
   TableRow,
   TableSpacerRow,
 } from "@/components/ui/table";
-import { ScopeStatusSelect } from "@/components/scope-status-select";
+import { LineActualButton, type LineTxn } from "@/components/line-transactions-dialog";
 import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
 import { groupScopeByCategory } from "@/lib/scope-grouping";
+import { cn } from "@/lib/utils";
 import { money } from "@/lib/format";
 
 export type PricedScopeRow = {
@@ -24,31 +25,62 @@ export type PricedScopeRow = {
   unitPrice: string | null;
   quantity: string | null;
   costCode: string | null;
+  costCodeId: number | null;
 };
 
-const COLS = 7;
+const COLS = 8;
 
 const exact = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * Scope view for interior projects generated from a scope group. Lines are
- * grouped by trade so each band carries its own progress rollup, and status is
- * editable inline — the pricing itself stays read-only (it came from the
- * estimate and its sum seeded the budget).
+ * Scope + cost view for interior projects. Each line carries its estimate
+ * plus the actual GL spend rolled up on its cost code, with variance styled
+ * green (under) / red (over). Clicking a non-zero Actual opens a dialog
+ * listing the underlying transactions for that cost code.
+ *
+ * Actuals attribute at the cost-code level, not per line: when multiple lines
+ * share a code, each row shows the same aggregated actual and variance is
+ * suppressed (the split across those lines is ambiguous). Totals dedupe by
+ * cost code so the footer doesn't double-count.
  */
 export function PricedScopeTable({
   items,
-  propertyId,
-  projectId,
+  transactionsByCode,
 }: {
   items: PricedScopeRow[];
-  propertyId: number;
-  projectId: number;
+  transactionsByCode: Record<number, LineTxn[]>;
 }) {
   const lineTotal = (r: PricedScopeRow) =>
     r.quantity != null && r.unitPrice != null ? Number(r.quantity) * Number(r.unitPrice) : 0;
   const total = items.reduce((s, r) => s + lineTotal(r), 0);
+
+  // How many rows reference each cost code? Rows that share a code can't have
+  // a meaningful per-line actual, so we surface the sharing in the UI and skip
+  // per-line variance for them.
+  const codeRowCount = new Map<number, number>();
+  for (const r of items) {
+    if (r.costCodeId == null) continue;
+    codeRowCount.set(r.costCodeId, (codeRowCount.get(r.costCodeId) ?? 0) + 1);
+  }
+
+  const actualForCode = (codeId: number | null): number => {
+    if (codeId == null) return 0;
+    const txns = transactionsByCode[codeId];
+    if (!txns) return 0;
+    return txns.reduce((s, t) => s + Number(t.amount), 0);
+  };
+
+  // Total actual across the project's scope, deduped by cost code so shared
+  // codes contribute once.
+  const usedCodes = new Set<number>();
+  let totalActual = 0;
+  for (const r of items) {
+    if (r.costCodeId == null || usedCodes.has(r.costCodeId)) continue;
+    usedCodes.add(r.costCodeId);
+    totalActual += actualForCode(r.costCodeId);
+  }
+  const totalVariance = total - totalActual;
 
   const groups = groupScopeByCategory(
     items.map((r) => ({
@@ -62,10 +94,23 @@ export function PricedScopeTable({
   const completeValue = groups.reduce((s, g) => s + g.progress.completeValue, 0);
   const pct = total > 0 ? Math.round((completeValue / total) * 100) : 0;
 
+  // Per-group actual (deduped by cost code within the group)
+  const groupActual = (g: (typeof groups)[number]): number => {
+    const seen = new Set<number>();
+    let sum = 0;
+    for (const line of g.lines) {
+      const id = line.row.costCodeId;
+      if (id == null || seen.has(id)) continue;
+      seen.add(id);
+      sum += actualForCode(id);
+    }
+    return sum;
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base text-navy">Scope &amp; estimate</CardTitle>
+        <CardTitle className="text-base text-navy">Scope &amp; cost</CardTitle>
         <span className="text-sm text-muted-foreground tabular-nums">
           {money(completeValue)} of {money(total)} complete · {pct}%
         </span>
@@ -78,61 +123,122 @@ export function PricedScopeTable({
                 <TableHead>Item</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Cost code</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Unit price</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Estimated</TableHead>
+                <TableHead className="text-right">Actual</TableHead>
+                <TableHead className="text-right">Variance</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groups.flatMap((g, gi) => [
-                ...(gi > 0 ? [<TableSpacerRow key={`sp-${g.label}`} colSpan={COLS} />] : []),
-                <TableGroupRow
-                  key={`g-${g.label}`}
-                  label={g.label}
-                  count={`${g.progress.complete} of ${g.progress.total} complete`}
-                  colSpan={COLS}
-                />,
-                ...g.lines.map(({ row: r }) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-normal">
-                      <div className="font-medium text-navy">{r.item}</div>
-                      {r.materialQuality && (
-                        <div className="text-xs text-muted-foreground">{r.materialQuality}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {r.pricingMethod ? PRICING_METHOD_LABELS[r.pricingMethod] : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {r.costCode ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <ScopeStatusSelect
-                        id={r.id}
-                        propertyId={propertyId}
-                        projectId={projectId}
-                        status={r.status}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {r.quantity != null ? Number(r.quantity).toLocaleString() : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {r.unitPrice != null ? exact(Number(r.unitPrice)) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{exact(lineTotal(r))}</TableCell>
-                  </TableRow>
-                )),
-              ])}
+              {groups.flatMap((g, gi) => {
+                const gEst = g.lines.reduce(
+                  (s, l) =>
+                    s +
+                    (l.quantity != null && l.unitPrice != null ? l.quantity * l.unitPrice : 0),
+                  0,
+                );
+                const gActual = groupActual(g);
+                return [
+                  ...(gi > 0 ? [<TableSpacerRow key={`sp-${g.label}`} colSpan={COLS} />] : []),
+                  <TableGroupRow
+                    key={`g-${g.label}`}
+                    label={g.label}
+                    count={`${g.progress.complete} of ${g.progress.total} complete · ${money(gActual)} actual of ${money(gEst)}`}
+                    colSpan={COLS}
+                  />,
+                  ...g.lines.map(({ row: r }) => {
+                    const est = lineTotal(r);
+                    const shared = r.costCodeId != null && (codeRowCount.get(r.costCodeId) ?? 0) > 1;
+                    const actual = actualForCode(r.costCodeId);
+                    const variance = est - actual;
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="whitespace-normal">
+                          <div className="font-medium text-navy">{r.item}</div>
+                          {r.materialQuality && (
+                            <div className="text-xs text-muted-foreground">{r.materialQuality}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {r.pricingMethod ? PRICING_METHOD_LABELS[r.pricingMethod] : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {r.costCode ?? "—"}
+                          {shared && (
+                            <span
+                              className="ml-1 text-[10px] text-ink-400"
+                              title="Multiple scope lines share this cost code — actual is the combined total."
+                            >
+                              (shared)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {r.quantity != null ? Number(r.quantity).toLocaleString() : "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {r.unitPrice != null ? exact(Number(r.unitPrice)) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{exact(est)}</TableCell>
+                        <TableCell>
+                          <LineActualButton
+                            label={r.costCode ? `${r.item} — ${r.costCode}` : r.item}
+                            amount={actual}
+                            transactions={
+                              r.costCodeId != null
+                                ? transactionsByCode[r.costCodeId] ?? []
+                                : []
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {shared ? (
+                            <span className="block text-right font-semibold tabular-nums text-ink-100">
+                              —
+                            </span>
+                          ) : (
+                            <VarianceCell value={variance} hasActual={actual > 0} />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }),
+                ];
+              })}
+              <TableRow className="border-t-2 font-semibold text-navy">
+                <TableCell colSpan={5} className="text-right">
+                  Totals
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{exact(total)}</TableCell>
+                <TableCell className="text-right tabular-nums">{exact(totalActual)}</TableCell>
+                <TableCell>
+                  <VarianceCell value={totalVariance} hasActual={totalActual > 0} />
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </div>
-        <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm font-semibold text-navy">
-          <span>Estimated total</span>
-          <span className="tabular-nums">{exact(total)}</span>
-        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function VarianceCell({ value, hasActual }: { value: number; hasActual: boolean }) {
+  if (!hasActual) {
+    return <span className="block text-right font-semibold tabular-nums text-ink-100">—</span>;
+  }
+  const isPositive = value >= 0;
+  const abs = Math.abs(value);
+  const formatted = exact(abs);
+  return (
+    <span
+      className={cn(
+        "block text-right font-semibold tabular-nums",
+        isPositive ? "text-positive" : "text-red-600",
+      )}
+    >
+      {isPositive ? `+${formatted}` : `-${formatted}`}
+    </span>
   );
 }

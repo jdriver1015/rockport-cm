@@ -35,7 +35,13 @@ export default async function ArchivedProjectsPage({
   const archived = await db()
     .select()
     .from(schema.projects)
-    .where(and(eq(schema.projects.propertyId, propertyId), isNotNull(schema.projects.archivedAt)))
+    .where(
+      and(
+        eq(schema.projects.propertyId, propertyId),
+        eq(schema.projects.kind, "common"),
+        isNotNull(schema.projects.archivedAt),
+      ),
+    )
     .orderBy(desc(schema.projects.archivedAt));
 
   return (

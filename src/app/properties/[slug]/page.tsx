@@ -32,7 +32,6 @@ export default async function PropertyBoardPage({
       .select({
         id: schema.projects.id,
         name: schema.projects.name,
-        kind: schema.projects.kind,
         phase: schema.projects.phase,
         budgetAmount: schema.projects.budgetAmount,
         committedCost: schema.projects.committedCost,
@@ -41,13 +40,17 @@ export default async function PropertyBoardPage({
         costCodeName: schema.costCodes.name,
         categoryName: schema.costCategories.name,
         division: schema.costCategories.division,
-        unitNumber: schema.units.unitNumber,
       })
       .from(schema.projects)
       .leftJoin(schema.costCodes, eq(schema.projects.costCodeId, schema.costCodes.id))
       .leftJoin(schema.costCategories, eq(schema.costCodes.categoryId, schema.costCategories.id))
-      .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
-      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
+      .where(
+        and(
+          eq(schema.projects.propertyId, propertyId),
+          eq(schema.projects.kind, "common"),
+          isNull(schema.projects.archivedAt),
+        ),
+      )
       .orderBy(asc(schema.projects.createdAt)),
     db()
       .select({ count: sql<number>`count(*)::int` })
@@ -55,6 +58,7 @@ export default async function PropertyBoardPage({
       .where(
         and(
           eq(schema.projects.propertyId, propertyId),
+          eq(schema.projects.kind, "common"),
           sql`${schema.projects.archivedAt} is not null`,
         ),
       ),
@@ -72,25 +76,19 @@ export default async function PropertyBoardPage({
   ]);
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
 
-  const projects: BoardProject[] = rows.map((r) => {
-    const isUnit = r.kind === "unit";
-    return {
-      id: r.id,
-      name: r.name,
-      kind: r.kind,
-      phase: r.phase,
-      budget: num(r.budgetAmount),
-      committed: num(r.committedCost),
-      jtd: jtdByProject.get(r.id) ?? 0,
-      startDate: r.startDate,
-      completeDate: r.completeDate,
-      // Unit turns spend across all interior codes → Interiors bucket.
-      division: isUnit ? "interiors" : r.division ?? null,
-      categoryLabel: isUnit ? "Interiors" : r.categoryName ?? "Uncategorized",
-      lineItem: isUnit ? "Interiors (all codes)" : r.costCodeName ?? "—",
-      unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
-    };
-  });
+  const projects: BoardProject[] = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    phase: r.phase,
+    budget: num(r.budgetAmount),
+    committed: num(r.committedCost),
+    jtd: jtdByProject.get(r.id) ?? 0,
+    startDate: r.startDate,
+    completeDate: r.completeDate,
+    division: r.division ?? null,
+    categoryLabel: r.categoryName ?? "Uncategorized",
+    lineItem: r.costCodeName ?? "—",
+  }));
 
   return (
     <div className="space-y-6">
@@ -125,7 +123,6 @@ export default async function PropertyBoardPage({
         initialGroup={typeof sp.group === "string" ? sp.group : undefined}
         initialSort={typeof sp.sort === "string" ? sp.sort : undefined}
         initialDir={typeof sp.dir === "string" ? sp.dir : undefined}
-        initialKind={typeof sp.kind === "string" ? sp.kind : undefined}
         initialQuery={typeof sp.q === "string" ? sp.q : undefined}
       />
     </div>
