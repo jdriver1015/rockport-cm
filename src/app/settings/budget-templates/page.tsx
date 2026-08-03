@@ -4,32 +4,32 @@ import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight } from "lucide-react";
-import { AddTemplateDialog, TemplateRowActions } from "@/components/scope-template-list";
+import { AddTemplateDialog, TemplateRowActions } from "@/components/budget-template-list";
 
 export const dynamic = "force-dynamic";
 
-export default async function ScopeGroupsPage() {
+export default async function BudgetTemplatesPage() {
   const templates = await db()
     .select()
-    .from(schema.scopeGroupTemplates)
-    .where(isNull(schema.scopeGroupTemplates.archivedAt))
-    .orderBy(asc(schema.scopeGroupTemplates.sortOrder), asc(schema.scopeGroupTemplates.name));
+    .from(schema.budgetTemplates)
+    .where(isNull(schema.budgetTemplates.archivedAt))
+    .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name));
 
-  const itemCounts = await db()
+  const lineCounts = await db()
     .select({
-      templateId: schema.scopeGroupTemplateItems.templateId,
+      templateId: schema.budgetTemplateLines.templateId,
       count: sql<number>`count(*)::int`,
     })
-    .from(schema.scopeGroupTemplateItems)
-    .groupBy(schema.scopeGroupTemplateItems.templateId);
-  const itemsByTemplate = new Map(itemCounts.map((c) => [c.templateId, c.count]));
+    .from(schema.budgetTemplateLines)
+    .groupBy(schema.budgetTemplateLines.templateId);
+  const linesByTemplate = new Map(lineCounts.map((c) => [c.templateId, c.count]));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {templates.length} renovation template{templates.length === 1 ? "" : "s"} · base options for
-          per-property scope groups
+          {templates.length} budget template{templates.length === 1 ? "" : "s"} · standard renovation
+          packages for per-property budget groups
         </p>
         <AddTemplateDialog />
       </div>
@@ -37,11 +37,11 @@ export default async function ScopeGroupsPage() {
       <Card>
         <CardContent className="divide-y p-0">
           {templates.map((t) => {
-            const items = itemsByTemplate.get(t.id) ?? 0;
+            const lines = linesByTemplate.get(t.id) ?? 0;
             return (
               <div key={t.id} className="flex items-center gap-3 px-4 py-3">
                 <Link
-                  href={`/settings/scope-groups/${t.id}`}
+                  href={`/settings/budget-templates/${t.id}`}
                   className="group flex min-w-0 flex-1 items-center gap-2"
                 >
                   <div className="min-w-0">
@@ -57,10 +57,10 @@ export default async function ScopeGroupsPage() {
                   </div>
                 </Link>
                 <span className="hidden shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:inline">
-                  {items} item{items === 1 ? "" : "s"}
+                  {lines} line{lines === 1 ? "" : "s"}
                 </span>
                 <TemplateRowActions id={t.id} name={t.name} description={t.description} />
-                <Link href={`/settings/scope-groups/${t.id}`}>
+                <Link href={`/settings/budget-templates/${t.id}`}>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </Link>
               </div>
@@ -68,7 +68,7 @@ export default async function ScopeGroupsPage() {
           })}
           {templates.length === 0 && (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No templates yet. Add one to define a standard renovation package.
+              No templates yet. Add one to define a standard renovation budget.
             </p>
           )}
         </CardContent>

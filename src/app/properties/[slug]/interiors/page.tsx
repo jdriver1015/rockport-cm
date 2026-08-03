@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { ManageScopeGroupsButton } from "@/components/interior-scope-groups";
+import { ManageBudgetGroupsButton } from "@/components/interior-budget-groups";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { TableCard } from "@/components/ui/table-card";
 import {
@@ -60,24 +60,24 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [groups, groupItemCounts, templates, interiorProjects, jtdRows] = await Promise.all([
+  const [groups, groupLineCounts, templates, interiorProjects, jtdRows] = await Promise.all([
     db()
       .select()
-      .from(schema.scopeGroups)
-      .where(and(eq(schema.scopeGroups.propertyId, propertyId), isNull(schema.scopeGroups.archivedAt)))
-      .orderBy(asc(schema.scopeGroups.sortOrder), asc(schema.scopeGroups.name)),
+      .from(schema.budgetGroups)
+      .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
+      .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
     db()
       .select({
-        scopeGroupId: schema.scopeGroupItems.scopeGroupId,
+        budgetGroupId: schema.budgetGroupLines.budgetGroupId,
         count: sql<number>`count(*)::int`,
       })
-      .from(schema.scopeGroupItems)
-      .groupBy(schema.scopeGroupItems.scopeGroupId),
+      .from(schema.budgetGroupLines)
+      .groupBy(schema.budgetGroupLines.budgetGroupId),
     db()
-      .select({ id: schema.scopeGroupTemplates.id, name: schema.scopeGroupTemplates.name })
-      .from(schema.scopeGroupTemplates)
-      .where(isNull(schema.scopeGroupTemplates.archivedAt))
-      .orderBy(asc(schema.scopeGroupTemplates.sortOrder), asc(schema.scopeGroupTemplates.name)),
+      .select({ id: schema.budgetTemplates.id, name: schema.budgetTemplates.name })
+      .from(schema.budgetTemplates)
+      .where(isNull(schema.budgetTemplates.archivedAt))
+      .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name)),
     db()
       .select({
         id: schema.projects.id,
@@ -122,13 +122,13 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
     }))
     .filter((g) => g.projects.length > 0);
 
-  const itemsByGroup = new Map(groupItemCounts.map((c) => [c.scopeGroupId, c.count]));
+  const linesByGroup = new Map(groupLineCounts.map((c) => [c.budgetGroupId, c.count]));
   const groupsForPanel = groups.map((g) => ({
     id: g.id,
     name: g.name,
     description: g.description,
     sourceTemplateId: g.sourceTemplateId,
-    itemCount: itemsByGroup.get(g.id) ?? 0,
+    lineCount: linesByGroup.get(g.id) ?? 0,
   }));
 
   return (
@@ -137,7 +137,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
         property={property}
         action={
           <div className="flex items-center gap-2">
-            <ManageScopeGroupsButton
+            <ManageBudgetGroupsButton
               propertyId={propertyId}
               propertySlug={slug}
               groups={groupsForPanel}

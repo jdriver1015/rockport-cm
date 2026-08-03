@@ -33,17 +33,6 @@ const COLS = 8;
 const exact = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/**
- * Scope + cost view for interior projects. Each line carries its estimate
- * plus the actual GL spend rolled up on its cost code, with variance styled
- * green (under) / red (over). Clicking a non-zero Actual opens a dialog
- * listing the underlying transactions for that cost code.
- *
- * Actuals attribute at the cost-code level, not per line: when multiple lines
- * share a code, each row shows the same aggregated actual and variance is
- * suppressed (the split across those lines is ambiguous). Totals dedupe by
- * cost code so the footer doesn't double-count.
- */
 export function PricedScopeTable({
   items,
   transactionsByCode,
@@ -55,15 +44,6 @@ export function PricedScopeTable({
     r.quantity != null && r.unitPrice != null ? Number(r.quantity) * Number(r.unitPrice) : 0;
   const total = items.reduce((s, r) => s + lineTotal(r), 0);
 
-  // How many rows reference each cost code? Rows that share a code can't have
-  // a meaningful per-line actual, so we surface the sharing in the UI and skip
-  // per-line variance for them.
-  const codeRowCount = new Map<number, number>();
-  for (const r of items) {
-    if (r.costCodeId == null) continue;
-    codeRowCount.set(r.costCodeId, (codeRowCount.get(r.costCodeId) ?? 0) + 1);
-  }
-
   const actualForCode = (codeId: number | null): number => {
     if (codeId == null) return 0;
     const txns = transactionsByCode[codeId];
@@ -71,8 +51,6 @@ export function PricedScopeTable({
     return txns.reduce((s, t) => s + Number(t.amount), 0);
   };
 
-  // Total actual across the project's scope, deduped by cost code so shared
-  // codes contribute once.
   const usedCodes = new Set<number>();
   let totalActual = 0;
   for (const r of items) {
@@ -94,7 +72,6 @@ export function PricedScopeTable({
   const completeValue = groups.reduce((s, g) => s + g.progress.completeValue, 0);
   const pct = total > 0 ? Math.round((completeValue / total) * 100) : 0;
 
-  // Per-group actual (deduped by cost code within the group)
   const groupActual = (g: (typeof groups)[number]): number => {
     const seen = new Set<number>();
     let sum = 0;
@@ -149,7 +126,6 @@ export function PricedScopeTable({
                   />,
                   ...g.lines.map(({ row: r }) => {
                     const est = lineTotal(r);
-                    const shared = r.costCodeId != null && (codeRowCount.get(r.costCodeId) ?? 0) > 1;
                     const actual = actualForCode(r.costCodeId);
                     const variance = est - actual;
                     return (
@@ -165,14 +141,6 @@ export function PricedScopeTable({
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {r.costCode ?? "—"}
-                          {shared && (
-                            <span
-                              className="ml-1 text-[10px] text-ink-400"
-                              title="Multiple scope lines share this cost code — actual is the combined total."
-                            >
-                              (shared)
-                            </span>
-                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {r.quantity != null ? Number(r.quantity).toLocaleString() : "—"}
@@ -193,13 +161,7 @@ export function PricedScopeTable({
                           />
                         </TableCell>
                         <TableCell>
-                          {shared ? (
-                            <span className="block text-right font-semibold tabular-nums text-ink-100">
-                              —
-                            </span>
-                          ) : (
-                            <VarianceCell value={variance} hasActual={actual > 0} />
-                          )}
+                          <VarianceCell value={variance} hasActual={actual > 0} />
                         </TableCell>
                       </TableRow>
                     );

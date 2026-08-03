@@ -9,8 +9,8 @@ import { PRICING_METHODS } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
-// Per-property scope groups — the usable renovation packages the interior
-// wizard picks from. Created from a Settings template (items cloned, each
+// Per-property budget groups — the usable renovation packages the interior
+// wizard picks from. Created from a Settings template (lines cloned, each
 // costCodeRef resolved to this property's chart) or blank.
 // ---------------------------------------------------------------------------
 
@@ -27,12 +27,11 @@ async function propertyChartId(propertyId: number): Promise<number | null> {
   return property?.chartOfAccountsId ?? null;
 }
 
-/** Map 4000-series code strings → this chart's costCode ids (missing codes omitted). */
 async function resolveCodeRefs(
   chartId: number,
-  refs: (string | null)[],
+  refs: string[],
 ): Promise<Map<string, number>> {
-  const wanted = [...new Set(refs.filter((r): r is string => !!r))];
+  const wanted = [...new Set(refs.filter(Boolean))];
   if (wanted.length === 0) return new Map();
   const rows = await db()
     .select({ id: schema.costCodes.id, code: schema.costCodes.code })
@@ -43,9 +42,9 @@ async function resolveCodeRefs(
 
 async function nextGroupOrder(propertyId: number): Promise<number> {
   const [{ maxOrder }] = await db()
-    .select({ maxOrder: sql<number>`coalesce(max(${schema.scopeGroups.sortOrder}), 0)::int` })
-    .from(schema.scopeGroups)
-    .where(eq(schema.scopeGroups.propertyId, propertyId));
+    .select({ maxOrder: sql<number>`coalesce(max(${schema.budgetGroups.sortOrder}), 0)::int` })
+    .from(schema.budgetGroups)
+    .where(eq(schema.budgetGroups.propertyId, propertyId));
   return maxOrder + 1;
 }
 
@@ -55,7 +54,6 @@ const groupSchema = z.object({
   description: z.string().trim().optional(),
 });
 
-/** Create a scope group by cloning a Settings template into this property. */
 export async function createGroupFromTemplate(input: {
   propertyId: number;
   templateId: number;
@@ -65,24 +63,24 @@ export async function createGroupFromTemplate(input: {
   const chartId = await propertyChartId(propertyId);
   if (chartId == null) return { ok: false, error: "Property not found" };
 
-  const template = await db().query.scopeGroupTemplates.findFirst({
-    where: eq(schema.scopeGroupTemplates.id, input.templateId),
+  const template = await db().query.budgetTemplates.findFirst({
+    where: eq(schema.budgetTemplates.id, input.templateId),
   });
   if (!template) return { ok: false, error: "Template not found" };
 
-  const items = await db()
+  const lines = await db()
     .select()
-    .from(schema.scopeGroupTemplateItems)
-    .where(eq(schema.scopeGroupTemplateItems.templateId, input.templateId))
-    .orderBy(asc(schema.scopeGroupTemplateItems.sortOrder));
+    .from(schema.budgetTemplateLines)
+    .where(eq(schema.budgetTemplateLines.templateId, input.templateId))
+    .orderBy(asc(schema.budgetTemplateLines.sortOrder));
 
   const codeMap = await resolveCodeRefs(
     chartId,
-    items.map((it) => it.costCodeRef),
+    lines.map((ln) => ln.costCodeRef),
   );
 
   const [group] = await db()
-    .insert(schema.scopeGroups)
+    .insert(schema.budgetGroups)
     .values({
       propertyId,
       name: input.name?.trim() || template.name,
@@ -90,34 +88,30 @@ export async function createGroupFromTemplate(input: {
       sourceTemplateId: template.id,
       sortOrder: await nextGroupOrder(propertyId),
     })
-    .returning({ id: schema.scopeGroups.id });
+    .returning({ id: schema.budgetGroups.id });
 
   let unresolved = 0;
-  if (items.length > 0) {
-    await db().insert(schema.scopeGroupItems).values(
-      items.map((it) => {
-        const costCodeId = it.costCodeRef ? codeMap.get(it.costCodeRef) ?? null : null;
-        if (it.costCodeRef && costCodeId == null) unresolved++;
-        return {
-          scopeGroupId: group.id,
-          name: it.name,
-          category: it.category,
-          isAlternate: it.isAlternate,
-          location: it.location,
-          productLink: it.productLink,
-          pricingMethod: it.pricingMethod,
-          unitPrice: it.unitPrice,
-          defaultQuantity: it.defaultQuantity,
-          quantityFormula: it.quantityFormula,
-          costCodeId,
-          laborAssumptions: it.laborAssumptions,
-          materialAssumptions: it.materialAssumptions,
-          notes: it.notes,
-          active: it.active,
-          sortOrder: it.sortOrder,
-        };
-      }),
-    );
+  const resolved = lines
+    .map((ln) => {
+      const costCodeId = codeMap.get(ln.costCodeRef);
+      if (!costCodeId) {
+        unresolved++;
+        return null;
+      }
+      return {
+        budgetGroupId: group.id,
+        costCodeId,
+        pricingMethod: ln.pricingMethod,
+        unitPrice: ln.unitPrice,
+        defaultQuantity: ln.defaultQuantity,
+        notes: ln.notes,
+        sortOrder: ln.sortOrder,
+      };
+    })
+    .filter((v): v is NonNullable<typeof v> => v != null);
+
+  if (resolved.length > 0) {
+    await db().insert(schema.budgetGroupLines).values(resolved);
   }
 
   await revalidateGroups(propertyId);
@@ -133,14 +127,14 @@ export async function createBlankGroup(input: {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const [group] = await db()
-    .insert(schema.scopeGroups)
+    .insert(schema.budgetGroups)
     .values({
       propertyId: parsed.data.propertyId,
       name: parsed.data.name,
       description: parsed.data.description,
       sortOrder: await nextGroupOrder(parsed.data.propertyId),
     })
-    .returning({ id: schema.scopeGroups.id });
+    .returning({ id: schema.budgetGroups.id });
   await revalidateGroups(parsed.data.propertyId);
   return { ok: true, groupId: group.id };
 }
@@ -154,25 +148,24 @@ export async function updateGroup(input: {
   const parsed = groupSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   await db()
-    .update(schema.scopeGroups)
+    .update(schema.budgetGroups)
     .set({ name: parsed.data.name, description: parsed.data.description ?? null })
-    .where(eq(schema.scopeGroups.id, input.id));
+    .where(eq(schema.budgetGroups.id, input.id));
   await revalidateGroups(parsed.data.propertyId);
   return { ok: true };
 }
 
-/** Deep-copy a group (and its items) within the same property. */
 export async function duplicateGroup(input: {
   id: number;
   propertyId: number;
 }): Promise<ActionResult<{ groupId: number }>> {
-  const source = await db().query.scopeGroups.findFirst({
-    where: eq(schema.scopeGroups.id, input.id),
+  const source = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, input.id),
   });
-  if (!source) return { ok: false, error: "Scope group not found" };
+  if (!source) return { ok: false, error: "Budget group not found" };
 
   const [group] = await db()
-    .insert(schema.scopeGroups)
+    .insert(schema.budgetGroups)
     .values({
       propertyId: source.propertyId,
       name: `${source.name} (copy)`,
@@ -180,32 +173,23 @@ export async function duplicateGroup(input: {
       sourceTemplateId: source.sourceTemplateId,
       sortOrder: await nextGroupOrder(source.propertyId),
     })
-    .returning({ id: schema.scopeGroups.id });
+    .returning({ id: schema.budgetGroups.id });
 
-  const items = await db()
+  const lines = await db()
     .select()
-    .from(schema.scopeGroupItems)
-    .where(eq(schema.scopeGroupItems.scopeGroupId, input.id))
-    .orderBy(asc(schema.scopeGroupItems.sortOrder));
-  if (items.length > 0) {
-    await db().insert(schema.scopeGroupItems).values(
-      items.map((it) => ({
-        scopeGroupId: group.id,
-        name: it.name,
-        category: it.category,
-        isAlternate: it.isAlternate,
-        location: it.location,
-        productLink: it.productLink,
-        pricingMethod: it.pricingMethod,
-        unitPrice: it.unitPrice,
-        defaultQuantity: it.defaultQuantity,
-        quantityFormula: it.quantityFormula,
-        costCodeId: it.costCodeId,
-        laborAssumptions: it.laborAssumptions,
-        materialAssumptions: it.materialAssumptions,
-        notes: it.notes,
-        active: it.active,
-        sortOrder: it.sortOrder,
+    .from(schema.budgetGroupLines)
+    .where(eq(schema.budgetGroupLines.budgetGroupId, input.id))
+    .orderBy(asc(schema.budgetGroupLines.sortOrder));
+  if (lines.length > 0) {
+    await db().insert(schema.budgetGroupLines).values(
+      lines.map((ln) => ({
+        budgetGroupId: group.id,
+        costCodeId: ln.costCodeId,
+        pricingMethod: ln.pricingMethod,
+        unitPrice: ln.unitPrice,
+        defaultQuantity: ln.defaultQuantity,
+        notes: ln.notes,
+        sortOrder: ln.sortOrder,
       })),
     );
   }
@@ -215,67 +199,49 @@ export async function duplicateGroup(input: {
 
 export async function archiveGroup(input: { id: number; propertyId: number }): Promise<ActionResult> {
   await db()
-    .update(schema.scopeGroups)
+    .update(schema.budgetGroups)
     .set({ archivedAt: new Date() })
-    .where(eq(schema.scopeGroups.id, input.id));
+    .where(eq(schema.budgetGroups.id, input.id));
   await revalidateGroups(input.propertyId);
   return { ok: true };
 }
 
 export async function restoreGroup(input: { id: number; propertyId: number }): Promise<ActionResult> {
   await db()
-    .update(schema.scopeGroups)
+    .update(schema.budgetGroups)
     .set({ archivedAt: null })
-    .where(eq(schema.scopeGroups.id, input.id));
+    .where(eq(schema.budgetGroups.id, input.id));
   await revalidateGroups(input.propertyId);
   return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
-// Group items
+// Group lines (1:1 with cost codes)
 // ---------------------------------------------------------------------------
 
-const itemSchema = z.object({
+const lineSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
-  scopeGroupId: z.coerce.number().int().positive(),
-  name: z.string().trim().min(1, "Name is required"),
-  category: z.string().trim().optional(),
-  isAlternate: z.boolean().optional(),
-  location: z.string().trim().optional(),
-  productLink: z.string().trim().optional(),
+  budgetGroupId: z.coerce.number().int().positive(),
   pricingMethod: z.enum(PRICING_METHODS),
   unitPrice: z.coerce.number().nonnegative().optional(),
   defaultQuantity: z.coerce.number().nonnegative().optional(),
-  quantityFormula: z.string().trim().optional(),
-  costCodeId: z.coerce.number().int().positive().optional(),
-  laborAssumptions: z.string().trim().optional(),
-  materialAssumptions: z.string().trim().optional(),
+  costCodeId: z.coerce.number().int().positive(),
   notes: z.string().trim().optional(),
 });
 
-function parseItemForm(formData: FormData) {
+function parseLineForm(formData: FormData) {
   return {
     propertyId: formData.get("propertyId"),
-    scopeGroupId: formData.get("scopeGroupId"),
-    name: formData.get("name"),
-    category: formData.get("category") || undefined,
-    isAlternate: formData.get("isAlternate") === "on",
-    location: formData.get("location") || undefined,
-    productLink: formData.get("productLink") || undefined,
+    budgetGroupId: formData.get("budgetGroupId"),
     pricingMethod: formData.get("pricingMethod"),
     unitPrice: formData.get("unitPrice") || undefined,
     defaultQuantity: formData.get("defaultQuantity") || undefined,
-    quantityFormula: formData.get("quantityFormula") || undefined,
-    costCodeId: formData.get("costCodeId") || undefined,
-    laborAssumptions: formData.get("laborAssumptions") || undefined,
-    materialAssumptions: formData.get("materialAssumptions") || undefined,
+    costCodeId: formData.get("costCodeId"),
     notes: formData.get("notes") || undefined,
   };
 }
 
-/** A chosen cost code must belong to this property's chart. */
-async function validateCode(propertyId: number, costCodeId?: number): Promise<boolean> {
-  if (costCodeId == null) return true;
+async function validateCode(propertyId: number, costCodeId: number): Promise<boolean> {
   const chartId = await propertyChartId(propertyId);
   if (chartId == null) return false;
   const code = await db().query.costCodes.findFirst({
@@ -285,8 +251,8 @@ async function validateCode(propertyId: number, costCodeId?: number): Promise<bo
   return !!code && code.chartId === chartId;
 }
 
-export async function addGroupItem(formData: FormData): Promise<ActionResult> {
-  const parsed = itemSchema.safeParse(parseItemForm(formData));
+export async function addGroupLine(formData: FormData): Promise<ActionResult> {
+  const parsed = lineSchema.safeParse(parseLineForm(formData));
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
   if (!(await validateCode(d.propertyId, d.costCodeId))) {
@@ -294,24 +260,16 @@ export async function addGroupItem(formData: FormData): Promise<ActionResult> {
   }
 
   const [{ maxOrder }] = await db()
-    .select({ maxOrder: sql<number>`coalesce(max(${schema.scopeGroupItems.sortOrder}), 0)::int` })
-    .from(schema.scopeGroupItems)
-    .where(eq(schema.scopeGroupItems.scopeGroupId, d.scopeGroupId));
+    .select({ maxOrder: sql<number>`coalesce(max(${schema.budgetGroupLines.sortOrder}), 0)::int` })
+    .from(schema.budgetGroupLines)
+    .where(eq(schema.budgetGroupLines.budgetGroupId, d.budgetGroupId));
 
-  await db().insert(schema.scopeGroupItems).values({
-    scopeGroupId: d.scopeGroupId,
-    name: d.name,
-    category: d.category ?? null,
-    isAlternate: d.isAlternate ?? false,
-    location: d.location ?? null,
-    productLink: d.productLink ?? null,
+  await db().insert(schema.budgetGroupLines).values({
+    budgetGroupId: d.budgetGroupId,
+    costCodeId: d.costCodeId,
     pricingMethod: d.pricingMethod,
     unitPrice: (d.unitPrice ?? 0).toFixed(2),
     defaultQuantity: d.defaultQuantity != null ? d.defaultQuantity.toFixed(2) : null,
-    quantityFormula: d.quantityFormula ?? null,
-    costCodeId: d.costCodeId ?? null,
-    laborAssumptions: d.laborAssumptions ?? null,
-    materialAssumptions: d.materialAssumptions ?? null,
     notes: d.notes ?? null,
     sortOrder: maxOrder + 1,
   });
@@ -319,10 +277,10 @@ export async function addGroupItem(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function updateGroupItem(formData: FormData): Promise<ActionResult> {
+export async function updateGroupLine(formData: FormData): Promise<ActionResult> {
   const id = Number(formData.get("id"));
-  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "Invalid item" };
-  const parsed = itemSchema.safeParse(parseItemForm(formData));
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "Invalid line" };
+  const parsed = lineSchema.safeParse(parseLineForm(formData));
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
   if (!(await validateCode(d.propertyId, d.costCodeId))) {
@@ -330,32 +288,24 @@ export async function updateGroupItem(formData: FormData): Promise<ActionResult>
   }
 
   await db()
-    .update(schema.scopeGroupItems)
+    .update(schema.budgetGroupLines)
     .set({
-      name: d.name,
-      category: d.category ?? null,
-      isAlternate: d.isAlternate ?? false,
-      location: d.location ?? null,
-      productLink: d.productLink ?? null,
+      costCodeId: d.costCodeId,
       pricingMethod: d.pricingMethod,
       unitPrice: (d.unitPrice ?? 0).toFixed(2),
       defaultQuantity: d.defaultQuantity != null ? d.defaultQuantity.toFixed(2) : null,
-      quantityFormula: d.quantityFormula ?? null,
-      costCodeId: d.costCodeId ?? null,
-      laborAssumptions: d.laborAssumptions ?? null,
-      materialAssumptions: d.materialAssumptions ?? null,
       notes: d.notes ?? null,
     })
-    .where(eq(schema.scopeGroupItems.id, id));
+    .where(eq(schema.budgetGroupLines.id, id));
   await revalidateGroups(d.propertyId);
   return { ok: true };
 }
 
-export async function deleteGroupItem(input: {
+export async function deleteGroupLine(input: {
   id: number;
   propertyId: number;
 }): Promise<ActionResult> {
-  await db().delete(schema.scopeGroupItems).where(eq(schema.scopeGroupItems.id, input.id));
+  await db().delete(schema.budgetGroupLines).where(eq(schema.budgetGroupLines.id, input.id));
   await revalidateGroups(input.propertyId);
   return { ok: true };
 }

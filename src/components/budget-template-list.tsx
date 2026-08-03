@@ -24,11 +24,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  archiveScopeTemplate,
-  createScopeTemplate,
-  duplicateScopeTemplate,
-  updateScopeTemplate,
-} from "@/lib/actions/scope-group-templates";
+  archiveBudgetTemplate,
+  createBudgetTemplate,
+  duplicateBudgetTemplate,
+  updateBudgetTemplate,
+} from "@/lib/actions/budget-templates";
 
 export function AddTemplateDialog() {
   const router = useRouter();
@@ -40,14 +40,14 @@ export function AddTemplateDialog() {
     const fd = new FormData(e.currentTarget);
     setBusy(true);
     try {
-      const result = await createScopeTemplate({
+      const result = await createBudgetTemplate({
         name: String(fd.get("name") ?? ""),
         description: String(fd.get("description") ?? "") || undefined,
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Template created");
       setOpen(false);
-      router.push(`/settings/scope-groups/${result.templateId}`);
+      router.push(`/settings/budget-templates/${result.templateId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -59,16 +59,16 @@ export function AddTemplateDialog() {
       <DialogTrigger render={<Button size="sm" />}>Add template</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add renovation template</DialogTitle>
+          <DialogTitle>Add budget template</DialogTitle>
           <DialogDescription>
-            A standard package (e.g. Classic Refresh) offered as a base when creating property scope
-            groups.
+            A standard renovation budget (e.g. Enhanced, Signature) offered as a base when creating
+            property budget groups.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-1.5">
             <Label htmlFor="tpl-name">Name</Label>
-            <Input id="tpl-name" name="name" required placeholder="Classic Refresh" />
+            <Input id="tpl-name" name="name" required placeholder="Enhanced" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="tpl-desc">Description</Label>
@@ -115,7 +115,7 @@ export function TemplateRowActions({
     const fd = new FormData(e.currentTarget);
     setBusy(true);
     try {
-      const result = await updateScopeTemplate({
+      const result = await updateBudgetTemplate({
         id,
         name: String(fd.get("name") ?? ""),
         description: String(fd.get("description") ?? "") || undefined,
@@ -132,10 +132,10 @@ export function TemplateRowActions({
   async function handleDuplicate() {
     setBusy(true);
     try {
-      const result = await duplicateScopeTemplate(id);
+      const result = await duplicateBudgetTemplate(id);
       if (!result.ok) return toast.error(result.error);
       toast.success("Template duplicated");
-      router.push(`/settings/scope-groups/${result.templateId}`);
+      router.push(`/settings/budget-templates/${result.templateId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -154,7 +154,7 @@ export function TemplateRowActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => run(() => archiveScopeTemplate(id), "Template archived")}
+            onClick={() => run(() => archiveBudgetTemplate(id), "Template archived")}
           >
             Archive
           </DropdownMenuItem>

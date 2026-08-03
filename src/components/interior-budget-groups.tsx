@@ -31,21 +31,21 @@ import {
   createGroupFromTemplate,
   duplicateGroup,
   updateGroup,
-} from "@/lib/actions/scope-groups";
+} from "@/lib/actions/budget-groups";
 
 type GroupRow = {
   id: number;
   name: string;
   description: string | null;
   sourceTemplateId: number | null;
-  itemCount: number;
+  lineCount: number;
 };
 type TemplateOption = { id: number; name: string };
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50";
 
-export function ManageScopeGroupsButton({
+export function ManageBudgetGroupsButton({
   propertyId,
   propertySlug,
   groups,
@@ -75,10 +75,10 @@ export function ManageScopeGroupsButton({
       if (!result.ok) return toast.error(result.error);
       toast.success(
         result.unresolved > 0
-          ? `Scope group created — ${result.unresolved} item(s) had no matching code in this chart`
-          : "Scope group created",
+          ? `Budget group created — ${result.unresolved} line(s) had no matching code in this chart`
+          : "Budget group created",
       );
-      router.push(`/properties/${propertySlug}/interiors/scope-groups/${result.groupId}`);
+      router.push(`/properties/${propertySlug}/interiors/budget-groups/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -96,8 +96,8 @@ export function ManageScopeGroupsButton({
         description: String(fd.get("description") ?? "") || undefined,
       });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Scope group created");
-      router.push(`/properties/${propertySlug}/interiors/scope-groups/${result.groupId}`);
+      toast.success("Budget group created");
+      router.push(`/properties/${propertySlug}/interiors/budget-groups/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -106,12 +106,12 @@ export function ManageScopeGroupsButton({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>Manage Scope Groups</DialogTrigger>
+      <DialogTrigger render={<Button size="sm" variant="outline" />}>Manage Budget Groups</DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Scope groups</DialogTitle>
+          <DialogTitle>Budget groups</DialogTitle>
           <DialogDescription>
-            Renovation packages for this property. Create from a portfolio template or blank.
+            Renovation budget packages for this property. Create from a portfolio template or blank.
           </DialogDescription>
         </DialogHeader>
 
@@ -126,8 +126,8 @@ export function ManageScopeGroupsButton({
           <TabsContent value="template">
             <form className="flex items-end gap-2" onSubmit={handleFromTemplate}>
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="sg-template">Template</Label>
-                <select id="sg-template" name="templateId" required defaultValue="" className={selectClass}>
+                <Label htmlFor="bg-template">Template</Label>
+                <select id="bg-template" name="templateId" required defaultValue="" className={selectClass}>
                   <option value="" disabled>
                     Select…
                   </option>
@@ -139,8 +139,8 @@ export function ManageScopeGroupsButton({
                 </select>
               </div>
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="sg-tpl-name">Name (optional)</Label>
-                <Input id="sg-tpl-name" name="name" placeholder="Defaults to template name" />
+                <Label htmlFor="bg-tpl-name">Name (optional)</Label>
+                <Input id="bg-tpl-name" name="name" placeholder="Defaults to template name" />
               </div>
               <Button type="submit" disabled={busy}>
                 Create
@@ -151,12 +151,12 @@ export function ManageScopeGroupsButton({
           <TabsContent value="blank">
             <form className="space-y-3" onSubmit={handleBlank}>
               <div className="space-y-1.5">
-                <Label htmlFor="sg-blank-name">Name</Label>
-                <Input id="sg-blank-name" name="name" required placeholder="Custom Package" />
+                <Label htmlFor="bg-blank-name">Name</Label>
+                <Input id="bg-blank-name" name="name" required placeholder="Custom Package" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="sg-blank-desc">Description</Label>
-                <Textarea id="sg-blank-desc" name="description" rows={2} />
+                <Label htmlFor="bg-blank-desc">Description</Label>
+                <Textarea id="bg-blank-desc" name="description" rows={2} />
               </div>
               <div className="flex justify-end">
                 <Button type="submit" disabled={busy}>
@@ -169,17 +169,17 @@ export function ManageScopeGroupsButton({
 
         <div className="mt-2 divide-y border-t">
           {groups.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">No scope groups yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No budget groups yet.</p>
           )}
           {groups.map((g) => (
             <div key={g.id} className="flex items-center gap-2 py-2">
               <Link
-                href={`/properties/${propertySlug}/interiors/scope-groups/${g.id}`}
+                href={`/properties/${propertySlug}/interiors/budget-groups/${g.id}`}
                 className="min-w-0 flex-1 hover:underline"
               >
                 <span className="font-medium text-navy">{g.name}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {g.itemCount} item{g.itemCount === 1 ? "" : "s"}
+                  {g.lineCount} line{g.lineCount === 1 ? "" : "s"}
                 </span>
               </Link>
               <GroupRowActions propertyId={propertyId} propertySlug={propertySlug} group={g} />
@@ -228,7 +228,7 @@ function GroupRowActions({
         description: String(fd.get("description") ?? "") || undefined,
       });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Scope group updated");
+      toast.success("Budget group updated");
       setEditOpen(false);
       router.refresh();
     } finally {
@@ -238,8 +238,8 @@ function GroupRowActions({
 
   return (
     <>
-      <Button render={<Link href={`/properties/${propertySlug}/interiors/scope-groups/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
-        Edit items
+      <Button render={<Link href={`/properties/${propertySlug}/interiors/budget-groups/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
+        Edit lines
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={busy} />}>
@@ -263,7 +263,7 @@ function GroupRowActions({
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit scope group</DialogTitle>
+            <DialogTitle>Edit budget group</DialogTitle>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleEdit}>
             <div className="space-y-1.5">

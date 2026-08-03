@@ -1,15 +1,14 @@
 /**
  * Backfill for the project dashboard rebuild:
- * 1. Recover scopeItems.category from sourceGroupItemId → scopeGroupItems.category
- * 2. Seed 4 default milestones per project (one per phase) with planned dates
- *    derived from existing date fields and actuals from phase events.
+ * Seed 4 default milestones per project (one per phase) with planned dates
+ * derived from existing date fields and actuals from phase events.
  *
  * Idempotent — safe to run multiple times.
  * Usage: npx tsx scripts/backfill-project-dashboard.ts
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { db } from "../src/db";
 import * as schema from "../src/db/schema";
 
@@ -23,45 +22,7 @@ const DEFAULT_MILESTONES = [
 async function main() {
   const d = db();
 
-  // 1. Recover category on scope items from their source group item
-  const uncategorized = await d
-    .select({
-      id: schema.scopeItems.id,
-      sourceGroupItemId: schema.scopeItems.sourceGroupItemId,
-    })
-    .from(schema.scopeItems)
-    .where(
-      and(
-        isNull(schema.scopeItems.category),
-        sql`${schema.scopeItems.sourceGroupItemId} is not null`,
-      ),
-    );
-
-  if (uncategorized.length > 0) {
-    const sourceIds = [...new Set(uncategorized.map((s) => s.sourceGroupItemId!))];
-    const sourceItems = await d
-      .select({ id: schema.scopeGroupItems.id, category: schema.scopeGroupItems.category })
-      .from(schema.scopeGroupItems)
-      .where(sql`${schema.scopeGroupItems.id} in (${sql.join(sourceIds.map((id) => sql`${id}`), sql`, `)})`);
-    const catById = new Map(sourceItems.map((s) => [s.id, s.category]));
-
-    let recovered = 0;
-    for (const item of uncategorized) {
-      const cat = catById.get(item.sourceGroupItemId!);
-      if (cat) {
-        await d
-          .update(schema.scopeItems)
-          .set({ category: cat })
-          .where(eq(schema.scopeItems.id, item.id));
-        recovered++;
-      }
-    }
-    console.log(`✓ Recovered category on ${recovered} of ${uncategorized.length} scope items`);
-  } else {
-    console.log("✓ No uncategorized scope items with source references");
-  }
-
-  // 2. Seed default milestones per project
+  // Seed default milestones per project
   const projects = await d
     .select({
       id: schema.projects.id,

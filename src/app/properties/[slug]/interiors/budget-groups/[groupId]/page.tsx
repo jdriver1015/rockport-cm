@@ -14,14 +14,14 @@ import {
 } from "@/components/ui/table";
 import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
 import {
-  AddGroupItemDialog,
-  EditGroupItemDialog,
+  AddGroupLineDialog,
+  EditGroupLineDialog,
   type ChartCodeOption,
-} from "@/components/scope-group-item-editor";
+} from "@/components/budget-line-editor";
 
 export const dynamic = "force-dynamic";
 
-export default async function ScopeGroupEditorPage({
+export default async function BudgetGroupEditorPage({
   params,
 }: {
   params: Promise<{ slug: string; groupId: string }>;
@@ -36,17 +36,17 @@ export default async function ScopeGroupEditorPage({
   if (!property) notFound();
   const propertyId = property.id;
 
-  const group = await db().query.scopeGroups.findFirst({
-    where: eq(schema.scopeGroups.id, groupId),
+  const group = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, groupId),
   });
   if (!group || group.propertyId !== propertyId) notFound();
 
-  const [items, interiorCodes] = await Promise.all([
+  const [lines, interiorCodes] = await Promise.all([
     db()
       .select()
-      .from(schema.scopeGroupItems)
-      .where(eq(schema.scopeGroupItems.scopeGroupId, groupId))
-      .orderBy(asc(schema.scopeGroupItems.sortOrder), asc(schema.scopeGroupItems.id)),
+      .from(schema.budgetGroupLines)
+      .where(eq(schema.budgetGroupLines.budgetGroupId, groupId))
+      .orderBy(asc(schema.budgetGroupLines.sortOrder), asc(schema.budgetGroupLines.id)),
     db()
       .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
       .from(schema.costCodes)
@@ -75,73 +75,69 @@ export default async function ScopeGroupEditorPage({
           </Link>
           <h2 className="truncate text-lg font-semibold text-navy">{group.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {items.length} item{items.length === 1 ? "" : "s"}
+            {lines.length} line{lines.length === 1 ? "" : "s"}
             {group.description ? ` · ${group.description}` : ""}
           </p>
         </div>
-        <AddGroupItemDialog propertyId={propertyId} scopeGroupId={groupId} interiorCodes={interiorCodes} />
+        <AddGroupLineDialog propertyId={propertyId} budgetGroupId={groupId} interiorCodes={interiorCodes} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-navy">Scope items</CardTitle>
+          <CardTitle className="text-base text-navy">Budget lines</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Category</TableHead>
+                <TableHead>Cost code</TableHead>
                 <TableHead>Pricing</TableHead>
                 <TableHead className="text-right">Unit price</TableHead>
-                <TableHead>Cost code</TableHead>
+                <TableHead className="text-right">Default qty</TableHead>
+                <TableHead className="w-1/3">Notes</TableHead>
                 <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((it) => {
-                const code = it.costCodeId != null ? codeById.get(it.costCodeId) : undefined;
+              {lines.map((ln) => {
+                const code = codeById.get(ln.costCodeId);
                 return (
-                  <TableRow key={it.id} className={it.active ? undefined : "opacity-55"}>
-                    <TableCell className="font-medium text-navy">{it.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{it.category ?? "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      {PRICING_METHOD_LABELS[it.pricingMethod as PricingMethod] ?? it.pricingMethod}
+                  <TableRow key={ln.id}>
+                    <TableCell className="font-medium text-navy">
+                      {code ? code.name : `Code #${ln.costCodeId}`}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{money(it.unitPrice)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {code ? code.name : it.costCodeId != null ? "?" : "—"}
+                      {PRICING_METHOD_LABELS[ln.pricingMethod as PricingMethod] ?? ln.pricingMethod}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{money(ln.unitPrice)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {ln.defaultQuantity != null ? Number(ln.defaultQuantity).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
+                      {ln.notes ?? "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <EditGroupItemDialog
+                      <EditGroupLineDialog
                         propertyId={propertyId}
-                        scopeGroupId={groupId}
+                        budgetGroupId={groupId}
                         interiorCodes={interiorCodes}
-                        item={{
-                          id: it.id,
-                          name: it.name,
-                          category: it.category,
-                          isAlternate: it.isAlternate,
-                          location: it.location,
-                          productLink: it.productLink,
-                          pricingMethod: it.pricingMethod as PricingMethod,
-                          unitPrice: it.unitPrice,
-                          defaultQuantity: it.defaultQuantity,
-                          quantityFormula: it.quantityFormula,
-                          costCodeId: it.costCodeId,
-                          laborAssumptions: it.laborAssumptions,
-                          materialAssumptions: it.materialAssumptions,
-                          notes: it.notes,
+                        line={{
+                          id: ln.id,
+                          costCodeId: ln.costCodeId,
+                          pricingMethod: ln.pricingMethod as PricingMethod,
+                          unitPrice: ln.unitPrice,
+                          defaultQuantity: ln.defaultQuantity,
+                          notes: ln.notes,
                         }}
                       />
                     </TableCell>
                   </TableRow>
                 );
               })}
-              {items.length === 0 && (
+              {lines.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                    No items yet. Add scope items to this package.
+                    No budget lines yet. Add lines for each cost code in this package.
                   </TableCell>
                 </TableRow>
               )}

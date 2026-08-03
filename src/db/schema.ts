@@ -387,7 +387,7 @@ export const projects = pgTable("projects", {
   /** Contracted amount (approved bid); actuals come from posted GL transactions */
   committedCost: numeric("committed_cost", { precision: 12, scale: 2 }).notNull().default("0"),
   vendorId: integer("vendor_id").references(() => vendors.id),
-  scopeGroupId: integer("scope_group_id").references(() => scopeGroups.id),
+  budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id),
   /** Interior turns: walk-through before work starts */
   preWalkDate: date("pre_walk_date"),
   startDate: date("start_date"),
@@ -494,7 +494,7 @@ export const punchItems = pgTable("punch_items", {
 
 // Scope: the spec list for a project — what work/materials, at what grade, and
 // a link to the product. Vendors still price scope via bid line items, but
-// interior turns generated from a scope group also carry their OWN estimate
+// interior turns generated from a budget group also carry their OWN estimate
 // pricing (method + unit price + computed quantity); the line total is derived
 // (quantity × unitPrice), and their sum seeds the project's budgetAmount.
 export const scopeItems = pgTable("scope_items", {
@@ -523,8 +523,10 @@ export const scopeItems = pgTable("scope_items", {
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }),
   /** Computed at generation from the method + unit metadata; editable in review */
   quantity: numeric("quantity", { precision: 12, scale: 2 }),
-  /** Provenance: the scope_group_item this line was generated from (nullable) */
+  /** Provenance: the scope_group_item this line was generated from (nullable, historical) */
   sourceGroupItemId: integer("source_group_item_id"),
+  /** Provenance: the budget_group_line this line was generated from (nullable) */
+  sourceBudgetLineId: integer("source_budget_line_id").references(() => budgetGroupLines.id),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the scope table but restorable. Null = active. */
@@ -532,63 +534,52 @@ export const scopeItems = pgTable("scope_items", {
 }, (t) => [index("scope_items_project_idx").on(t.projectId)]);
 
 // ---------------------------------------------------------------------------
-// Scope groups — standardized interior renovation packages.
+// Budget templates — standardized interior renovation packages.
 //
 // Two tiers:
-//   1. Templates (scope_group_templates) — a portfolio-wide library managed
-//      under Settings. Chart-independent: each item stores its 4000-series code
-//      as a STRING (codeRef), resolved to a property's chart when instantiated.
-//   2. Property scope groups (scope_groups) — the usable packages per property,
-//      created from a template (items cloned, codeRef resolved to a costCodeId)
-//      or blank. The interior wizard picks from these.
-// A created project snapshots a group's items into scope_items (pricing baked in).
+//   1. Templates (budget_templates) — a portfolio-wide library managed under
+//      Settings. Chart-independent: each line stores its 4000-series code as a
+//      STRING (costCodeRef), resolved to a property's chart when instantiated.
+//   2. Property budget groups (budget_groups) — the usable packages per
+//      property, created from a template (lines cloned, costCodeRef resolved
+//      to a costCodeId) or blank. The interior wizard picks from these.
+//
+// Each line is 1:1 with a cost code (UNIQUE constraint enforced in DB).
+// A created project snapshots a group's lines into scope_items (pricing baked in).
 // ---------------------------------------------------------------------------
 
-export const scopeGroupTemplates = pgTable("scope_group_templates", {
+export const budgetTemplates = pgTable("budget_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  /** Soft-delete: hidden from the library but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
-export const scopeGroupTemplateItems = pgTable(
-  "scope_group_template_items",
+export const budgetTemplateLines = pgTable(
+  "budget_template_lines",
   {
     id: serial("id").primaryKey(),
     templateId: integer("template_id")
       .notNull()
-      .references(() => scopeGroupTemplates.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    /** Trade section, e.g. "Cabinets", "Lighting", "Paint & Drywall" */
-    category: text("category"),
-    /** True = Add/Deduct Alternative (optional line, priced separately per project) */
-    isAlternate: boolean("is_alternate").notNull().default(false),
-    /** Where in the unit this applies, e.g. "Kitchen", "Bath", "Throughout" */
-    location: text("location"),
-    /** Link to the standard product/spec sheet (finish schedule) */
-    productLink: text("product_link"),
+      .references(() => budgetTemplates.id, { onDelete: "cascade" }),
+    costCodeRef: text("cost_code_ref").notNull(),
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
-    /** Optional expression for pricingMethod='formula' */
-    quantityFormula: text("quantity_formula"),
-    /** 4000-series code as a string (e.g. "4000-0002"); resolved per chart on use */
-    costCodeRef: text("cost_code_ref"),
-    laborAssumptions: text("labor_assumptions"),
-    materialAssumptions: text("material_assumptions"),
     notes: text("notes"),
-    active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (t) => [index("scope_group_template_items_template_idx").on(t.templateId)],
+  (t) => [
+    index("budget_template_lines_template_idx").on(t.templateId),
+    uniqueIndex("budget_template_lines_template_code_uq").on(t.templateId, t.costCodeRef),
+  ],
 );
 
-export const scopeGroups = pgTable(
-  "scope_groups",
+export const budgetGroups = pgTable(
+  "budget_groups",
   {
     id: serial("id").primaryKey(),
     propertyId: integer("property_id")
@@ -596,45 +587,35 @@ export const scopeGroups = pgTable(
       .references(() => properties.id),
     name: text("name").notNull(),
     description: text("description"),
-    /** Provenance: the library template this group was seeded from (nullable) */
-    sourceTemplateId: integer("source_template_id").references(() => scopeGroupTemplates.id),
+    sourceTemplateId: integer("source_template_id").references(() => budgetTemplates.id),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    /** Soft-delete: hidden from the picker but restorable. Null = active. */
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("scope_groups_property_idx").on(t.propertyId)],
+  (t) => [index("budget_groups_property_idx").on(t.propertyId)],
 );
 
-export const scopeGroupItems = pgTable(
-  "scope_group_items",
+export const budgetGroupLines = pgTable(
+  "budget_group_lines",
   {
     id: serial("id").primaryKey(),
-    scopeGroupId: integer("scope_group_id")
+    budgetGroupId: integer("budget_group_id")
       .notNull()
-      .references(() => scopeGroups.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    category: text("category"),
-    /** True = Add/Deduct Alternative (optional line, priced separately per project) */
-    isAlternate: boolean("is_alternate").notNull().default(false),
-    /** Where in the unit this applies, e.g. "Kitchen", "Bath", "Throughout" */
-    location: text("location"),
-    /** Link to the standard product/spec sheet (finish schedule) */
-    productLink: text("product_link"),
+      .references(() => budgetGroups.id, { onDelete: "cascade" }),
+    costCodeId: integer("cost_code_id")
+      .notNull()
+      .references(() => costCodes.id),
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
-    quantityFormula: text("quantity_formula"),
-    /** Resolved into this property's chart; null if the chart lacks the code */
-    costCodeId: integer("cost_code_id").references(() => costCodes.id),
-    laborAssumptions: text("labor_assumptions"),
-    materialAssumptions: text("material_assumptions"),
     notes: text("notes"),
-    active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (t) => [index("scope_group_items_group_idx").on(t.scopeGroupId)],
+  (t) => [
+    index("budget_group_lines_group_idx").on(t.budgetGroupId),
+    uniqueIndex("budget_group_lines_group_code_uq").on(t.budgetGroupId, t.costCodeId),
+  ],
 );
 
 // ---------------------------------------------------------------------------

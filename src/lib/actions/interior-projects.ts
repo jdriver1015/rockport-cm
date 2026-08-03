@@ -11,20 +11,19 @@ import { projectSlug } from "@/lib/slug";
 
 // ---------------------------------------------------------------------------
 // Interior project creation — the wizard's final step. Snapshots the reviewed,
-// priced scope lines onto a new kind='unit' project and seeds its budgetAmount
+// priced budget lines onto a new kind='unit' project and seeds its budgetAmount
 // from their sum. Line totals stay derived (quantity × unitPrice).
 // ---------------------------------------------------------------------------
 
 const lineSchema = z.object({
-  name: z.string().trim().min(1),
+  item: z.string().trim().min(1),
   category: z.string().trim().optional().nullable(),
   pricingMethod: z.enum(PRICING_METHODS),
   unitPrice: z.coerce.number().nonnegative(),
   quantity: z.coerce.number(),
-  costCodeId: z.coerce.number().int().positive().optional().nullable(),
-  sourceGroupItemId: z.coerce.number().int().positive().optional().nullable(),
-  materialAssumptions: z.string().trim().optional().nullable(),
-  productLink: z.string().trim().optional().nullable(),
+  costCodeId: z.coerce.number().int().positive(),
+  sourceBudgetLineId: z.coerce.number().int().positive().optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
 });
 
 const optDate = z
@@ -35,7 +34,7 @@ const optDate = z
 
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
-  scopeGroupId: z.coerce.number().int().positive(),
+  budgetGroupId: z.coerce.number().int().positive(),
   unitNumber: z.string().trim().min(1, "Select a unit"),
   floorplan: z.string().trim().optional().nullable(),
   bedrooms: z.coerce.number().int().nonnegative().optional().nullable(),
@@ -46,7 +45,7 @@ const createSchema = z.object({
   preWalkDate: optDate,
   startDate: optDate,
   targetCompletionDate: optDate,
-  lines: z.array(lineSchema).min(1, "Add at least one scope item"),
+  lines: z.array(lineSchema).min(1, "Add at least one budget line"),
 });
 
 export async function createInteriorProject(
@@ -62,32 +61,29 @@ export async function createInteriorProject(
   });
   if (!property) return { ok: false, error: "Property not found" };
 
-  const group = await db().query.scopeGroups.findFirst({
-    where: eq(schema.scopeGroups.id, d.scopeGroupId),
+  const group = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, d.budgetGroupId),
   });
   if (!group || group.propertyId !== d.propertyId) {
-    return { ok: false, error: "Scope group not found for this property" };
+    return { ok: false, error: "Budget group not found for this property" };
   }
 
-  // Validate every referenced cost code belongs to this property's chart.
-  const codeIds = [...new Set(d.lines.map((l) => l.costCodeId).filter((c): c is number => !!c))];
+  const codeIds = [...new Set(d.lines.map((l) => l.costCodeId))];
   if (codeIds.length > 0) {
     const valid = await db()
       .select({ id: schema.costCodes.id })
       .from(schema.costCodes)
       .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), inArray(schema.costCodes.id, codeIds)));
     if (valid.length !== codeIds.length) {
-      return { ok: false, error: "A scope line references a code outside this property's chart" };
+      return { ok: false, error: "A budget line references a code outside this property's chart" };
     }
   }
 
-  // Budget is the sum of the reviewed line totals, computed server-side.
   const budget = roundMoney(
     d.lines.reduce((sum, l) => sum + roundMoney(l.quantity * l.unitPrice), 0),
   );
 
   const result = await db().transaction(async (tx) => {
-    // Upsert the unit inventory row and refresh its metadata from the rent roll.
     const existing = await tx.query.units.findFirst({
       where: and(eq(schema.units.propertyId, d.propertyId), eq(schema.units.unitNumber, d.unitNumber)),
     });
@@ -118,7 +114,7 @@ export async function createInteriorProject(
         name: projectName,
         unitId,
         vendorId: d.vendorId ?? undefined,
-        scopeGroupId: d.scopeGroupId,
+        budgetGroupId: d.budgetGroupId,
         budgetAmount: budget.toFixed(2),
         preWalkDate: d.preWalkDate,
         startDate: d.startDate,
@@ -130,17 +126,14 @@ export async function createInteriorProject(
       await tx.insert(schema.scopeItems).values(
         d.lines.map((l, i) => ({
           projectId: project.id,
-          item: l.name,
-          materialQuality: l.materialAssumptions ?? null,
-          productLink: l.productLink ?? null,
-          // Snapshotted so the scope table can group by trade even if the
-          // source scope-group item is later edited or removed.
+          item: l.item,
+          materialQuality: l.notes ?? null,
           category: l.category ?? null,
-          costCodeId: l.costCodeId ?? null,
+          costCodeId: l.costCodeId,
           pricingMethod: l.pricingMethod,
           unitPrice: l.unitPrice.toFixed(2),
           quantity: l.quantity.toFixed(2),
-          sourceGroupItemId: l.sourceGroupItemId ?? null,
+          sourceBudgetLineId: l.sourceBudgetLineId ?? null,
           sortOrder: i,
         })),
       );
@@ -150,7 +143,7 @@ export async function createInteriorProject(
       projectId: project.id,
       toStage: "planned",
       toPhase: "precon",
-      note: `Created from scope group "${group.name}"`,
+      note: `Created from budget group "${group.name}"`,
     });
 
     return { projectId: project.id, projectName };

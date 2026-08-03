@@ -25,29 +25,26 @@ export type WizardUnit = {
   baths: number | null;
   sqft: number | null;
 };
-export type WizardGroupItem = {
+export type WizardBudgetLine = {
   id: number;
-  name: string;
+  costCodeId: number;
+  costCodeName: string;
   category: string | null;
   pricingMethod: PricingMethod;
   unitPrice: number;
   defaultQuantity: number | null;
-  quantityFormula: string | null;
-  costCodeId: number | null;
-  materialAssumptions: string | null;
-  productLink: string | null;
+  notes: string | null;
 };
-export type WizardScopeGroup = { id: number; name: string; items: WizardGroupItem[] };
+export type WizardBudgetGroup = { id: number; name: string; lines: WizardBudgetLine[] };
 export type WizardVendor = { id: number; name: string; trade: string | null };
 
 type Line = {
-  sourceGroupItemId: number;
-  name: string;
+  sourceBudgetLineId: number;
+  item: string;
   category: string | null;
   pricingMethod: PricingMethod;
-  costCodeId: number | null;
-  materialAssumptions: string | null;
-  productLink: string | null;
+  costCodeId: number;
+  notes: string | null;
   quantity: number;
   unitPrice: number;
   note?: string;
@@ -56,42 +53,38 @@ type Line = {
 const money = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const STEPS = ["Unit", "Scope group", "Review scope", "Vendor & dates", "Create"];
+const STEPS = ["Unit", "Budget group", "Review budget", "Vendor & dates", "Create"];
 
-/** Price a group's items against the unit into editable review lines. */
-function generateLines(group: WizardScopeGroup, unit: UnitMeta): Line[] {
+function generateLines(group: WizardBudgetGroup, unit: UnitMeta): Line[] {
   const base = scopeTotal(
-    group.items
-      .filter((it) => it.pricingMethod !== "percent")
-      .map((it) =>
+    group.lines
+      .filter((ln) => ln.pricingMethod !== "percent")
+      .map((ln) =>
         priceLine(
-          { method: it.pricingMethod, unitPrice: it.unitPrice, defaultQuantity: it.defaultQuantity, quantityFormula: it.quantityFormula },
+          { method: ln.pricingMethod, unitPrice: ln.unitPrice, defaultQuantity: ln.defaultQuantity },
           unit,
         ),
       ),
   );
-  return group.items.map((it) => {
+  return group.lines.map((ln) => {
     const res = priceLine(
       {
-        method: it.pricingMethod,
-        unitPrice: it.unitPrice,
-        defaultQuantity: it.defaultQuantity,
-        quantityFormula: it.quantityFormula,
+        method: ln.pricingMethod,
+        unitPrice: ln.unitPrice,
+        defaultQuantity: ln.defaultQuantity,
         percentBase: base,
       },
       unit,
     );
-    // Percent lines resolve to a concrete dollar amount (qty 1 × total).
-    const quantity = it.pricingMethod === "percent" ? 1 : res.quantity;
-    const unitPrice = it.pricingMethod === "percent" ? res.total : it.unitPrice;
+    const quantity = ln.pricingMethod === "percent" ? 1 : res.quantity;
+    const unitPrice = ln.pricingMethod === "percent" ? res.total : ln.unitPrice;
     return {
-      sourceGroupItemId: it.id,
-      name: it.name,
-      category: it.category,
-      pricingMethod: it.pricingMethod,
-      costCodeId: it.costCodeId,
-      materialAssumptions: it.materialAssumptions,
-      productLink: it.productLink,
+      sourceBudgetLineId: ln.id,
+      item: ln.costCodeName,
+      category: ln.category,
+      pricingMethod: ln.pricingMethod,
+      costCodeId: ln.costCodeId,
+      notes: ln.notes,
       quantity,
       unitPrice,
       note: res.note,
@@ -109,7 +102,7 @@ export function InteriorWizard({
   propertyId: number;
   propertySlug: string;
   units: WizardUnit[];
-  groups: WizardScopeGroup[];
+  groups: WizardBudgetGroup[];
   vendors: WizardVendor[];
 }) {
   const router = useRouter();
@@ -136,7 +129,7 @@ export function InteriorWizard({
     );
   }, [units, unitQuery]);
 
-  function chooseGroup(g: WizardScopeGroup) {
+  function chooseGroup(g: WizardBudgetGroup) {
     setGroupId(g.id);
     if (unit) setLines(generateLines(g, { sqft: unit.sqft, bedrooms: unit.bedrooms, baths: unit.baths }));
   }
@@ -158,7 +151,7 @@ export function InteriorWizard({
     try {
       const result = await createInteriorProject({
         propertyId,
-        scopeGroupId: group.id,
+        budgetGroupId: group.id,
         unitNumber: unit.unitNumber,
         floorplan: unit.floorplan,
         bedrooms: unit.bedrooms,
@@ -169,15 +162,14 @@ export function InteriorWizard({
         startDate,
         targetCompletionDate,
         lines: lines.map((l) => ({
-          name: l.name,
+          item: l.item,
           category: l.category,
           pricingMethod: l.pricingMethod,
           unitPrice: l.unitPrice,
           quantity: l.quantity,
           costCodeId: l.costCodeId,
-          sourceGroupItemId: l.sourceGroupItemId,
-          materialAssumptions: l.materialAssumptions,
-          productLink: l.productLink,
+          sourceBudgetLineId: l.sourceBudgetLineId,
+          notes: l.notes,
         })),
       });
       if (!result.ok) return toast.error(result.error);
@@ -230,7 +222,7 @@ export function InteriorWizard({
           </div>
         )}
 
-        {/* Step 2 — scope group */}
+        {/* Step 2 — budget group */}
         {step === 1 && (
           <div className="space-y-2">
             {groups.map((g) => (
@@ -245,14 +237,14 @@ export function InteriorWizard({
               >
                 <span className="font-medium text-navy">{g.name}</span>
                 <span className="text-xs text-muted-foreground">
-                  {g.items.length} item{g.items.length === 1 ? "" : "s"}
+                  {g.lines.length} line{g.lines.length === 1 ? "" : "s"}
                 </span>
               </button>
             ))}
           </div>
         )}
 
-        {/* Step 3 — review scope */}
+        {/* Step 3 — review budget */}
         {step === 2 && (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
@@ -262,7 +254,7 @@ export function InteriorWizard({
               <table className="w-full text-sm">
                 <thead className="bg-muted text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-2 py-2 text-left">Item</th>
+                    <th className="px-2 py-2 text-left">Cost code</th>
                     <th className="px-2 py-2 text-left">Method</th>
                     <th className="px-2 py-2 text-right">Qty</th>
                     <th className="px-2 py-2 text-right">Unit price</th>
@@ -271,9 +263,9 @@ export function InteriorWizard({
                 </thead>
                 <tbody className="divide-y">
                   {lines.map((l, i) => (
-                    <tr key={l.sourceGroupItemId}>
+                    <tr key={l.sourceBudgetLineId}>
                       <td className="px-2 py-1.5">
-                        <div className="font-medium text-navy">{l.name}</div>
+                        <div className="font-medium text-navy">{l.item}</div>
                         {l.note && <div className="text-[11px] text-amber-700">{l.note}</div>}
                       </td>
                       <td className="px-2 py-1.5 text-xs text-muted-foreground">
@@ -307,7 +299,7 @@ export function InteriorWizard({
                   {lines.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-2 py-6 text-center text-muted-foreground">
-                        This scope group has no active items.
+                        This budget group has no lines.
                       </td>
                     </tr>
                   )}
@@ -371,8 +363,8 @@ export function InteriorWizard({
         {step === 4 && (
           <div className="space-y-2 text-sm">
             <Summary label="Unit" value={unit ? `Unit ${unit.unitNumber}` : "—"} />
-            <Summary label="Scope group" value={group?.name ?? "—"} />
-            <Summary label="Scope items" value={String(lines.length)} />
+            <Summary label="Budget group" value={group?.name ?? "—"} />
+            <Summary label="Budget lines" value={String(lines.length)} />
             <Summary label="Vendor" value={vendors.find((v) => v.id === vendorId)?.name ?? "Unassigned"} />
             <Summary label="Pre-walk" value={preWalkDate || "—"} />
             <Summary label="Start" value={startDate || "—"} />
