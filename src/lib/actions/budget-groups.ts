@@ -158,7 +158,7 @@ export async function updateGroup(input: {
 export async function duplicateGroup(input: {
   id: number;
   propertyId: number;
-}): Promise<ActionResult<{ groupId: number }>> {
+}): Promise<ActionResult<{ groupId: number; pinsCopied: number }>> {
   const source = await db().query.budgetGroups.findFirst({
     where: eq(schema.budgetGroups.id, input.id),
   });
@@ -188,13 +188,38 @@ export async function duplicateGroup(input: {
         pricingMethod: ln.pricingMethod,
         unitPrice: ln.unitPrice,
         defaultQuantity: ln.defaultQuantity,
+        description: ln.description,
         notes: ln.notes,
         sortOrder: ln.sortOrder,
       })),
     );
   }
+
+  // Carry the interior-budget pins across too. Duplicating a tier is the usual
+  // way a second tier gets created (Enhanced → Signature), and pins are
+  // negotiated prices — losing them silently would be the worst kind of quiet
+  // data loss. Pins are keyed by (tier, cost code, unit group), so the copy just
+  // re-points the tier.
+  const pins = await db()
+    .select()
+    .from(schema.interiorBudgetLineOverrides)
+    .where(eq(schema.interiorBudgetLineOverrides.budgetGroupId, input.id));
+  if (pins.length > 0) {
+    await db().insert(schema.interiorBudgetLineOverrides).values(
+      pins.map((p) => ({
+        propertyId: p.propertyId,
+        budgetGroupId: group.id,
+        costCodeId: p.costCodeId,
+        unitGroupId: p.unitGroupId,
+        amount: p.amount,
+        note: p.note,
+        createdBy: p.createdBy,
+      })),
+    );
+  }
+
   await revalidateGroups(source.propertyId);
-  return { ok: true, groupId: group.id };
+  return { ok: true, groupId: group.id, pinsCopied: pins.length };
 }
 
 export async function archiveGroup(input: { id: number; propertyId: number }): Promise<ActionResult> {
@@ -301,11 +326,115 @@ export async function updateGroupLine(formData: FormData): Promise<ActionResult>
   return { ok: true };
 }
 
+/**
+ * Set a tier's price for one cost code, addressed by (tier, cost code) rather
+ * than line id so the budget pivot can call it straight from a cell.
+ *
+ * This is the *common* edit — it moves every unit group's cell for that row.
+ * Pinning one cell is the rarer escape hatch and lives in the interior plan
+ * actions. Existing pins deliberately survive and keep winning; the pivot warns
+ * when a row is pinned everywhere so a price change with no visible effect is
+ * explainable.
+ */
+export async function setTierLinePrice(input: {
+  propertyId: number;
+  budgetGroupId: number;
+  costCodeId: number;
+  unitPrice: number;
+}): Promise<ActionResult<{ pinnedCells: number }>> {
+  const propertyId = Number(input.propertyId);
+  const budgetGroupId = Number(input.budgetGroupId);
+  const costCodeId = Number(input.costCodeId);
+  const unitPrice = Number(input.unitPrice);
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    return { ok: false, error: "Price must be zero or more" };
+  }
+
+  const tier = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, budgetGroupId),
+    columns: { propertyId: true },
+  });
+  if (!tier || tier.propertyId !== propertyId) {
+    return { ok: false, error: "Upgrade tier not found for this property" };
+  }
+
+  const line = await db().query.budgetGroupLines.findFirst({
+    where: and(
+      eq(schema.budgetGroupLines.budgetGroupId, budgetGroupId),
+      eq(schema.budgetGroupLines.costCodeId, costCodeId),
+    ),
+    columns: { id: true },
+  });
+  if (!line) return { ok: false, error: "That tier has no line for this cost code" };
+
+  await db()
+    .update(schema.budgetGroupLines)
+    .set({ unitPrice: unitPrice.toFixed(2) })
+    .where(eq(schema.budgetGroupLines.id, line.id));
+
+  // Report how many cells on this row are pinned, so the caller can say "3 cells
+  // stay at their pinned amounts" instead of the change appearing to do nothing.
+  const [{ pinnedCells }] = await db()
+    .select({ pinnedCells: sql<number>`count(*)::int` })
+    .from(schema.interiorBudgetLineOverrides)
+    .where(
+      and(
+        eq(schema.interiorBudgetLineOverrides.budgetGroupId, budgetGroupId),
+        eq(schema.interiorBudgetLineOverrides.costCodeId, costCodeId),
+      ),
+    );
+
+  await revalidateGroups(propertyId);
+  const budgetPath = await propertyPath(propertyId, "/budget");
+  if (budgetPath) revalidatePath(budgetPath);
+  return { ok: true, pinnedCells };
+}
+
 export async function deleteGroupLine(input: {
   id: number;
   propertyId: number;
+  confirm?: boolean;
 }): Promise<ActionResult> {
-  await db().delete(schema.budgetGroupLines).where(eq(schema.budgetGroupLines.id, input.id));
+  const line = await db().query.budgetGroupLines.findFirst({
+    where: eq(schema.budgetGroupLines.id, Number(input.id)),
+    columns: { id: true, budgetGroupId: true, costCodeId: true },
+  });
+  if (!line) return { ok: false, error: "Budget line not found" };
+
+  // Pins are keyed on (tier, cost code, unit group), not on the line id, so they
+  // survive this delete and would silently reattach if the same cost code were
+  // added back. Say so rather than letting a stale negotiated price reappear.
+  const [{ pinCount }] = await db()
+    .select({ pinCount: sql<number>`count(*)::int` })
+    .from(schema.interiorBudgetLineOverrides)
+    .where(
+      and(
+        eq(schema.interiorBudgetLineOverrides.budgetGroupId, line.budgetGroupId),
+        eq(schema.interiorBudgetLineOverrides.costCodeId, line.costCodeId),
+      ),
+    );
+
+  if (pinCount > 0 && !input.confirm) {
+    return {
+      ok: false,
+      error: `This line has ${pinCount} pinned amount${pinCount === 1 ? "" : "s"} in the interior budget. Removing the line leaves them orphaned — they'd reapply if this cost code is added back. Confirm to remove both.`,
+    };
+  }
+
+  await db().transaction(async (tx) => {
+    if (pinCount > 0) {
+      await tx
+        .delete(schema.interiorBudgetLineOverrides)
+        .where(
+          and(
+            eq(schema.interiorBudgetLineOverrides.budgetGroupId, line.budgetGroupId),
+            eq(schema.interiorBudgetLineOverrides.costCodeId, line.costCodeId),
+          ),
+        );
+    }
+    await tx.delete(schema.budgetGroupLines).where(eq(schema.budgetGroupLines.id, line.id));
+  });
+
   await revalidateGroups(input.propertyId);
   return { ok: true };
 }

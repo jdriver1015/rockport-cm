@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Lock } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -36,6 +37,12 @@ export type BudgetLineRow = {
   perUnitAmount: number | null;
   plannedUnits: number | null;
   isInterior: boolean;
+  /**
+   * True when this figure is computed from the interior plan rather than
+   * hand-entered. Such rows have no budget_lines row behind them (their `id` is
+   * synthetic and negative), so they are not editable here.
+   */
+  isDerived: boolean;
   note: string | null;
   projects: AttachedProject[];
 };
@@ -135,10 +142,22 @@ export function BudgetView({
                 ...cat.lines.map((line) => (
                   <TableRow
                     key={line.code}
-                    className="cursor-pointer"
-                    onClick={() => setSelected(line)}
+                    className={line.isDerived ? undefined : "cursor-pointer"}
+                    onClick={() => {
+                      // Derived rows are computed from the interior plan; there's
+                      // no line to edit, so opening the editor would be a lie.
+                      if (!line.isDerived) setSelected(line);
+                    }}
                   >
-                    <TableCell className="pl-12 text-ink-500">{line.name}</TableCell>
+                    <TableCell className="pl-12 text-ink-500">
+                      {line.name}
+                      {line.isDerived && (
+                        <Lock
+                          className="ml-1.5 inline size-3 -translate-y-px text-ink-300"
+                          aria-label="Computed from the interior plan"
+                        />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <AmountCell value={line.budget} className="font-normal text-ink-500" />
                     </TableCell>

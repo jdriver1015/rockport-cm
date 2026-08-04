@@ -1,20 +1,31 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { BudgetView, type BudgetCategory, type BudgetDivision } from "@/components/budget-view";
 import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
-import { PropertyChartControl } from "@/components/property-chart-control";
-import { num } from "@/lib/format";
+import { BudgetViewSwitch } from "@/components/budget-view-switch";
+import { parseBudgetView } from "@/lib/budget-views";
+import { InteriorBudgetPivot } from "@/components/interior-budget-pivot";
+import { UnitGroupsPanel } from "@/components/unit-groups-panel";
+import { money, num } from "@/lib/format";
 import { DIVISIONS, divisionLabel } from "@/lib/divisions";
 import { bucketForPhase } from "@/lib/stage-buckets";
+import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 
 export const dynamic = "force-dynamic";
 
-export default async function BudgetPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function BudgetPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ view?: string }>;
+}) {
   const { slug } = await params;
+  const view = parseBudgetView((await searchParams).view);
 
   const property = await db().query.properties.findFirst({
     where: eq(schema.properties.slug, slug),
@@ -22,29 +33,9 @@ export default async function BudgetPage({ params }: { params: Promise<{ slug: s
   if (!property) notFound();
   const propertyId = property.id;
 
-  // Chart-of-accounts context for the switch control in the header.
-  const [chart, allCharts, [{ glCount }], [{ codedProjects }]] = await Promise.all([
-    db().query.chartsOfAccounts.findFirst({
-      where: eq(schema.chartsOfAccounts.id, property.chartOfAccountsId),
-    }),
-    db()
-      .select({
-        id: schema.chartsOfAccounts.id,
-        name: schema.chartsOfAccounts.name,
-        isDefault: schema.chartsOfAccounts.isDefault,
-      })
-      .from(schema.chartsOfAccounts)
-      .where(isNull(schema.chartsOfAccounts.archivedAt))
-      .orderBy(asc(schema.chartsOfAccounts.name)),
-    db()
-      .select({ glCount: sql<number>`count(*)::int` })
-      .from(schema.glTransactions)
-      .where(eq(schema.glTransactions.propertyId, propertyId)),
-    db()
-      .select({ codedProjects: sql<number>`count(*)::int` })
-      .from(schema.projects)
-      .where(and(eq(schema.projects.propertyId, propertyId), sql`${schema.projects.costCodeId} is not null`)),
-  ]);
+  // A property's chart of accounts is fixed at creation. Every budget line, cost
+  // code and GL transaction hangs off it, so switching it would invalidate all of
+  // them — there is deliberately no way to change it here.
 
   // These queries don't depend on each other, so fire them in parallel — one
   // network round-trip instead of seven against the pooled Supabase connection.
@@ -96,7 +87,9 @@ export default async function BudgetPage({ params }: { params: Promise<{ slug: s
           committedCost: schema.projects.committedCost,
         })
         .from(schema.projects)
-        .where(eq(schema.projects.propertyId, propertyId))
+        // Archived projects must not contribute dollars — the portfolio index
+        // already filters them, and this page previously didn't.
+        .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
         .orderBy(asc(schema.projects.name)),
       db()
         .select({
@@ -156,31 +149,48 @@ export default async function BudgetPage({ params }: { params: Promise<{ slug: s
 
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
 
-  // Build the category → lines tree the view renders. Only categories with at
-  // least one budgeted line appear (matches the prior page behavior).
+  // The interior budget is DERIVED from the interior plan when one exists. It's
+  // all-or-nothing per property: with a plan, every interior code's Budgeted
+  // figure comes from the plan and any hand-entered interior line is superseded.
+  // A per-code mix would produce a budget that reconciles to nothing.
+  const interior = await computeInteriorBudgetFor(propertyId);
+  const derivedInteriors = interior.hasPlan;
+
+  // Build the category → lines tree the view renders. A code appears if it has a
+  // hand-entered line OR a plan-derived amount — without the second half, the
+  // interior categories would vanish entirely once a plan takes over.
   const budgetCategories: BudgetCategory[] = categories
     .map((cat) => {
       const catCodes = codes.filter((c) => c.categoryId === cat.id);
       const catLines = catCodes
-        .map((c) => ({ code: c, line: lineByCode.get(c.id) }))
-        .filter((x) => x.line);
+        .map((code) => {
+          const line = lineByCode.get(code.id);
+          const isDerived = derivedInteriors && code.isInterior;
+          const derivedAmount = isDerived ? interior.byCostCode.get(code.id) ?? 0 : null;
+          if (!line && !derivedAmount) return null;
+          return { code, line, isDerived, budget: derivedAmount ?? num(line!.uwAmount) };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
       if (catLines.length === 0) return null;
 
-      const lineRows = catLines.map(({ code, line }) => {
+      const lineRows = catLines.map(({ code, line, isDerived, budget }) => {
         const b = bucketsByCode.get(code.id) ?? { planned: 0, inProcess: 0, completed: 0 };
         return {
-          id: line!.id,
+          // Plan-derived rows have no budget_lines row to key on, so they carry a
+          // synthetic negative id. Never write to a row with id < 0.
+          id: line?.id ?? -code.id,
           costCodeId: code.id,
           code: code.code,
           name: code.name,
-          budget: num(line!.uwAmount),
+          budget,
           planned: b.planned,
           inProcess: b.inProcess,
           completed: b.completed,
-          perUnitAmount: line!.perUnitAmount ? num(line!.perUnitAmount) : null,
-          plannedUnits: line!.plannedUnits ?? null,
+          perUnitAmount: line?.perUnitAmount ? num(line.perUnitAmount) : null,
+          plannedUnits: line?.plannedUnits ?? null,
           isInterior: code.isInterior,
-          note: line!.note,
+          isDerived,
+          note: line?.note ?? null,
           projects: projectsByCode.get(code.id) ?? [],
         };
       });
@@ -219,6 +229,20 @@ export default async function BudgetPage({ params }: { params: Promise<{ slug: s
       categories: cats,
     }));
 
+  // Exterior view = everything that isn't unit interiors. Their exterior workbook
+  // includes clubhouse, pool, amenities, soft costs and contingency, so this is
+  // the whole non-interior budget, not just division 'exterior'.
+  const visibleDivisions =
+    view === "exterior" ? budgetDivisions.filter((d) => d.key !== "interiors") : budgetDivisions;
+
+  const interiorNote = derivedInteriors
+    ? `Interiors are computed from the interior plan — ${interior.unitGroups.length} unit group${interior.unitGroups.length === 1 ? "" : "s"} × ${interior.tiers.length} tier${interior.tiers.length === 1 ? "" : "s"}, ${money(interior.total)}. Edit them in the Interior view.`
+    : null;
+
+  const interiorCodeChoices = codes
+    .filter((c) => c.isInterior)
+    .map((c) => ({ id: c.id, code: c.code, name: c.name }));
+
   const categoryOptions = categories.map((c) => ({ id: c.id, code: c.code, name: c.name }));
   const costCodeOptions = codes.map((c) => ({
     id: c.id,
@@ -235,31 +259,102 @@ export default async function BudgetPage({ params }: { params: Promise<{ slug: s
 
       <PropertyNav slug={property.slug} />
 
-      {chart && (
-        <PropertyChartControl
-          propertyId={property.id}
-          chartId={chart.id}
-          chartName={chart.name}
-          charts={allCharts}
-          locked={glCount > 0}
-          glCount={glCount}
-          budgetLineCount={lines.length}
-          codedProjectCount={codedProjects}
-        />
-      )}
-
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-navy">Budget</CardTitle>
-          <AddBudgetLineDialog
-            propertyId={property.id}
-            categories={categoryOptions}
-            costCodes={costCodeOptions}
-            budgetedCostCodeIds={budgetedCostCodeIds}
-          />
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <BudgetViewSwitch value={view} />
+          {view === "interior" ? (
+            <UnitGroupsPanel
+              propertyId={property.id}
+              groups={interior.unitGroups.map((g) => ({
+                id: g.id,
+                name: g.name,
+                bedrooms: g.bedrooms,
+                baths: g.baths,
+                avgSqft: g.avgSqft,
+                unitCount: g.unitCount,
+                countOverridden: g.countOverridden,
+                sqftOverridden: g.sqftOverridden,
+                floorPlanCodes: g.floorPlanCodes,
+              }))}
+              groupingMode={interior.settings.groupingMode}
+              sqftBreakpoints={interior.settings.sqftBreakpoints}
+              cmPct={interior.settings.cmPct}
+              contingencyPct={interior.settings.contingencyPct}
+              cmCostCodeId={interior.settings.cmCostCodeId}
+              contingencyCostCodeId={interior.settings.contingencyCostCodeId}
+              interiorCodes={interiorCodeChoices}
+              unmappedFloorplans={interior.unmappedFloorplans}
+              tierCount={interior.tiers.length}
+            />
+          ) : (
+            <AddBudgetLineDialog
+              propertyId={property.id}
+              categories={categoryOptions}
+              costCodes={costCodeOptions}
+              budgetedCostCodeIds={budgetedCostCodeIds}
+            />
+          )}
         </CardHeader>
-        <CardContent>
-          <BudgetView propertyId={property.id} propertySlug={property.slug} divisions={budgetDivisions} />
+        <CardContent className="space-y-3">
+          {view === "interior" ? (
+            <InteriorBudgetPivot
+              propertyId={property.id}
+              unitGroups={interior.unitGroups.map((g) => ({
+                id: g.id,
+                name: g.name,
+                avgSqft: g.avgSqft,
+                unitCount: g.unitCount,
+                countOverridden: g.countOverridden,
+                sqftOverridden: g.sqftOverridden,
+              }))}
+              tiers={interior.tiers.map((t) => ({ id: t.id, name: t.name }))}
+              rows={interior.rows.map((r) => ({
+                costCodeId: r.costCodeId,
+                code: r.code,
+                label: r.label,
+                categoryName: r.categoryName,
+              }))}
+              cells={interior.cells.map((c) => ({
+                unitGroupId: c.unitGroupId,
+                tierId: c.tierId,
+                costCodeId: c.costCodeId,
+                amount: c.amount,
+                quantity: c.quantity,
+                pricingMethod: c.pricingMethod,
+                tierUnitPrice: c.tierUnitPrice,
+                pinned: c.pinned,
+                pinNote: c.pinNote,
+                note: c.note,
+              }))}
+              columns={interior.columns.map((c) => ({
+                unitGroupId: c.unitGroupId,
+                tierId: c.tierId,
+                scopeTotal: c.scopeTotal,
+                cm: c.cm,
+                contingency: c.contingency,
+                perUnitTotal: c.perUnitTotal,
+                plannedUnits: c.plannedUnits,
+                totalCost: c.totalCost,
+                actualUnits: c.actualUnits,
+              }))}
+              total={interior.total}
+              cmPct={interior.settings.cmPct}
+              contingencyPct={interior.settings.contingencyPct}
+              unmappedFloorplans={interior.unmappedFloorplans}
+              unattributedProjects={interior.unattributedProjects}
+            />
+          ) : (
+            <>
+              {view === "consolidated" && interiorNote && (
+                <p className="text-[11px] text-ink-500">{interiorNote}</p>
+              )}
+              <BudgetView
+                propertyId={property.id}
+                propertySlug={property.slug}
+                divisions={visibleDivisions}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -133,6 +133,17 @@ export const pricingMethod = pgEnum("pricing_method", [
   "formula",
 ]);
 
+/**
+ * How the interior budget's unit groups (the pivot's columns) get seeded from a
+ * committed rent roll. Only drives auto-seeding and refresh — a group is defined
+ * solely by the floorplan codes mapped into it, so the model itself is agnostic.
+ */
+export const interiorGroupingMode = pgEnum("interior_grouping_mode", [
+  "beds",
+  "floorplan",
+  "sqft",
+]);
+
 /** Rent roll upload lifecycle: file staged → parsing → reviewed → committed snapshot */
 export const rentRollBatchStatus = pgEnum("rent_roll_batch_status", [
   "uploaded",
@@ -569,6 +580,12 @@ export const budgetTemplateLines = pgTable(
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
+    /**
+     * Overrides the cost code's name as the display label. Cost code names are
+     * chart-global, so without this a per-template pricing basis (e.g. "Quartz
+     * counters 2cm $35/sf") can't be expressed.
+     */
+    description: text("description"),
     notes: text("notes"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
@@ -609,6 +626,8 @@ export const budgetGroupLines = pgTable(
     pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
     defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
+    /** Overrides the cost code's chart-global name as the pivot row label. */
+    description: text("description"),
     notes: text("notes"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
@@ -617,6 +636,172 @@ export const budgetGroupLines = pgTable(
     uniqueIndex("budget_group_lines_group_code_uq").on(t.budgetGroupId, t.costCodeId),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Interior budget plan — the two-dimensional renovation budget.
+//
+// Mirrors the underwriting methodology: a matrix of (unit group × upgrade tier),
+// where each cell's per-unit cost is the tier's lines priced against that unit
+// group's metadata, and the budget is Σ (per-unit cost × units planned).
+//
+//   interior_unit_groups          the pivot's columns ("1BR", "A1", "800-999 SF")
+//   interior_unit_group_floorplans which rent-roll floorplans belong to a group
+//   interior_budget_plan          how many units of each group get each tier
+//   interior_budget_line_overrides pinned dollar amounts per cell
+//   interior_budget_settings      CM / contingency rates + grouping mode
+//
+// The upgrade tier IS a budget_groups row; a tier appears as a column exactly
+// when it has at least one interior_budget_plan row for the property.
+// ---------------------------------------------------------------------------
+
+export const interiorUnitGroups = pgTable(
+  "interior_unit_groups",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    name: text("name").notNull(),
+    /** Pricing metadata for per_bedroom / per_bathroom methods. */
+    bedrooms: integer("bedrooms"),
+    baths: numeric("baths", { precision: 4, scale: 1 }),
+    /**
+     * Unit count and average square footage are DERIVED — summed from
+     * rent_roll_units through the floorplan map — so they can't go stale when a
+     * new rent roll commits. These columns exist only to override that, for
+     * pre-acquisition underwriting where no rent roll exists yet.
+     */
+    unitCountOverride: integer("unit_count_override"),
+    avgSqftOverride: numeric("avg_sqft_override", { precision: 10, scale: 2 }),
+    /** The committed batch this group was last reconciled against. */
+    sourceBatchId: integer("source_batch_id").references(() => rentRollBatches.id),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("interior_unit_groups_property_idx").on(t.propertyId)],
+);
+
+export const interiorUnitGroupFloorplans = pgTable(
+  "interior_unit_group_floorplans",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    unitGroupId: integer("unit_group_id")
+      .notNull()
+      .references(() => interiorUnitGroups.id, { onDelete: "cascade" }),
+    floorPlanCode: text("floor_plan_code").notNull(),
+  },
+  (t) => [
+    index("interior_unit_group_floorplans_group_idx").on(t.unitGroupId),
+    // Keyed on the PROPERTY, not the group: a floorplan in two groups would
+    // silently double-count its units in the budget.
+    uniqueIndex("interior_unit_group_floorplans_property_code_uq").on(t.propertyId, t.floorPlanCode),
+  ],
+);
+
+export const interiorBudgetPlan = pgTable(
+  "interior_budget_plan",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    unitGroupId: integer("unit_group_id")
+      .notNull()
+      .references(() => interiorUnitGroups.id, { onDelete: "cascade" }),
+    /** The upgrade tier — a budget_groups row (Enhanced, Signature, Designer). */
+    budgetGroupId: integer("budget_group_id")
+      .notNull()
+      .references(() => budgetGroups.id, { onDelete: "cascade" }),
+    /**
+     * Fractional on purpose. Penetration is entered as a percentage and lands
+     * on values like 205.1 units; rounding to 205 shifts the budget ~$9k and
+     * breaks the tie to the underwriting model. No penetration column — the
+     * percentage is a UI affordance over this single stored value.
+     *
+     * No row = tier not offered to this group. 0 = offered, none planned.
+     */
+    plannedUnits: numeric("planned_units", { precision: 10, scale: 2 }).notNull().default("0"),
+    note: text("note"),
+  },
+  (t) => [
+    index("interior_budget_plan_property_idx").on(t.propertyId),
+    uniqueIndex("interior_budget_plan_group_tier_uq").on(t.unitGroupId, t.budgetGroupId),
+  ],
+);
+
+export const interiorBudgetLineOverrides = pgTable(
+  "interior_budget_line_overrides",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    /**
+     * Keyed on (budgetGroupId, costCodeId, unitGroupId) rather than a
+     * budget_group_lines id on purpose: duplicateGroup re-inserts lines with
+     * fresh ids and deleteGroupLine hard-deletes, so a line-id key would
+     * silently discard every pin the first time someone duplicates a tier.
+     * UNIQUE(budgetGroupId, costCodeId) on budget_group_lines already
+     * guarantees this triple identifies at most one line.
+     */
+    budgetGroupId: integer("budget_group_id")
+      .notNull()
+      .references(() => budgetGroups.id, { onDelete: "cascade" }),
+    costCodeId: integer("cost_code_id")
+      .notNull()
+      .references(() => costCodes.id),
+    unitGroupId: integer("unit_group_id")
+      .notNull()
+      .references(() => interiorUnitGroups.id, { onDelete: "cascade" }),
+    /**
+     * A total, NOT a rate — deliberately not named unitPrice. A pin on a
+     * per-square-foot line is the finished dollar amount and must never be
+     * multiplied by square footage.
+     */
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    /** Why this was pinned — "GC quote 6/12". The point of a pin is provenance. */
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("interior_budget_line_overrides_property_idx").on(t.propertyId),
+    uniqueIndex("interior_budget_line_overrides_cell_uq").on(
+      t.budgetGroupId,
+      t.costCodeId,
+      t.unitGroupId,
+    ),
+  ],
+);
+
+export const interiorBudgetSettings = pgTable("interior_budget_settings", {
+  propertyId: integer("property_id")
+    .primaryKey()
+    .references(() => properties.id),
+  /**
+   * Uplift rates applied to each tier's per-unit scope total. Budget-only: they
+   * never become scope lines on a project, so a unit project's budget stays real
+   * scope cost and contingency isn't a cost code that reads permanently
+   * underspent.
+   */
+  cmSupervisionPct: numeric("cm_supervision_pct", { precision: 6, scale: 3 }).notNull().default("0"),
+  contingencyPct: numeric("contingency_pct", { precision: 6, scale: 3 }).notNull().default("0"),
+  /**
+   * Which cost codes the uplift dollars are attributed to. Without these the
+   * uplifts would float outside the cost-code tree and the pivot's grand total
+   * would stop reconciling to the Budget tab's Interiors division.
+   */
+  cmCostCodeId: integer("cm_cost_code_id").references(() => costCodes.id),
+  contingencyCostCodeId: integer("contingency_cost_code_id").references(() => costCodes.id),
+  /** Remembered so "refresh from rent roll" re-applies the user's grouping. */
+  groupingMode: interiorGroupingMode("grouping_mode").notNull().default("beds"),
+  /** Band edges for groupingMode='sqft', e.g. [700, 900, 1100, 1400]. */
+  sqftBreakpoints: jsonb("sqft_breakpoints"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules

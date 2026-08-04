@@ -1,26 +1,34 @@
 import Link from "next/link";
-import { isNull, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money, num } from "@/lib/format";
 import { bucketForPhase } from "@/lib/stage-buckets";
+import { computeInteriorBudgets } from "@/lib/interior-budget";
 
 export const dynamic = "force-dynamic";
 
 export default async function PortfolioPage() {
-  // Independent portfolio rollups — run in parallel instead of four sequential
+  const properties = await db().select().from(schema.properties);
+  const propertyIds = properties.map((p) => p.id);
+
+  // Independent portfolio rollups — run in parallel instead of sequential
   // round-trips.
-  const [properties, budgetTotals, jtdTotals, projectRows, projectJtdRows] = await Promise.all([
-    db().select().from(schema.properties),
+  const [budgetTotals, jtdTotals, projectRows, projectJtdRows, interiorBudgets] = await Promise.all([
+    // Split by interior/non-interior: where a property has an interior plan, its
+    // interior figure comes from the plan and the hand-entered interior lines are
+    // superseded. Summing both would double-count.
     db()
       .select({
         propertyId: schema.budgetLines.propertyId,
+        isInterior: schema.costCodes.isInterior,
         total: sql<string>`coalesce(sum(${schema.budgetLines.uwAmount}), 0)`,
       })
       .from(schema.budgetLines)
+      .innerJoin(schema.costCodes, eq(schema.budgetLines.costCodeId, schema.costCodes.id))
       .where(isNull(schema.budgetLines.archivedAt))
-      .groupBy(schema.budgetLines.propertyId),
+      .groupBy(schema.budgetLines.propertyId, schema.costCodes.isInterior),
     db()
       .select({
         propertyId: schema.glTransactions.propertyId,
@@ -46,9 +54,26 @@ export default async function PortfolioPage() {
       .from(schema.glTransactions)
       .where(sql`${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`)
       .groupBy(schema.glTransactions.projectId),
+    computeInteriorBudgets(propertyIds),
   ]);
 
-  const budgetBy = new Map(budgetTotals.map((r) => [r.propertyId, parseFloat(r.total)]));
+  const manualBy = new Map<number, { interior: number; other: number }>();
+  for (const r of budgetTotals) {
+    const e = manualBy.get(r.propertyId) ?? { interior: 0, other: 0 };
+    if (r.isInterior) e.interior += parseFloat(r.total);
+    else e.other += parseFloat(r.total);
+    manualBy.set(r.propertyId, e);
+  }
+
+  // Effective budget = non-interior lines + (plan-derived interiors when a plan
+  // exists, else the hand-entered interior lines).
+  const budgetBy = new Map<number, number>(
+    properties.map((p) => {
+      const manual = manualBy.get(p.id) ?? { interior: 0, other: 0 };
+      const interior = interiorBudgets.get(p.id);
+      return [p.id, manual.other + (interior?.hasPlan ? interior.total : manual.interior)];
+    }),
+  );
   const jtdBy = new Map(jtdTotals.map((r) => [r.propertyId, parseFloat(r.total)]));
 
   // Committed cost split by lifecycle bucket — Planned (scoped/bid/ready) vs

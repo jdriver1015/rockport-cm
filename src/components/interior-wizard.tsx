@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
-  priceLine,
+  resolveGroupPricing,
   scopeTotal,
   PRICING_METHOD_LABELS,
   type PricingMethod,
@@ -38,6 +38,27 @@ export type WizardBudgetLine = {
 export type WizardBudgetGroup = { id: number; name: string; lines: WizardBudgetLine[] };
 export type WizardVendor = { id: number; name: string; trade: string | null };
 
+/** A pivot column group, so a unit can inherit its group's pinned amounts. */
+export type WizardUnitGroup = {
+  id: number;
+  name: string;
+  bedrooms: number | null;
+  unitCount: number;
+  floorPlanCodes: string[];
+};
+export type WizardPin = {
+  unitGroupId: number;
+  tierId: number;
+  costCodeId: number;
+  amount: number;
+};
+export type WizardAllocation = {
+  unitGroupId: number;
+  tierId: number;
+  plannedUnits: number;
+  actualUnits: number;
+};
+
 type Line = {
   sourceBudgetLineId: number;
   item: string;
@@ -55,41 +76,50 @@ const money = (v: number) =>
 
 const STEPS = ["Unit", "Budget group", "Review budget", "Vendor & dates", "Create"];
 
-function generateLines(group: WizardBudgetGroup, unit: UnitMeta): Line[] {
-  const base = scopeTotal(
-    group.lines
-      .filter((ln) => ln.pricingMethod !== "percent")
-      .map((ln) =>
-        priceLine(
-          { method: ln.pricingMethod, unitPrice: ln.unitPrice, defaultQuantity: ln.defaultQuantity },
-          unit,
-        ),
-      ),
-  );
-  return group.lines.map((ln) => {
-    const res = priceLine(
-      {
-        method: ln.pricingMethod,
-        unitPrice: ln.unitPrice,
-        defaultQuantity: ln.defaultQuantity,
-        percentBase: base,
-      },
-      unit,
-    );
-    const quantity = ln.pricingMethod === "percent" ? 1 : res.quantity;
-    const unitPrice = ln.pricingMethod === "percent" ? res.total : ln.unitPrice;
-    return {
-      sourceBudgetLineId: ln.id,
-      item: ln.costCodeName,
-      category: ln.category,
-      pricingMethod: ln.pricingMethod,
-      costCodeId: ln.costCodeId,
-      notes: ln.notes,
+/**
+ * Price a tier's lines against the chosen unit. All the arithmetic — including
+ * the percent base — lives in resolveGroupPricing so the wizard, the budget
+ * pivot, and the portfolio rollup can never disagree about a number.
+ *
+ * Pricing uses the ACTUAL unit's metadata (not its group's average) but inherits
+ * the group's pinned amounts, so a project's budget matches its pivot cell on
+ * every step-priced line while still flexing with the real square footage.
+ */
+function generateLines(
+  group: WizardBudgetGroup,
+  unit: UnitMeta,
+  pins: { costCodeId: number; amount: number }[],
+): Line[] {
+  return resolveGroupPricing({ lines: group.lines, unit, pins }).perLine.map(
+    ({ line, quantity, unitPrice, note }) => ({
+      sourceBudgetLineId: line.id,
+      item: line.costCodeName,
+      category: line.category,
+      pricingMethod: line.pricingMethod,
+      costCodeId: line.costCodeId,
+      notes: line.notes,
       quantity,
       unitPrice,
-      note: res.note,
-    };
-  });
+      note,
+    }),
+  );
+}
+
+/**
+ * Which pivot column group a unit belongs to: its floorplan code first, then its
+ * bedroom count. The wizard writes whatever floorplan string the rent roll had,
+ * so an exact map hit isn't guaranteed.
+ */
+function resolveUnitGroup(unit: WizardUnit, unitGroups: WizardUnitGroup[]): WizardUnitGroup | null {
+  if (unit.floorplan) {
+    const byCode = unitGroups.find((g) => g.floorPlanCodes.includes(unit.floorplan!));
+    if (byCode) return byCode;
+  }
+  if (unit.bedrooms != null) {
+    const byBeds = unitGroups.find((g) => g.bedrooms === unit.bedrooms);
+    if (byBeds) return byBeds;
+  }
+  return null;
 }
 
 export function InteriorWizard({
@@ -98,12 +128,18 @@ export function InteriorWizard({
   units,
   groups,
   vendors,
+  unitGroups = [],
+  pins = [],
+  allocations = [],
 }: {
   propertyId: number;
   propertySlug: string;
   units: WizardUnit[];
   groups: WizardBudgetGroup[];
   vendors: WizardVendor[];
+  unitGroups?: WizardUnitGroup[];
+  pins?: WizardPin[];
+  allocations?: WizardAllocation[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -129,9 +165,35 @@ export function InteriorWizard({
     );
   }, [units, unitQuery]);
 
+  const unitGroup = useMemo(
+    () => (unit ? resolveUnitGroup(unit, unitGroups) : null),
+    [unit, unitGroups],
+  );
+
+  const pinsFor = (tierId: number) =>
+    unitGroup
+      ? pins
+          .filter((p) => p.unitGroupId === unitGroup.id && p.tierId === tierId)
+          .map((p) => ({ costCodeId: p.costCodeId, amount: p.amount }))
+      : [];
+
+  /** Plan-vs-actual for this unit's group, to guide which tier to pick. */
+  const allocationFor = (tierId: number) =>
+    unitGroup
+      ? allocations.find((a) => a.unitGroupId === unitGroup.id && a.tierId === tierId) ?? null
+      : null;
+
   function chooseGroup(g: WizardBudgetGroup) {
     setGroupId(g.id);
-    if (unit) setLines(generateLines(g, { sqft: unit.sqft, bedrooms: unit.bedrooms, baths: unit.baths }));
+    if (unit) {
+      setLines(
+        generateLines(
+          g,
+          { sqft: unit.sqft, bedrooms: unit.bedrooms, baths: unit.baths },
+          pinsFor(g.id),
+        ),
+      );
+    }
   }
 
   function editLine(i: number, patch: Partial<Pick<Line, "quantity" | "unitPrice">>) {
@@ -225,22 +287,49 @@ export function InteriorWizard({
         {/* Step 2 — budget group */}
         {step === 1 && (
           <div className="space-y-2">
-            {groups.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => chooseGroup(g)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
-                  groupId === g.id ? "border-navy bg-muted" : "border-input hover:bg-muted/50",
-                )}
-              >
-                <span className="font-medium text-navy">{g.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {g.lines.length} line{g.lines.length === 1 ? "" : "s"}
-                </span>
-              </button>
-            ))}
+            {unitGroup ? (
+              <p className="text-xs text-muted-foreground">
+                Unit {unit?.unitNumber} falls in the{" "}
+                <span className="font-medium text-navy">{unitGroup.name}</span> group
+                {unitGroups.length > 0 && ` (${unitGroup.unitCount.toLocaleString()} units)`}.
+              </p>
+            ) : (
+              unitGroups.length > 0 && (
+                <p className="text-xs text-amber-700">
+                  This unit&apos;s floorplan isn&apos;t in any unit group, so it won&apos;t count toward the
+                  interior plan and won&apos;t inherit pinned amounts.
+                </p>
+              )
+            )}
+            {groups.map((g) => {
+              const alloc = allocationFor(g.id);
+              const remaining = alloc ? alloc.plannedUnits - alloc.actualUnits : null;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => chooseGroup(g)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
+                    groupId === g.id ? "border-navy bg-muted" : "border-input hover:bg-muted/50",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium text-navy">{g.name}</span>
+                    {alloc && (
+                      <span className="text-[11px] text-muted-foreground">
+                        Plan {alloc.plannedUnits.toLocaleString()} · started {alloc.actualUnits}
+                        {remaining != null && remaining > 0 && ` · ≈${Math.round(remaining)} remaining`}
+                        {remaining != null && remaining <= 0 && " · plan met"}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {g.lines.length} line{g.lines.length === 1 ? "" : "s"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 

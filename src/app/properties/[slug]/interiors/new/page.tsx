@@ -4,7 +4,16 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { InteriorWizard, type WizardBudgetGroup, type WizardUnit, type WizardVendor } from "@/components/interior-wizard";
+import {
+  InteriorWizard,
+  type WizardAllocation,
+  type WizardBudgetGroup,
+  type WizardPin,
+  type WizardUnit,
+  type WizardUnitGroup,
+  type WizardVendor,
+} from "@/components/interior-wizard";
+import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +121,32 @@ export default async function NewInteriorProjectPage({
     .where(eq(schema.vendors.active, true))
     .orderBy(asc(schema.vendors.name));
 
+  // The interior plan supplies two things the wizard needs: the pinned amounts
+  // this unit's group carries (so a created project's budget matches its pivot
+  // cell), and how much of each tier is still unstarted.
+  const interior = await computeInteriorBudgetFor(propertyId);
+  const unitGroups: WizardUnitGroup[] = interior.unitGroups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    bedrooms: g.bedrooms,
+    unitCount: g.unitCount,
+    floorPlanCodes: g.floorPlanCodes,
+  }));
+  const pins: WizardPin[] = interior.cells
+    .filter((c) => c.pinned)
+    .map((c) => ({
+      unitGroupId: c.unitGroupId,
+      tierId: c.tierId,
+      costCodeId: c.costCodeId,
+      amount: c.amount,
+    }));
+  const allocations: WizardAllocation[] = interior.columns.map((c) => ({
+    unitGroupId: c.unitGroupId,
+    tierId: c.tierId,
+    plannedUnits: c.plannedUnits,
+    actualUnits: c.actualUnits,
+  }));
+
   const missingRentRoll = units.length === 0;
   const missingGroups = groups.length === 0;
 
@@ -158,6 +193,9 @@ export default async function NewInteriorProjectPage({
         units={units}
         groups={groups}
         vendors={vendors}
+        unitGroups={unitGroups}
+        pins={pins}
+        allocations={allocations}
       />
     </div>
   );

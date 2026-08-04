@@ -163,7 +163,14 @@ const ENGINE: Record<PricingMethod, PricingFn> = {
     return {
       quantity: 1,
       total: roundMoney((input.unitPrice / 100) * base),
-      note: input.percentBase == null ? "No base amount — percentage applied to 0" : undefined,
+      // A zero base is just as silent as a missing one — both yield $0 — so warn
+      // on either rather than only on null.
+      note:
+        input.percentBase == null
+          ? "No base amount — percentage applied to 0"
+          : base === 0
+            ? "Base amount is 0 — percentage yields nothing"
+            : undefined,
     };
   },
   formula: (unit, input) => {
@@ -185,4 +192,121 @@ export function priceLine(input: PricingInput, unit: UnitMeta): PricingResult {
 /** Sum the totals of many lines (e.g. to seed a project's budgetAmount). */
 export function scopeTotal(results: Pick<PricingResult, "total">[]): number {
   return roundMoney(results.reduce((s, r) => s + n(r.total), 0));
+}
+
+// ---------------------------------------------------------------------------
+// Group pricing — pricing a whole tier against one unit (or one unit group).
+//
+// This exists so the `percent` base is computed in exactly ONE place. Three
+// callers need the same answer — the interior wizard, the budget pivot, and the
+// portfolio rollup — and if any of them derived the base differently the pivot
+// and the project it created would disagree. Do not recompute a base elsewhere.
+// ---------------------------------------------------------------------------
+
+/** The minimum a line must expose to be priced. Callers pass richer objects. */
+export type GroupPricingLine = {
+  costCodeId: number;
+  pricingMethod: PricingMethod;
+  unitPrice: number;
+  defaultQuantity?: number | null;
+  quantityFormula?: string | null;
+};
+
+/**
+ * A pinned amount overriding the derived total for one cost code. Already
+ * scoped by the caller to a single (tier, unit group) pair, so the cost code
+ * alone identifies it.
+ */
+export type GroupPricingPin = { costCodeId: number; amount: number };
+
+export type PricedGroupLine<T> = {
+  line: T;
+  quantity: number;
+  /** Effective unit price. Invariant: quantity × unitPrice === total. */
+  unitPrice: number;
+  total: number;
+  /** True when a pin replaced the derived amount. */
+  pinned: boolean;
+  note?: string;
+};
+
+export type GroupPricing<T> = {
+  perLine: PricedGroupLine<T>[];
+  /** Σ non-percent lines. This is the percent base — nothing else may serve as one. */
+  subtotal: number;
+  /** Σ percent lines. */
+  softCosts: number;
+  /** subtotal + softCosts. Plan-level CM/contingency uplifts apply on top of this. */
+  grandTotal: number;
+};
+
+/**
+ * Price every line in a tier against one unit's metadata, applying pins.
+ *
+ * Two passes, because percent lines need the others' sum: non-percent lines are
+ * priced first to establish `subtotal`, then percent lines are priced against
+ * it. Percent lines therefore never compound on each other and are
+ * order-independent.
+ *
+ * A pin replaces the derived total outright and reports `quantity: 1` — a pin is
+ * a dollar amount, never a rate, so it must not be multiplied by square footage.
+ */
+export function resolveGroupPricing<T extends GroupPricingLine>({
+  lines,
+  unit,
+  pins,
+}: {
+  lines: readonly T[];
+  unit: UnitMeta;
+  pins?: readonly GroupPricingPin[];
+}): GroupPricing<T> {
+  const pinByCode = new Map<number, number>();
+  for (const p of pins ?? []) pinByCode.set(p.costCodeId, p.amount);
+
+  const price = (line: T, percentBase: number | null): PricedGroupLine<T> => {
+    const pin = pinByCode.get(line.costCodeId);
+    if (pin != null) {
+      const total = roundMoney(pin);
+      return { line, quantity: 1, unitPrice: total, total, pinned: true };
+    }
+    const res = priceLine(
+      {
+        method: line.pricingMethod,
+        unitPrice: line.unitPrice,
+        defaultQuantity: line.defaultQuantity,
+        quantityFormula: line.quantityFormula,
+        percentBase,
+      },
+      unit,
+    );
+    // Percent lines carry their resolved dollars as the unit price at quantity 1
+    // so the qty × price invariant holds for callers that persist both.
+    const isPercent = line.pricingMethod === "percent";
+    return {
+      line,
+      quantity: isPercent ? 1 : res.quantity,
+      unitPrice: isPercent ? res.total : line.unitPrice,
+      total: res.total,
+      pinned: false,
+      note: res.note,
+    };
+  };
+
+  const base: PricedGroupLine<T>[] = [];
+  const percentLines: T[] = [];
+  for (const line of lines) {
+    if (line.pricingMethod === "percent") percentLines.push(line);
+    else base.push(price(line, null));
+  }
+
+  const subtotal = scopeTotal(base);
+  const soft = percentLines.map((line) => price(line, subtotal));
+  const softCosts = scopeTotal(soft);
+
+  // Preserve the caller's original line order rather than base-then-percent.
+  const byLine = new Map<T, PricedGroupLine<T>>();
+  for (const r of [...base, ...soft]) byLine.set(r.line, r);
+  const perLine = lines.map((l) => byLine.get(l)!).filter(Boolean);
+
+  return { perLine, subtotal, softCosts, grandTotal: roundMoney(subtotal + softCosts) };
 }
