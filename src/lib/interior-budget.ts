@@ -106,8 +106,6 @@ export type InteriorBudgetSettings = {
   contingencyPct: number;
   cmCostCodeId: number | null;
   contingencyCostCodeId: number | null;
-  groupingMode: "beds" | "floorplan" | "sqft";
-  sqftBreakpoints: number[] | null;
 };
 
 export type InteriorBudget = {
@@ -300,8 +298,6 @@ const DEFAULT_SETTINGS: InteriorBudgetSettings = {
   contingencyPct: 0,
   cmCostCodeId: null,
   contingencyCostCodeId: null,
-  groupingMode: "beds",
-  sqftBreakpoints: null,
 };
 
 /** Compute one property's interior budget from already-loaded rows. Pure. */
@@ -314,8 +310,6 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
         contingencyPct: num(settingsRow.contingencyPct),
         cmCostCodeId: settingsRow.cmCostCodeId,
         contingencyCostCodeId: settingsRow.contingencyCostCodeId,
-        groupingMode: settingsRow.groupingMode,
-        sqftBreakpoints: (settingsRow.sqftBreakpoints as number[] | null) ?? null,
       }
     : DEFAULT_SETTINGS;
 

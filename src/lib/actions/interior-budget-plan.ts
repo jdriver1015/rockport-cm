@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { computeInteriorBudgetFor } from "@/lib/interior-budget";
+import { roundMoney } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,65 @@ export async function upsertPlanCell(
 
   await revalidateBudget(d.propertyId);
   return { ok: true };
+}
+
+const bulkPlanSchema = z.object({
+  propertyId: z.coerce.number().int().positive(),
+  budgetGroupId: z.coerce.number().int().positive(),
+  penetrationPct: z.coerce.number().min(0).max(100),
+});
+
+/**
+ * Offer one tier to EVERY unit group at a single penetration.
+ *
+ * This is the only way into a budget from nothing. A column exists only where a
+ * plan row does, the tier list itself is derived from the plan rows, and
+ * `upsertPlanCell` can only be reached from a column that already renders — so a
+ * property with zero plan rows (a fresh one, or one whose rows were cascaded away
+ * by a re-seed) would otherwise have no path to a budget at all.
+ *
+ * Per-column penetration is then tuned through `upsertPlanCell` as usual; this
+ * only lays down the starting grid.
+ */
+export async function planTierForAllGroups(
+  input: z.input<typeof bulkPlanSchema>,
+): Promise<ActionResult<{ groups: number }>> {
+  const parsed = bulkPlanSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
+
+  const tier = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, d.budgetGroupId),
+    columns: { propertyId: true },
+  });
+  if (!tier || tier.propertyId !== d.propertyId) {
+    return { ok: false, error: "Upgrade tier not found for this property" };
+  }
+
+  // Unit counts are derived from the rent roll, so they come from the sanctioned
+  // compute path rather than a hand-rolled join.
+  const budget = await computeInteriorBudgetFor(d.propertyId);
+  if (budget.unitGroups.length === 0) {
+    return { ok: false, error: "No unit groups yet — seed them from the rent roll first." };
+  }
+
+  const values = budget.unitGroups.map((g) => ({
+    propertyId: d.propertyId,
+    unitGroupId: g.id,
+    budgetGroupId: d.budgetGroupId,
+    plannedUnits: roundMoney(g.unitCount * (d.penetrationPct / 100)).toFixed(2),
+  }));
+
+  await db()
+    .insert(schema.interiorBudgetPlan)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [schema.interiorBudgetPlan.unitGroupId, schema.interiorBudgetPlan.budgetGroupId],
+      set: { plannedUnits: sql`excluded.planned_units` },
+    });
+
+  await revalidateBudget(d.propertyId);
+  return { ok: true, groups: values.length };
 }
 
 /** Stop offering a tier to a unit group — drops the column. Pins are unaffected. */

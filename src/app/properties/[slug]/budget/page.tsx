@@ -156,6 +156,21 @@ export default async function BudgetPage({
   const interior = await computeInteriorBudgetFor(propertyId);
   const derivedInteriors = interior.hasPlan;
 
+  // Every tier the property HAS, not just the ones already planned — `interior.tiers`
+  // is derived from the plan rows, so with no plan there is nothing to pick from and
+  // no way to start a budget.
+  const availableTiers = await db()
+    .select({ id: schema.budgetGroups.id, name: schema.budgetGroups.name })
+    .from(schema.budgetGroups)
+    .where(
+      and(
+        eq(schema.budgetGroups.propertyId, propertyId),
+        eq(schema.budgetGroups.active, true),
+        isNull(schema.budgetGroups.archivedAt),
+      ),
+    )
+    .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name));
+
   // Build the category → lines tree the view renders. A code appears if it has a
   // hand-entered line OR a plan-derived amount — without the second half, the
   // interior categories would vanish entirely once a plan takes over.
@@ -276,8 +291,6 @@ export default async function BudgetPage({
                 sqftOverridden: g.sqftOverridden,
                 floorPlanCodes: g.floorPlanCodes,
               }))}
-              groupingMode={interior.settings.groupingMode}
-              sqftBreakpoints={interior.settings.sqftBreakpoints}
               cmPct={interior.settings.cmPct}
               contingencyPct={interior.settings.contingencyPct}
               cmCostCodeId={interior.settings.cmCostCodeId}
@@ -308,6 +321,7 @@ export default async function BudgetPage({
                 sqftOverridden: g.sqftOverridden,
               }))}
               tiers={interior.tiers.map((t) => ({ id: t.id, name: t.name }))}
+              availableTiers={availableTiers}
               rows={interior.rows.map((r) => ({
                 costCodeId: r.costCodeId,
                 code: r.code,

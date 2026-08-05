@@ -26,14 +26,11 @@ import { cn } from "@/lib/utils";
 import {
   applyGrouping,
   deleteUnitGroup,
-  mergeUnitGroups,
   previewGrouping,
-  splitUnitGroup,
   updateUnitGroup,
   type GroupLoss,
 } from "@/lib/actions/interior-unit-groups";
 import { updateInteriorSettings } from "@/lib/actions/interior-budget-plan";
-import type { GroupingMode } from "@/lib/interior-unit-grouping";
 
 export type PanelUnitGroup = {
   id: number;
@@ -51,19 +48,11 @@ export type InteriorCodeChoice = { id: number; code: string; name: string };
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50";
 
-const MODE_HELP: Record<GroupingMode, string> = {
-  beds: "One group per bedroom count — Studio, 1BR, 2BR. Usually what underwriting wants.",
-  floorplan: "One group per floorplan code. Granular, and produces a lot of columns.",
-  sqft: "One group per square-footage band.",
-};
-
-type ActionKind = "edit" | "split" | "merge" | "delete";
+type ActionKind = "edit" | "delete";
 
 export function UnitGroupsPanel({
   propertyId,
   groups,
-  groupingMode,
-  sqftBreakpoints,
   cmCostCodeId,
   contingencyCostCodeId,
   cmPct,
@@ -74,8 +63,6 @@ export function UnitGroupsPanel({
 }: {
   propertyId: number;
   groups: PanelUnitGroup[];
-  groupingMode: GroupingMode;
-  sqftBreakpoints: number[] | null;
   cmCostCodeId: number | null;
   contingencyCostCodeId: number | null;
   cmPct: number;
@@ -97,8 +84,8 @@ export function UnitGroupsPanel({
           <DialogHeader>
             <DialogTitle>Unit groups</DialogTitle>
             <DialogDescription>
-              Each group is a column on the interior budget, and its unit count and average square
-              footage come from the latest committed rent roll.
+              One group per floorplan on the latest committed rent roll. Each is a column on the
+              interior budget, and its unit count and average square footage come from that rent roll.
             </DialogDescription>
           </DialogHeader>
 
@@ -107,7 +94,10 @@ export function UnitGroupsPanel({
               No groups yet. Seed them from the rent roll below.
             </p>
           ) : (
-            <div className="divide-y rounded-md border border-hairline">
+            /* One group per floorplan means 20+ rows at a real property, which grew the
+               dialog past the viewport and left the rows and their menus off-screen and
+               unclickable. The list scrolls; the dialog itself stays put. */
+            <div className="max-h-[45vh] divide-y overflow-y-auto rounded-md border border-hairline">
               {groups.map((g) => (
                 <div key={g.id} className="flex items-start gap-3 px-3 py-2.5">
                   <div className="min-w-0 flex-1">
@@ -136,18 +126,6 @@ export function UnitGroupsPanel({
                       <DropdownMenuItem onClick={() => setAction({ kind: "edit", group: g })}>
                         Rename &amp; size
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={g.floorPlanCodes.length < 2}
-                        onClick={() => setAction({ kind: "split", group: g })}
-                      >
-                        Split out floorplans…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={groups.length < 2}
-                        onClick={() => setAction({ kind: "merge", group: g })}
-                      >
-                        Merge into…
-                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
@@ -173,12 +151,7 @@ export function UnitGroupsPanel({
             </div>
           )}
 
-          <ReseedSection
-            propertyId={propertyId}
-            groupingMode={groupingMode}
-            sqftBreakpoints={sqftBreakpoints}
-            tierCount={tierCount}
-          />
+          <ReseedSection propertyId={propertyId} tierCount={tierCount} />
 
           <UpliftCodesSection
             propertyId={propertyId}
@@ -191,12 +164,7 @@ export function UnitGroupsPanel({
         </DialogContent>
       </Dialog>
 
-      <GroupActionDialog
-        propertyId={propertyId}
-        action={action}
-        groups={groups}
-        onClose={() => setAction(null)}
-      />
+      <GroupActionDialog propertyId={propertyId} action={action} onClose={() => setAction(null)} />
     </>
   );
 }
@@ -212,21 +180,9 @@ const Overridden = () => (
  * tiers of any group it drops, so it's demoted below the list and never applies
  * without an explicit destructive confirmation.
  */
-function ReseedSection({
-  propertyId,
-  groupingMode,
-  sqftBreakpoints,
-  tierCount,
-}: {
-  propertyId: number;
-  groupingMode: GroupingMode;
-  sqftBreakpoints: number[] | null;
-  tierCount: number;
-}) {
+function ReseedSection({ propertyId, tierCount }: { propertyId: number; tierCount: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<GroupingMode>(groupingMode);
-  const [breakpoints, setBreakpoints] = useState((sqftBreakpoints ?? []).join(", "));
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const [preview, setPreview] = useState<{
     keep: { id: number; name: string }[];
@@ -234,11 +190,6 @@ function ReseedSection({
     remove: GroupLoss[];
     hasRentRoll: boolean;
   } | null>(null);
-
-  const parsed = breakpoints
-    .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n) && n > 0);
 
   function invalidate() {
     setPreview(null);
@@ -249,11 +200,7 @@ function ReseedSection({
     setBusy(true);
     invalidate();
     try {
-      const result = await previewGrouping({
-        propertyId,
-        mode,
-        sqftBreakpoints: mode === "sqft" ? parsed : null,
-      });
+      const result = await previewGrouping({ propertyId });
       if (!result.ok) return toast.error(result.error);
       setPreview({
         keep: result.keep,
@@ -261,9 +208,6 @@ function ReseedSection({
         remove: result.remove,
         hasRentRoll: result.hasRentRoll,
       });
-      if (mode === "sqft" && parsed.length === 0 && result.suggestedBreakpoints.length) {
-        setBreakpoints(result.suggestedBreakpoints.join(", "));
-      }
     } finally {
       setBusy(false);
     }
@@ -272,12 +216,7 @@ function ReseedSection({
   async function handleApply(confirmed: boolean) {
     setBusy(true);
     try {
-      const result = await applyGrouping({
-        propertyId,
-        mode,
-        sqftBreakpoints: mode === "sqft" ? parsed : null,
-        confirm: confirmed,
-      });
+      const result = await applyGrouping({ propertyId, confirm: confirmed });
       if (!result.ok) {
         if (!confirmed) setNeedsConfirm(true);
         return toast.error(result.error);
@@ -302,39 +241,10 @@ function ReseedSection({
         Re-seed from rent roll
       </summary>
       <div className="space-y-3 border-t border-hairline px-3 py-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="ug-mode">Group units by</Label>
-            <select
-              id="ug-mode"
-              value={mode}
-              onChange={(e) => {
-                setMode(e.target.value as GroupingMode);
-                invalidate();
-              }}
-              className={selectClass}
-            >
-              <option value="beds">Bedroom count</option>
-              <option value="floorplan">Floorplan type</option>
-              <option value="sqft">Square footage band</option>
-            </select>
-          </div>
-          {mode === "sqft" && (
-            <div className="space-y-1.5">
-              <Label htmlFor="ug-breaks">Band edges (SF)</Label>
-              <Input
-                id="ug-breaks"
-                value={breakpoints}
-                onChange={(e) => {
-                  setBreakpoints(e.target.value);
-                  invalidate();
-                }}
-                placeholder="700, 900, 1100"
-              />
-            </div>
-          )}
-        </div>
-        <p className="text-[11px] text-muted-foreground">{MODE_HELP[mode]}</p>
+        <p className="text-[11px] text-muted-foreground">
+          Rebuilds the columns as one group per floorplan type on the rent roll, picking up floorplans
+          added since the last seed.
+        </p>
 
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" variant="outline" onClick={handlePreview} disabled={busy}>
@@ -498,25 +408,21 @@ function UpliftCodesSection({
 function GroupActionDialog({
   propertyId,
   action,
-  groups,
   onClose,
 }: {
   propertyId: number;
   action: { kind: ActionKind; group: PanelUnitGroup } | null;
-  groups: PanelUnitGroup[];
   onClose: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [needsConfirm, setNeedsConfirm] = useState(false);
-  const [picked, setPicked] = useState<string[]>([]);
 
   const key = action ? `${action.kind}:${action.group.id}` : "";
   const [lastKey, setLastKey] = useState("");
   if (action && key !== lastKey) {
     setLastKey(key);
     setNeedsConfirm(false);
-    setPicked([]);
   }
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
@@ -603,113 +509,6 @@ function GroupActionDialog({
               <div className="flex justify-end">
                 <Button type="submit" disabled={busy}>
                   Save
-                </Button>
-              </div>
-            </form>
-          </>
-        )}
-
-        {action.kind === "split" && (
-          <>
-            <DialogHeader>
-              <DialogTitle>Split {g.name}</DialogTitle>
-              <DialogDescription>
-                Pick the floorplans to move into a new group. {g.name} keeps its pinned amounts and
-                planned tiers.
-              </DialogDescription>
-            </DialogHeader>
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                void run(
-                  () =>
-                    splitUnitGroup({
-                      propertyId,
-                      unitGroupId: g.id,
-                      name: String(fd.get("name") ?? ""),
-                      floorPlanCodes: picked,
-                    }),
-                  "Group split",
-                );
-              }}
-            >
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-hairline p-2">
-                {g.floorPlanCodes.map((code) => (
-                  <label key={code} className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={picked.includes(code)}
-                      onChange={(e) =>
-                        setPicked((prev) =>
-                          e.target.checked ? [...prev, code] : prev.filter((c) => c !== code),
-                        )
-                      }
-                    />
-                    <span className="text-ink-700">{code || "(blank)"}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ug-split-name">New group name</Label>
-                <Input id="ug-split-name" name="name" required placeholder="1BR — large" />
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={busy || picked.length === 0 || picked.length === g.floorPlanCodes.length}
-                >
-                  Split out {picked.length || ""}
-                </Button>
-              </div>
-            </form>
-          </>
-        )}
-
-        {action.kind === "merge" && (
-          <>
-            <DialogHeader>
-              <DialogTitle>Merge {g.name} into another group</DialogTitle>
-              <DialogDescription>
-                {g.name}&apos;s floorplans move to the target and {g.name} is deleted — its pinned
-                amounts and planned tiers go with it. The target keeps its own.
-              </DialogDescription>
-            </DialogHeader>
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                void run(
-                  () =>
-                    mergeUnitGroups({
-                      propertyId,
-                      targetId: Number(fd.get("targetId")),
-                      sourceIds: [g.id],
-                    }),
-                  "Groups merged",
-                );
-              }}
-            >
-              <div className="space-y-1.5">
-                <Label htmlFor="ug-target">Merge into</Label>
-                <select id="ug-target" name="targetId" required defaultValue="" className={selectClass}>
-                  <option value="" disabled>
-                    Select…
-                  </option>
-                  {groups
-                    .filter((o) => o.id !== g.id)
-                    .map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div className="flex justify-end">
-                <Button type="submit" variant="destructive" disabled={busy}>
-                  Merge
                 </Button>
               </div>
             </form>

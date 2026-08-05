@@ -133,17 +133,6 @@ export const pricingMethod = pgEnum("pricing_method", [
   "formula",
 ]);
 
-/**
- * How the interior budget's unit groups (the pivot's columns) get seeded from a
- * committed rent roll. Only drives auto-seeding and refresh — a group is defined
- * solely by the floorplan codes mapped into it, so the model itself is agnostic.
- */
-export const interiorGroupingMode = pgEnum("interior_grouping_mode", [
-  "beds",
-  "floorplan",
-  "sqft",
-]);
-
 /** Rent roll upload lifecycle: file staged → parsing → reviewed → committed snapshot */
 export const rentRollBatchStatus = pgEnum("rent_roll_batch_status", [
   "uploaded",
@@ -796,10 +785,6 @@ export const interiorBudgetSettings = pgTable("interior_budget_settings", {
    */
   cmCostCodeId: integer("cm_cost_code_id").references(() => costCodes.id),
   contingencyCostCodeId: integer("contingency_cost_code_id").references(() => costCodes.id),
-  /** Remembered so "refresh from rent roll" re-applies the user's grouping. */
-  groupingMode: interiorGroupingMode("grouping_mode").notNull().default("beds"),
-  /** Band edges for groupingMode='sqft', e.g. [700, 900, 1100, 1400]. */
-  sqftBreakpoints: jsonb("sqft_breakpoints"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

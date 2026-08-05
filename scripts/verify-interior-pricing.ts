@@ -300,38 +300,27 @@ console.log("\n[5] Unit-group seeding and reconciliation");
     { floorPlanCode: "B1", count: 99, avgSqft: 1330, bedrooms: 2, baths: 2 },
   ];
 
-  const beds = proposeUnitGroups(facts, "beds");
-  check("beds mode names", beds.map((g) => g.name), ["Studio", "1BR", "2BR"]);
+  const fp = proposeUnitGroups(facts);
+  check("one group per floorplan code, name-sorted", fp.map((g) => g.name), ["A1", "A8", "B1", "E1"]);
+  check("each group holds exactly its own code", fp.map((g) => g.floorPlanCodes), [["A1"], ["A8"], ["B1"], ["E1"]]);
   check(
-    "beds mode ignores baths (1BR/1BA + 1BR/1.5BA stay together)",
-    beds.find((g) => g.name === "1BR")!.floorPlanCodes,
-    ["A1", "A8"],
+    "beds and baths ride along as pricing metadata",
+    fp.filter((g) => g.name === "A8").map((g) => [g.bedrooms, g.baths]),
+    [[1, 1.5]],
   );
-  check(
-    "beds mode takes count-weighted modal baths",
-    beds.find((g) => g.name === "1BR")!.baths,
-    1, // A1's 76 units at 1 bath outweigh A8's 68 at 1.5
-  );
-
-  const fp = proposeUnitGroups(facts, "floorplan");
-  check("floorplan mode is one group per code", fp.map((g) => g.name), ["A1", "A8", "B1", "E1"]);
-
-  const sqft = proposeUnitGroups(facts, "sqft", [700, 1100]);
-  check("sqft mode band names", sqft.map((g) => g.name), ["Up to 699 SF", "700–1,099 SF", "1,100+ SF"]);
-  check("sqft mode band membership", sqft[0].floorPlanCodes, ["A1", "E1"]);
 
   // Reconcile must key on the floorplan SET, not the name — otherwise a group the
   // user renamed gets dropped and rebuilt, taking its pins with it.
   const existing = [
-    { id: 1, name: "Renamed by hand", floorPlanCodes: ["A8", "A1"] }, // same set, different order
-    { id: 2, name: "2BR", floorPlanCodes: ["B1"] },
-    { id: 3, name: "Stale group", floorPlanCodes: ["ZZ"] },
+    { id: 1, name: "Renamed by hand", floorPlanCodes: ["A1"] },
+    { id: 2, name: "B1", floorPlanCodes: ["B1"] },
+    { id: 3, name: "Merged leftover", floorPlanCodes: ["A8", "E1"] }, // no longer proposed
   ];
-  const r = reconcileUnitGroups(existing, beds);
+  const r = reconcileUnitGroups(existing, fp);
   check("renamed group with unchanged floorplans is kept", r.keep.map((k) => k.id).sort(), [1, 2]);
-  check("kept entry carries its proposal by reference", r.keep.every((k) => beds.includes(k.proposed)), true);
-  check("genuinely new group is created", r.create.map((c) => c.name), ["Studio"]);
-  check("group whose floorplans vanished is flagged for removal", r.remove.map((g) => g.id), [3]);
+  check("kept entry carries its proposal by reference", r.keep.every((k) => fp.includes(k.proposed)), true);
+  check("genuinely new groups are created", r.create.map((c) => c.name), ["A8", "E1"]);
+  check("group whose floorplan set no longer matches is flagged for removal", r.remove.map((g) => g.id), [3]);
 }
 
 console.log(failures === 0 ? "\n✓ All checks passed.\n" : `\n✗ ${failures} check(s) failed.\n`);

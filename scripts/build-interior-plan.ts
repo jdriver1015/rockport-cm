@@ -193,7 +193,7 @@ async function main() {
     baths: modeOf(a.baths),
   }));
 
-  const proposed = proposeUnitGroups(facts, "beds");
+  const proposed = proposeUnitGroups(facts);
   const countFor = (codes: readonly string[]) =>
     codes.reduce((s, c) => s + (acc.get(c)?.count ?? 0), 0);
   const rentRollUnitTotal = rrUnits.length;
@@ -322,7 +322,6 @@ async function main() {
         contingencyPct: contPct.toFixed(3),
         cmCostCodeId: cmLine?.costCodeId ?? null,
         contingencyCostCodeId: contLine?.costCodeId ?? null,
-        groupingMode: "beds",
       })
       .onConflictDoUpdate({
         target: schema.interiorBudgetSettings.propertyId,
@@ -331,7 +330,6 @@ async function main() {
           contingencyPct: contPct.toFixed(3),
           cmCostCodeId: cmLine?.costCodeId ?? null,
           contingencyCostCodeId: contLine?.costCodeId ?? null,
-          groupingMode: "beds",
           updatedAt: new Date(),
         },
       });

@@ -16,9 +16,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money, moneyExact } from "@/lib/format";
-import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
+import { PRICING_METHOD_LABELS, roundMoney, type PricingMethod } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
-import { clearPin, upsertPin, upsertPlanCell, updateUpliftRates } from "@/lib/actions/interior-budget-plan";
+import {
+  clearPin,
+  planTierForAllGroups,
+  upsertPin,
+  upsertPlanCell,
+  updateUpliftRates,
+} from "@/lib/actions/interior-budget-plan";
 import { setTierLinePrice } from "@/lib/actions/budget-groups";
 
 // Serializable mirrors of src/lib/interior-budget.ts, flattened for the client.
@@ -66,6 +72,8 @@ export type InteriorPivotProps = {
   propertyId: number;
   unitGroups: PivotUnitGroup[];
   tiers: PivotTier[];
+  /** Every tier the property has. `tiers` only holds the ones already planned. */
+  availableTiers: PivotTier[];
   rows: PivotRowData[];
   cells: PivotCellData[];
   columns: PivotColumnData[];
@@ -85,12 +93,13 @@ const STICKY = "sticky left-0 z-20";
 
 export function InteriorBudgetPivot(props: InteriorPivotProps) {
   const {
-    propertyId, unitGroups, tiers, rows, cells, columns, total,
+    propertyId, unitGroups, tiers, availableTiers, rows, cells, columns, total,
     cmPct, contingencyPct, unmappedFloorplans, unattributedProjects,
   } = props;
 
   const [showEmpty, setShowEmpty] = useState(false);
   const [ratesOpen, setRatesOpen] = useState(false);
+  const [planTiersOpen, setPlanTiersOpen] = useState(false);
   const [cellTarget, setCellTarget] = useState<{
     row: PivotRowData;
     cell: PivotCellData;
@@ -158,10 +167,30 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
   if (visibleColumns.length === 0) {
     return (
       <div className="space-y-3">
-        <EmptyState message="No upgrade tiers are planned for any unit group yet. Plan units into a tier to build the budget." />
+        <EmptyState
+          message={
+            availableTiers.length === 0
+              ? "No upgrade tiers exist for this property yet. Create one under Unit Upgrades, then plan units into it."
+              : "No upgrade tiers are planned for any unit group yet. Plan units into a tier to build the budget."
+          }
+        />
+        {availableTiers.length > 0 && (
+          <div className="flex justify-center">
+            <Button size="sm" onClick={() => setPlanTiersOpen(true)}>
+              Plan units into a tier
+            </Button>
+          </div>
+        )}
         {hiddenCount > 0 && (
           <ShowEmptyToggle showEmpty={showEmpty} hiddenCount={hiddenCount} onToggle={setShowEmpty} />
         )}
+        <PlanTiersDialog
+          propertyId={propertyId}
+          open={planTiersOpen}
+          availableTiers={availableTiers}
+          unitGroups={unitGroups}
+          onClose={() => setPlanTiersOpen(false)}
+        />
       </div>
     );
   }
@@ -371,12 +400,26 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
           <Pin className="inline size-3 -translate-y-px text-link" /> and ignore the pricing method.
           Everything else derives from the tier&apos;s pricing against the group&apos;s average SF.
         </p>
-        {hiddenCount > 0 && (
-          <ShowEmptyToggle showEmpty={showEmpty} hiddenCount={hiddenCount} onToggle={setShowEmpty} />
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {hiddenCount > 0 && (
+            <ShowEmptyToggle showEmpty={showEmpty} hiddenCount={hiddenCount} onToggle={setShowEmpty} />
+          )}
+          {availableTiers.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setPlanTiersOpen(true)}>
+              Plan a tier
+            </Button>
+          )}
+        </div>
       </div>
 
       <CellDialog propertyId={propertyId} target={cellTarget} onClose={() => setCellTarget(null)} />
+      <PlanTiersDialog
+        propertyId={propertyId}
+        open={planTiersOpen}
+        availableTiers={availableTiers}
+        unitGroups={unitGroups}
+        onClose={() => setPlanTiersOpen(false)}
+      />
       <RatesDialog
         propertyId={propertyId}
         open={ratesOpen}
@@ -871,6 +914,117 @@ function ScopeChoice({
         <span className="block text-[11px] text-muted-foreground">{detail}</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * Lay down the starting grid: offer one tier to every unit group at a single
+ * penetration. With one column per floorplan a property can have 20+ groups, so
+ * creating plan rows one cell at a time isn't viable — and until a plan row
+ * exists there is no column to click, which is the deadlock this resolves.
+ */
+function PlanTiersDialog({
+  propertyId,
+  open,
+  availableTiers,
+  unitGroups,
+  onClose,
+}: {
+  propertyId: number;
+  open: boolean;
+  availableTiers: PivotTier[];
+  unitGroups: PivotUnitGroup[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [tierId, setTierId] = useState<string>("");
+  const [pct, setPct] = useState("100");
+
+  const totalUnits = unitGroups.reduce((s, g) => s + g.unitCount, 0);
+  const parsedPct = Number(pct);
+  const validPct = Number.isFinite(parsedPct) && parsedPct >= 0 && parsedPct <= 100;
+  const affectedUnits = validPct ? roundMoney(totalUnits * (parsedPct / 100)) : 0;
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const result = await planTierForAllGroups({
+        propertyId,
+        budgetGroupId: Number(tierId),
+        penetrationPct: parsedPct,
+      });
+      if (!result.ok) return toast.error(result.error);
+      toast.success(`Planned across ${result.groups} unit group${result.groups === 1 ? "" : "s"}`);
+      onClose();
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Plan units into a tier</DialogTitle>
+          <DialogDescription>
+            Offers the tier to all {unitGroups.length} unit group
+            {unitGroups.length === 1 ? "" : "s"} at one penetration. Tune each column afterwards from
+            the Units planned row.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-tier">Upgrade tier</Label>
+            <select
+              id="plan-tier"
+              value={tierId}
+              onChange={(e) => setTierId(e.target.value)}
+              required
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <option value="" disabled>
+                Select…
+              </option>
+              {availableTiers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-all-pct">Penetration (%)</Label>
+            <Input
+              id="plan-all-pct"
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              value={pct}
+              onChange={(e) => setPct(e.target.value)}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {validPct
+              ? `${affectedUnits.toLocaleString()} of ${totalUnits.toLocaleString()} units across the property. Fractional values are expected.`
+              : "Enter a penetration between 0 and 100."}
+          </p>
+          <DialogFooter>
+            <Button type="submit" disabled={busy || !tierId || !validPct}>
+              {busy ? "Planning…" : "Plan tier"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

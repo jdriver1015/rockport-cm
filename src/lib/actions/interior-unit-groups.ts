@@ -10,21 +10,17 @@ import { propertyPath } from "@/lib/property-path";
 import {
   proposeUnitGroups,
   reconcileUnitGroups,
-  suggestSqftBreakpoints,
   type FloorplanFacts,
-  type GroupingMode,
 } from "@/lib/interior-unit-grouping";
 
 // ---------------------------------------------------------------------------
-// Unit groups — the interior budget pivot's columns.
+// Unit groups — the interior budget pivot's columns, one per rent-roll floorplan.
 //
-// Seeded from the latest committed rent roll, then freely editable. The one hard
-// rule: seeding and refreshing RECONCILE rather than truncate. Pins and plan
-// rows cascade on unit-group delete, so rebuilding groups from scratch would
+// Seeded from the latest committed rent roll, then renameable and deletable. The
+// one hard rule: seeding and refreshing RECONCILE rather than truncate. Pins and
+// plan rows cascade on unit-group delete, so rebuilding groups from scratch would
 // silently destroy negotiated prices and penetration settings.
 // ---------------------------------------------------------------------------
-
-const MODES = ["beds", "floorplan", "sqft"] as const;
 
 async function revalidateBudget(propertyId: number) {
   const path = await propertyPath(propertyId, "/budget");
@@ -176,8 +172,6 @@ async function lossesFor(propertyId: number, groupIds: number[]): Promise<GroupL
 
 const groupingInput = z.object({
   propertyId: z.coerce.number().int().positive(),
-  mode: z.enum(MODES),
-  sqftBreakpoints: z.array(z.coerce.number().positive()).optional().nullable(),
 });
 
 /**
@@ -191,16 +185,15 @@ export async function previewGrouping(
     keep: { id: number; name: string }[];
     create: { name: string; floorPlanCodes: string[] }[];
     remove: GroupLoss[];
-    suggestedBreakpoints: number[];
     hasRentRoll: boolean;
   }>
 > {
   const parsed = groupingInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { propertyId, mode, sqftBreakpoints } = parsed.data;
+  const { propertyId } = parsed.data;
 
   const facts = await loadFloorplanFacts(propertyId);
-  const proposed = proposeUnitGroups(facts, mode as GroupingMode, sqftBreakpoints);
+  const proposed = proposeUnitGroups(facts);
   const existing = await loadExistingGroups(propertyId);
   const { keep, create, remove } = reconcileUnitGroups(existing, proposed);
 
@@ -209,7 +202,6 @@ export async function previewGrouping(
     keep,
     create: create.map((c) => ({ name: c.name, floorPlanCodes: c.floorPlanCodes })),
     remove: await lossesFor(propertyId, remove.map((r) => r.id)),
-    suggestedBreakpoints: suggestSqftBreakpoints(facts),
     hasRentRoll: facts.length > 0,
   };
 }
@@ -223,7 +215,7 @@ export async function applyGrouping(
 ): Promise<ActionResult<{ kept: number; created: number; removed: number }>> {
   const parsed = groupingInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { propertyId, mode, sqftBreakpoints } = parsed.data;
+  const { propertyId } = parsed.data;
 
   const facts = await loadFloorplanFacts(propertyId);
   if (facts.length === 0) {
@@ -233,7 +225,7 @@ export async function applyGrouping(
     };
   }
 
-  const proposed = proposeUnitGroups(facts, mode as GroupingMode, sqftBreakpoints);
+  const proposed = proposeUnitGroups(facts);
   const existing = await loadExistingGroups(propertyId);
   const { keep, create, remove } = reconcileUnitGroups(existing, proposed);
 
@@ -308,19 +300,6 @@ export async function applyGrouping(
       }
       order++;
     }
-
-    // Remember the mode so a later refresh re-applies the user's choice.
-    await tx
-      .insert(schema.interiorBudgetSettings)
-      .values({
-        propertyId,
-        groupingMode: mode,
-        sqftBreakpoints: sqftBreakpoints ?? null,
-      })
-      .onConflictDoUpdate({
-        target: schema.interiorBudgetSettings.propertyId,
-        set: { groupingMode: mode, sqftBreakpoints: sqftBreakpoints ?? null, updatedAt: new Date() },
-      });
   });
 
   await revalidateBudget(propertyId);
@@ -365,113 +344,6 @@ export async function updateUnitGroup(
 
   await revalidateBudget(d.propertyId);
   return { ok: true };
-}
-
-const mergeSchema = z.object({
-  propertyId: z.coerce.number().int().positive(),
-  targetId: z.coerce.number().int().positive(),
-  sourceIds: z.array(z.coerce.number().int().positive()).min(1, "Pick at least one group to merge"),
-});
-
-/**
- * Fold other groups' floorplans into a target group. The sources are deleted, so
- * their pins and plan rows go with them — the target's are untouched.
- */
-export async function mergeUnitGroups(
-  input: z.input<typeof mergeSchema>,
-): Promise<ActionResult<{ moved: number }>> {
-  const parsed = mergeSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { propertyId, targetId, sourceIds } = parsed.data;
-  if (sourceIds.includes(targetId)) return { ok: false, error: "A group can't be merged into itself" };
-
-  const groups = await db()
-    .select({ id: schema.interiorUnitGroups.id, propertyId: schema.interiorUnitGroups.propertyId })
-    .from(schema.interiorUnitGroups)
-    .where(inArray(schema.interiorUnitGroups.id, [targetId, ...sourceIds]));
-  if (groups.length !== sourceIds.length + 1 || groups.some((g) => g.propertyId !== propertyId)) {
-    return { ok: false, error: "One or more unit groups don't belong to this property" };
-  }
-
-  const moved = await db().transaction(async (tx) => {
-    const res = await tx
-      .update(schema.interiorUnitGroupFloorplans)
-      .set({ unitGroupId: targetId })
-      .where(inArray(schema.interiorUnitGroupFloorplans.unitGroupId, sourceIds))
-      .returning({ id: schema.interiorUnitGroupFloorplans.id });
-    await tx.delete(schema.interiorUnitGroups).where(inArray(schema.interiorUnitGroups.id, sourceIds));
-    return res.length;
-  });
-
-  await revalidateBudget(propertyId);
-  return { ok: true, moved };
-}
-
-const splitSchema = z.object({
-  propertyId: z.coerce.number().int().positive(),
-  unitGroupId: z.coerce.number().int().positive(),
-  name: z.string().trim().min(1, "Name is required"),
-  floorPlanCodes: z.array(z.string().trim()).min(1, "Pick at least one floorplan to split out"),
-});
-
-/** Move some floorplans out of a group into a new one. The original keeps its pins. */
-export async function splitUnitGroup(
-  input: z.input<typeof splitSchema>,
-): Promise<ActionResult<{ unitGroupId: number }>> {
-  const parsed = splitSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const d = parsed.data;
-
-  const source = await db().query.interiorUnitGroups.findFirst({
-    where: eq(schema.interiorUnitGroups.id, d.unitGroupId),
-  });
-  if (!source || source.propertyId !== d.propertyId) {
-    return { ok: false, error: "Unit group not found for this property" };
-  }
-
-  const owned = await db()
-    .select({ floorPlanCode: schema.interiorUnitGroupFloorplans.floorPlanCode })
-    .from(schema.interiorUnitGroupFloorplans)
-    .where(eq(schema.interiorUnitGroupFloorplans.unitGroupId, d.unitGroupId));
-  const ownedCodes = new Set(owned.map((o) => o.floorPlanCode));
-  if (!d.floorPlanCodes.every((c) => ownedCodes.has(c))) {
-    return { ok: false, error: "A selected floorplan isn't in this group" };
-  }
-  if (d.floorPlanCodes.length === ownedCodes.size) {
-    return { ok: false, error: "That would move every floorplan — rename the group instead" };
-  }
-
-  const [{ maxOrder }] = await db()
-    .select({ maxOrder: sql<number>`coalesce(max(${schema.interiorUnitGroups.sortOrder}), 0)::int` })
-    .from(schema.interiorUnitGroups)
-    .where(eq(schema.interiorUnitGroups.propertyId, d.propertyId));
-
-  const unitGroupId = await db().transaction(async (tx) => {
-    const [row] = await tx
-      .insert(schema.interiorUnitGroups)
-      .values({
-        propertyId: d.propertyId,
-        name: d.name,
-        bedrooms: source.bedrooms,
-        baths: source.baths,
-        sourceBatchId: source.sourceBatchId,
-        sortOrder: maxOrder + 1,
-      })
-      .returning({ id: schema.interiorUnitGroups.id });
-    await tx
-      .update(schema.interiorUnitGroupFloorplans)
-      .set({ unitGroupId: row.id })
-      .where(
-        and(
-          eq(schema.interiorUnitGroupFloorplans.unitGroupId, d.unitGroupId),
-          inArray(schema.interiorUnitGroupFloorplans.floorPlanCode, d.floorPlanCodes),
-        ),
-      );
-    return row.id;
-  });
-
-  await revalidateBudget(d.propertyId);
-  return { ok: true, unitGroupId };
 }
 
 export async function deleteUnitGroup(input: {
