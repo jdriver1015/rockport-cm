@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
@@ -9,11 +9,11 @@ import { AddBudgetLineDialog } from "@/components/add-budget-line-dialog";
 import { BudgetViewSwitch } from "@/components/budget-view-switch";
 import { parseBudgetView } from "@/lib/budget-views";
 import { InteriorBudgetPivot } from "@/components/interior-budget-pivot";
-import { UnitGroupsPanel } from "@/components/unit-groups-panel";
+import { InteriorBudgetToolbar } from "@/components/interior-budget-toolbar";
 import { money, num } from "@/lib/format";
 import { DIVISIONS, divisionLabel } from "@/lib/divisions";
 import { bucketForPhase } from "@/lib/stage-buckets";
-import { computeInteriorBudgetFor } from "@/lib/interior-budget";
+import { computeInteriorBudgetFor, loadFloorplanFacts } from "@/lib/interior-budget";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +156,25 @@ export default async function BudgetPage({
   const interior = await computeInteriorBudgetFor(propertyId);
   const derivedInteriors = interior.hasPlan;
 
+  // Unit groups can only be seeded from a COMMITTED rent roll, so the panel needs to
+  // tell "nothing uploaded" apart from "uploaded but not committed yet" — the two
+  // dead ends have different ways out.
+  const rentRollBatches = await db()
+    .select({ status: schema.rentRollBatches.status })
+    .from(schema.rentRollBatches)
+    .where(
+      and(
+        eq(schema.rentRollBatches.propertyId, propertyId),
+        isNull(schema.rentRollBatches.archivedAt),
+      ),
+    );
+  const rentRoll = {
+    hasCommitted: rentRollBatches.some((b) => b.status === "committed"),
+    pendingCount: rentRollBatches.filter(
+      (b) => b.status === "uploaded" || b.status === "parsing" || b.status === "needs_review",
+    ).length,
+  };
+
   // Every tier the property HAS, not just the ones already planned — `interior.tiers`
   // is derived from the plan rows, so with no plan there is nothing to pick from and
   // no way to start a budget.
@@ -170,6 +189,71 @@ export default async function BudgetPage({
       ),
     )
     .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name));
+
+  // Each renovation type's default pricing, for the inline editor.
+  const tierLineRows = availableTiers.length
+    ? await db()
+        .select({
+          budgetGroupId: schema.budgetGroupLines.budgetGroupId,
+          costCodeId: schema.budgetGroupLines.costCodeId,
+          pricingMethod: schema.budgetGroupLines.pricingMethod,
+          unitPrice: schema.budgetGroupLines.unitPrice,
+          description: schema.budgetGroupLines.description,
+          sortOrder: schema.budgetGroupLines.sortOrder,
+          code: schema.costCodes.code,
+          codeName: schema.costCodes.name,
+          categoryName: schema.costCategories.name,
+        })
+        .from(schema.budgetGroupLines)
+        .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetGroupLines.costCodeId))
+        .innerJoin(
+          schema.costCategories,
+          eq(schema.costCategories.id, schema.costCodes.categoryId),
+        )
+        .where(
+          inArray(
+            schema.budgetGroupLines.budgetGroupId,
+            availableTiers.map((t) => t.id),
+          ),
+        )
+        .orderBy(asc(schema.costCategories.sortOrder), asc(schema.budgetGroupLines.sortOrder))
+    : [];
+
+  const editorTiers = availableTiers.map((t) => ({
+    id: t.id,
+    name: t.name,
+    lines: tierLineRows
+      .filter((l) => l.budgetGroupId === t.id)
+      .map((l) => ({
+        costCodeId: l.costCodeId,
+        code: l.code,
+        // The line's own description wins: cost-code names are chart-global, so a
+        // per-property pricing basis ("Quartz 2cm $35/sf") only lives here.
+        label: l.description ?? l.codeName,
+        categoryName: l.categoryName,
+        pricingMethod: l.pricingMethod,
+        unitPrice: num(l.unitPrice),
+      })),
+  }));
+
+  // Floorplans the wizard can still draw units from, with how much of each is
+  // already committed. Groups are 1:1 with floorplan codes.
+  const plannedByGroup = new Map<number, number>();
+  for (const c of interior.columns) {
+    plannedByGroup.set(c.unitGroupId, (plannedByGroup.get(c.unitGroupId) ?? 0) + c.plannedUnits);
+  }
+  const facts = await loadFloorplanFacts(propertyId);
+  const availableFloorplans = facts
+    .map((f) => {
+      const group = interior.unitGroups.find((g) => g.floorPlanCodes.includes(f.floorPlanCode));
+      return {
+        floorPlanCode: f.floorPlanCode,
+        unitCount: group?.unitCount ?? f.count,
+        avgSqft: group?.avgSqft ?? f.avgSqft,
+        planned: group ? (plannedByGroup.get(group.id) ?? 0) : 0,
+      };
+    })
+    .sort((a, b) => a.floorPlanCode.localeCompare(b.floorPlanCode));
 
   // Build the category → lines tree the view renders. A code appears if it has a
   // hand-entered line OR a plan-derived amount — without the second half, the
@@ -278,26 +362,16 @@ export default async function BudgetPage({
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <BudgetViewSwitch value={view} />
           {view === "interior" ? (
-            <UnitGroupsPanel
+            <InteriorBudgetToolbar
               propertyId={property.id}
-              groups={interior.unitGroups.map((g) => ({
-                id: g.id,
-                name: g.name,
-                bedrooms: g.bedrooms,
-                baths: g.baths,
-                avgSqft: g.avgSqft,
-                unitCount: g.unitCount,
-                countOverridden: g.countOverridden,
-                sqftOverridden: g.sqftOverridden,
-                floorPlanCodes: g.floorPlanCodes,
-              }))}
+              floorplans={availableFloorplans}
+              tiers={availableTiers}
+              editorTiers={editorTiers}
               cmPct={interior.settings.cmPct}
               contingencyPct={interior.settings.contingencyPct}
               cmCostCodeId={interior.settings.cmCostCodeId}
               contingencyCostCodeId={interior.settings.contingencyCostCodeId}
               interiorCodes={interiorCodeChoices}
-              unmappedFloorplans={interior.unmappedFloorplans}
-              tierCount={interior.tiers.length}
             />
           ) : (
             <AddBudgetLineDialog
@@ -336,8 +410,8 @@ export default async function BudgetPage({
                 quantity: c.quantity,
                 pricingMethod: c.pricingMethod,
                 tierUnitPrice: c.tierUnitPrice,
-                pinned: c.pinned,
-                pinNote: c.pinNote,
+                overridden: c.overridden,
+                overrideNote: c.overrideNote,
                 note: c.note,
               }))}
               columns={interior.columns.map((c) => ({
@@ -356,6 +430,9 @@ export default async function BudgetPage({
               contingencyPct={interior.settings.contingencyPct}
               unmappedFloorplans={interior.unmappedFloorplans}
               unattributedProjects={interior.unattributedProjects}
+              propertySlug={property.slug}
+              rentRoll={rentRoll}
+              availableFloorplans={availableFloorplans}
             />
           ) : (
             <>

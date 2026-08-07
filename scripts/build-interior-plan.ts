@@ -53,6 +53,31 @@ const MATCH_PRIOR_UNITS = args.includes("--match-prior-units");
 const money = (n: number) =>
   `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/**
+ * Split `target` whole units across `weights` so the parts sum to `target`
+ * exactly: floor every share, then hand the leftover units to the largest
+ * fractional remainders. Since every group carries the same per-unit total here,
+ * a unit count that ties exactly means the dollar total does too.
+ */
+function apportion(weights: readonly number[], target: number): number[] {
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  if (totalWeight === 0) return weights.map(() => 0);
+
+  const exact = weights.map((w) => (w / totalWeight) * target);
+  const out = exact.map(Math.floor);
+  let leftover = target - out.reduce((s, f) => s + f, 0);
+
+  const byRemainder = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (const { i } of byRemainder) {
+    if (leftover <= 0) break;
+    out[i]++;
+    leftover--;
+  }
+  return out;
+}
+
 async function main() {
   const d = db();
 
@@ -203,22 +228,24 @@ async function main() {
 
   // --- 4. the gate --------------------------------------------------------
   const priorUnits = priorLines[0].plannedUnits ?? rentRollUnitTotal;
-  let plannedFor = (codes: readonly string[]) => countFor(codes);
+  const rentRollCounts = proposed.map((g) => countFor(g.floorPlanCodes));
+  let plannedCounts = rentRollCounts;
   let plannedTotal = rentRollUnitTotal;
 
   if (MATCH_PRIOR_UNITS && priorUnits !== rentRollUnitTotal) {
-    // Distribute the prior budget's unit count across groups pro-rata so the
-    // total ties exactly. Fractional by design.
-    const scale = priorUnits / rentRollUnitTotal;
-    plannedFor = (codes) => roundMoney(countFor(codes) * scale);
+    // Apportion the prior budget's unit count across groups by largest remainder.
+    // Planned units are whole, so scaling each group independently and rounding
+    // would drift off `priorUnits` and fail the penny-exact gate below; the
+    // remainder pass puts the leftover units back one at a time.
+    plannedCounts = apportion(rentRollCounts, priorUnits);
     plannedTotal = priorUnits;
     console.log(
-      `\n--match-prior-units: scaling ${rentRollUnitTotal} rent-roll units to the prior budget's ${priorUnits} (×${scale.toFixed(6)})`,
+      `\n--match-prior-units: apportioning ${rentRollUnitTotal} rent-roll units to the prior budget's ${priorUnits}`,
     );
   }
 
   const expected = roundMoney(
-    proposed.reduce((s, g) => s + roundMoney(perUnitTotal * plannedFor(g.floorPlanCodes)), 0),
+    plannedCounts.reduce((s, units) => s + roundMoney(perUnitTotal * units), 0),
   );
   const delta = roundMoney(expected - priorTotal);
 
@@ -284,7 +311,7 @@ async function main() {
     );
 
     let order = 0;
-    for (const g of proposed) {
+    for (const [gi, g] of proposed.entries()) {
       const [row] = await tx
         .insert(schema.interiorUnitGroups)
         .values({
@@ -309,8 +336,8 @@ async function main() {
         propertyId: property.id,
         unitGroupId: row.id,
         budgetGroupId: tier.id,
-        plannedUnits: plannedFor(g.floorPlanCodes).toFixed(2),
-        note: MATCH_PRIOR_UNITS ? "Scaled to the prior budget's unit count" : null,
+        plannedUnits: plannedCounts[gi],
+        note: MATCH_PRIOR_UNITS ? "Apportioned to the prior budget's unit count" : null,
       });
     }
 

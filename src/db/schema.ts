@@ -705,14 +705,16 @@ export const interiorBudgetPlan = pgTable(
       .notNull()
       .references(() => budgetGroups.id, { onDelete: "cascade" }),
     /**
-     * Fractional on purpose. Penetration is entered as a percentage and lands
-     * on values like 205.1 units; rounding to 205 shifts the budget ~$9k and
-     * breaks the tie to the underwriting model. No penetration column — the
-     * percentage is a UI affordance over this single stored value.
+     * A whole count of units — you cannot renovate half an apartment. This was
+     * fractional originally, so the pro-rata spread could tie to the penny
+     * against the source underwriting workbook (which plans 70% of 293 units as
+     * 205.1); the app now rounds, and so diverges from that workbook by a small
+     * amount. Penetration is DERIVED from this over the group's unit count and is
+     * never stored or entered.
      *
      * No row = tier not offered to this group. 0 = offered, none planned.
      */
-    plannedUnits: numeric("planned_units", { precision: 10, scale: 2 }).notNull().default("0"),
+    plannedUnits: integer("planned_units").notNull().default(0),
     note: text("note"),
   },
   (t) => [

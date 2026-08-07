@@ -38,7 +38,7 @@ export type WizardBudgetLine = {
 export type WizardBudgetGroup = { id: number; name: string; lines: WizardBudgetLine[] };
 export type WizardVendor = { id: number; name: string; trade: string | null };
 
-/** A pivot column group, so a unit can inherit its group's pinned amounts. */
+/** A pivot column group, so a unit can inherit its group's override amounts. */
 export type WizardUnitGroup = {
   id: number;
   name: string;
@@ -82,7 +82,7 @@ const STEPS = ["Unit", "Budget group", "Review budget", "Vendor & dates", "Creat
  * pivot, and the portfolio rollup can never disagree about a number.
  *
  * Pricing uses the ACTUAL unit's metadata (not its group's average) but inherits
- * the group's pinned amounts, so a project's budget matches its pivot cell on
+ * the group's override amounts, so a project's budget matches its pivot cell on
  * every step-priced line while still flexing with the real square footage.
  */
 function generateLines(
@@ -297,7 +297,7 @@ export function InteriorWizard({
               unitGroups.length > 0 && (
                 <p className="text-xs text-amber-700">
                   This unit&apos;s floorplan isn&apos;t in any unit group, so it won&apos;t count toward the
-                  interior plan and won&apos;t inherit pinned amounts.
+                  interior plan and won&apos;t inherit custom overrides.
                 </p>
               )
             )}

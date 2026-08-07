@@ -22,10 +22,11 @@
  * Loading is set-based (`propertyIds[]`) because the portfolio home renders every
  * property at once — a per-property helper would be an N+1.
  */
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { num } from "@/lib/format";
 import { resolveGroupPricing, roundMoney, type PricingMethod, type UnitMeta } from "@/lib/pricing";
+import type { FloorplanFacts } from "@/lib/interior-unit-grouping";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,12 +70,12 @@ export type PivotCell = {
   quantity: number;
   pricingMethod: PricingMethod;
   /**
-   * The tier's stored price for this cost code, before derivation or pinning —
+   * The tier's stored price for this cost code, before derivation or override —
    * what the pivot's cell editor pre-fills when changing the tier price.
    */
   tierUnitPrice: number;
-  pinned: boolean;
-  pinNote: string | null;
+  overridden: boolean;
+  overrideNote: string | null;
   /** Engine warning, e.g. "Unit has no square footage on file". */
   note?: string;
 };
@@ -93,7 +94,7 @@ export type PivotColumn = {
   contingency: number;
   /** GRAND TOTAL per unit. */
   perUnitTotal: number;
-  /** Fractional on purpose (e.g. 205.1). */
+  /** A whole count. Penetration is derived from it, never stored. */
   plannedUnits: number;
   /** perUnitTotal × plannedUnits. */
   totalCost: number;
@@ -129,6 +130,79 @@ export type InteriorBudget = {
 
 const numOrNull = (v: string | number | null | undefined): number | null =>
   v == null ? null : num(v);
+
+/**
+ * Aggregate the latest committed rent roll into per-floorplan facts.
+ *
+ * Lives here rather than beside the actions because it is read by three callers:
+ * the Budget page (to offer floorplans that can still be added), the add-units
+ * action (to size a new column), and unit-group seeding.
+ */
+export async function loadFloorplanFacts(propertyId: number): Promise<FloorplanFacts[]> {
+  const [batch] = await db()
+    .select({ id: schema.rentRollBatches.id })
+    .from(schema.rentRollBatches)
+    .where(
+      and(
+        eq(schema.rentRollBatches.propertyId, propertyId),
+        eq(schema.rentRollBatches.status, "committed"),
+        isNull(schema.rentRollBatches.archivedAt),
+      ),
+    )
+    .orderBy(desc(schema.rentRollBatches.asOfDate), desc(schema.rentRollBatches.createdAt))
+    .limit(1);
+  if (!batch) return [];
+
+  const units = await db()
+    .select({
+      floorPlanCode: schema.rentRollUnits.floorPlanCode,
+      squareFeet: schema.rentRollUnits.squareFeet,
+      beds: schema.rentRollUnits.beds,
+      baths: schema.rentRollUnits.baths,
+    })
+    .from(schema.rentRollUnits)
+    .where(eq(schema.rentRollUnits.batchId, batch.id));
+
+  type Acc = {
+    count: number;
+    sqftTotal: number;
+    sqftCount: number;
+    beds: Map<number, number>;
+    baths: Map<number, number>;
+  };
+  const acc = new Map<string, Acc>();
+  for (const u of units) {
+    const code = u.floorPlanCode ?? "";
+    const a =
+      acc.get(code) ?? { count: 0, sqftTotal: 0, sqftCount: 0, beds: new Map(), baths: new Map() };
+    a.count += 1;
+    if (u.squareFeet != null) {
+      a.sqftTotal += u.squareFeet;
+      a.sqftCount += 1;
+    }
+    if (u.beds != null) a.beds.set(u.beds, (a.beds.get(u.beds) ?? 0) + 1);
+    if (u.baths != null) {
+      const b = num(u.baths);
+      a.baths.set(b, (a.baths.get(b) ?? 0) + 1);
+    }
+    acc.set(code, a);
+  }
+
+  const modeOf = (m: Map<number, number>): number | null => {
+    let best: number | null = null;
+    let bestCount = -1;
+    for (const [v, c] of m) if (c > bestCount) [best, bestCount] = [v, c];
+    return best;
+  };
+
+  return [...acc.entries()].map(([floorPlanCode, a]) => ({
+    floorPlanCode,
+    count: a.count,
+    avgSqft: a.sqftCount > 0 ? Math.round((a.sqftTotal / a.sqftCount) * 100) / 100 : null,
+    bedrooms: modeOf(a.beds),
+    baths: modeOf(a.baths),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Derivation of unit-group metrics
@@ -424,7 +498,7 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
     byCostCode.set(codeId, roundMoney((byCostCode.get(codeId) ?? 0) + amount));
   };
 
-  const pinsForProperty = inputs.pins.filter((p) => p.propertyId === propertyId);
+  const overridesForProperty = inputs.pins.filter((p) => p.propertyId === propertyId);
 
   for (const g of unitGroups) {
     const unit: UnitMeta = { sqft: g.avgSqft, bedrooms: g.bedrooms, baths: g.baths };
@@ -433,11 +507,11 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
       if (!plannedByCell.has(key)) continue; // no plan row = tier not offered here
 
       const lines = linesByTier.get(t.id) ?? [];
-      const pins = pinsForProperty
+      const overrides = overridesForProperty
         .filter((p) => p.budgetGroupId === t.id && p.unitGroupId === g.id)
         .map((p) => ({ costCodeId: p.costCodeId, amount: num(p.amount) }));
-      const pinNoteByCode = new Map(
-        pinsForProperty
+      const overrideNoteByCode = new Map(
+        overridesForProperty
           .filter((p) => p.budgetGroupId === t.id && p.unitGroupId === g.id)
           .map((p) => [p.costCodeId, p.note] as const),
       );
@@ -450,7 +524,7 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
           defaultQuantity: numOrNull(l.defaultQuantity),
         })),
         unit,
-        pins,
+        pins: overrides,
       });
 
       const plannedUnits = plannedByCell.get(key) ?? 0;
@@ -464,8 +538,8 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
           quantity: r.quantity,
           pricingMethod: r.line.pricingMethod,
           tierUnitPrice: r.line.unitPrice,
-          pinned: r.pinned,
-          pinNote: r.pinned ? pinNoteByCode.get(r.line.costCodeId) ?? null : null,
+          overridden: r.pinned,
+          overrideNote: r.pinned ? overrideNoteByCode.get(r.line.costCodeId) ?? null : null,
           note: r.note,
         });
         addCode(r.line.costCodeId, roundMoney(r.total * plannedUnits));

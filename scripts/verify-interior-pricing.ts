@@ -133,8 +133,14 @@ for (const g of UNIT_GROUPS) {
   check(`${g.label} count-weighted avg SF`, Math.round((rsf / count) * 100) / 100, g.expectedAvgSf);
 }
 
-// Penetration → count. Fractional on purpose: rounding 205.1 to 205 shifts the
-// budget ~$9k and breaks the tie to the underwriting model.
+// Penetration → count, AS THE SOURCE WORKBOOK COMPUTES IT. These fractional
+// figures are the record of what Rockport's model says and must not be rounded
+// here.
+//
+// The app itself no longer stores fractional units — penetration is a derived
+// readout over a whole unit count — so it lands ~$9k below these totals on this
+// property. That divergence is deliberate; section [4] asserts the app's integer
+// behaviour, and this section stays as the workbook's own arithmetic.
 check("1BR Enhanced count @ 70%", roundMoney(293 * 0.7), 205.1);
 check("1BR Signature count @ 0%", roundMoney(293 * 0), 0);
 check("1BR Designer count @ 30%", roundMoney(293 * 0.3), 87.9);
@@ -218,8 +224,10 @@ console.log("\n[4] End-to-end: computeInteriorBudget reproduces Aston Post Oak")
       ...TWO_BR.map(([code], i) => ({ id: 50 + i, propertyId: PROP, unitGroupId: 200, floorPlanCode: code })),
     ],
     plan: [
-      { id: 1, propertyId: PROP, unitGroupId: 100, budgetGroupId: TIER, plannedUnits: "205.10", note: null },
-      { id: 2, propertyId: PROP, unitGroupId: 200, budgetGroupId: TIER, plannedUnits: "69.30", note: null },
+      // Whole units — the workbook's 205.1 / 69.3 round to these. See [3] above:
+      // the app diverges from the workbook by design now.
+      { id: 1, propertyId: PROP, unitGroupId: 100, budgetGroupId: TIER, plannedUnits: 205, note: null },
+      { id: 2, propertyId: PROP, unitGroupId: 200, budgetGroupId: TIER, plannedUnits: 69, note: null },
     ],
     tiers: [
       { id: TIER, propertyId: PROP, name: "Enhanced", description: null, sourceTemplateId: null, active: true, sortOrder: 0, createdAt: new Date(), archivedAt: null },
@@ -234,7 +242,7 @@ console.log("\n[4] End-to-end: computeInteriorBudget reproduces Aston Post Oak")
       unitGroupId: 200, amount: l.pin2br!.toFixed(2), note: "GC quote", createdBy: null, createdAt: new Date(),
     })),
     settings: [
-      { propertyId: PROP, cmSupervisionPct: "5.000", contingencyPct: "7.000", cmCostCodeId: 90, contingencyCostCodeId: 91, groupingMode: "beds" as const, sqftBreakpoints: null, updatedAt: new Date() },
+      { propertyId: PROP, cmSupervisionPct: "5.000", contingencyPct: "7.000", cmCostCodeId: 90, contingencyCostCodeId: 91, updatedAt: new Date() },
     ],
     rentRollUnits,
     costCodes: [
@@ -266,25 +274,25 @@ console.log("\n[4] End-to-end: computeInteriorBudget reproduces Aston Post Oak")
   check("1BR Enhanced GRAND TOTAL per unit", col1.perUnitTotal, 6175.68);
   check("2BR Enhanced TOTAL (via pins)", col2.scopeTotal, 6460);
   check("2BR Enhanced GRAND TOTAL per unit", col2.perUnitTotal, 7235.2);
-  check("1BR Enhanced total cost", col1.totalCost, 1266631.97);
-  check("2BR Enhanced total cost", col2.totalCost, 501399.36);
+  check("1BR Enhanced total cost", col1.totalCost, roundMoney(6175.68 * 205));
+  check("2BR Enhanced total cost", col2.totalCost, roundMoney(7235.2 * 69));
 
   // The reconciliation that matters: per-cost-code rollup must equal the Σ of
   // column totals, or the Budget tab's Interiors band won't match the pivot.
   const codeSum = roundMoney([...b.byCostCode.values()].reduce((s, v) => s + v, 0));
   check("Σ byCostCode === Σ column totals", codeSum, b.total);
-  check("interior total", b.total, roundMoney(1266631.97 + 501399.36));
+  check("interior total", b.total, roundMoney(6175.68 * 205 + 7235.2 * 69));
 
   // Uplifts must be attributed to their own cost codes, not left floating.
   const cmDollars = roundMoney(col1.cm * col1.plannedUnits + col2.cm * col2.plannedUnits);
   check("CM attributed to its cost code", b.byCostCode.get(90), cmDollars);
   check("contingency attributed to its cost code", b.byCostCode.get(91), roundMoney(col1.contingency * col1.plannedUnits + col2.contingency * col2.plannedUnits));
 
-  // Pins land only on the group they were written for.
+  // Overrides land only on the group they were written for.
   const cleaning1 = b.cells.find((c) => c.costCodeId === 7 && c.unitGroupId === g1.id)!;
   const cleaning2 = b.cells.find((c) => c.costCodeId === 7 && c.unitGroupId === g2.id)!;
-  check("1BR cleaning derived", [cleaning1.amount, cleaning1.pinned], [200, false]);
-  check("2BR cleaning pinned", [cleaning2.amount, cleaning2.pinned], [375, true]);
+  check("1BR cleaning derived", [cleaning1.amount, cleaning1.overridden], [200, false]);
+  check("2BR cleaning overridden", [cleaning2.amount, cleaning2.overridden], [375, true]);
 
   check("pivot rows grouped by category order", b.rows.map((r) => r.categoryName)[0], "Kitchen & Bathroom");
 }

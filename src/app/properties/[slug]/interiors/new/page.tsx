@@ -121,7 +121,7 @@ export default async function NewInteriorProjectPage({
     .where(eq(schema.vendors.active, true))
     .orderBy(asc(schema.vendors.name));
 
-  // The interior plan supplies two things the wizard needs: the pinned amounts
+  // The interior plan supplies two things the wizard needs: the overridden amounts
   // this unit's group carries (so a created project's budget matches its pivot
   // cell), and how much of each tier is still unstarted.
   const interior = await computeInteriorBudgetFor(propertyId);
@@ -133,7 +133,7 @@ export default async function NewInteriorProjectPage({
     floorPlanCodes: g.floorPlanCodes,
   }));
   const pins: WizardPin[] = interior.cells
-    .filter((c) => c.pinned)
+    .filter((c) => c.overridden)
     .map((c) => ({
       unitGroupId: c.unitGroupId,
       tierId: c.tierId,

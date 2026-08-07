@@ -1,10 +1,15 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, Pin } from "lucide-react";
+import { AlertTriangle, FileSpreadsheet, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AddUnitRenovationWizard,
+  type WizardFloorplan,
+} from "@/components/add-unit-renovation-wizard";
 import {
   Dialog,
   DialogContent,
@@ -16,16 +21,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money, moneyExact } from "@/lib/format";
-import { PRICING_METHOD_LABELS, roundMoney, type PricingMethod } from "@/lib/pricing";
+import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import {
-  clearPin,
-  planTierForAllGroups,
-  upsertPin,
+  clearOverride,
+  removePlanCell,
+  upsertOverride,
   upsertPlanCell,
   updateUpliftRates,
 } from "@/lib/actions/interior-budget-plan";
 import { setTierLinePrice } from "@/lib/actions/budget-groups";
+import { updateUnitGroup } from "@/lib/actions/interior-unit-groups";
 
 // Serializable mirrors of src/lib/interior-budget.ts, flattened for the client.
 export type PivotUnitGroup = {
@@ -50,10 +56,10 @@ export type PivotCellData = {
   amount: number;
   quantity: number;
   pricingMethod: PricingMethod;
-  /** The tier's own price for this cost code, before derivation or pinning. */
+  /** The tier's own price for this cost code, before derivation or override. */
   tierUnitPrice: number;
-  pinned: boolean;
-  pinNote: string | null;
+  overridden: boolean;
+  overrideNote: string | null;
   note?: string;
 };
 export type PivotColumnData = {
@@ -82,6 +88,10 @@ export type InteriorPivotProps = {
   contingencyPct: number;
   unmappedFloorplans: { floorPlanCode: string; unitCount: number }[];
   unattributedProjects: number;
+  propertySlug: string;
+  /** Columns can only be added from a committed rent roll — drives the empty state. */
+  rentRoll: { hasCommitted: boolean; pendingCount: number };
+  availableFloorplans: WizardFloorplan[];
 };
 
 const cellKey = (unitGroupId: number, tierId: number, costCodeId: number) =>
@@ -95,18 +105,19 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
   const {
     propertyId, unitGroups, tiers, availableTiers, rows, cells, columns, total,
     cmPct, contingencyPct, unmappedFloorplans, unattributedProjects,
+    propertySlug, rentRoll, availableFloorplans,
   } = props;
 
   const [showEmpty, setShowEmpty] = useState(false);
   const [ratesOpen, setRatesOpen] = useState(false);
-  const [planTiersOpen, setPlanTiersOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [cellTarget, setCellTarget] = useState<{
     row: PivotRowData;
     cell: PivotCellData;
     groupName: string;
     tierName: string;
     tierUnitPrice: number;
-    rowPinCount: number;
+    rowOverrideCount: number;
     columnCount: number;
   } | null>(null);
   const [planTarget, setPlanTarget] = useState<{
@@ -114,6 +125,9 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
     groupName: string;
     tierName: string;
     unitCount: number;
+    /** Units of this floorplan already committed to its OTHER renovation types. */
+    plannedElsewhere: number;
+    group: PivotUnitGroup;
   } | null>(null);
 
   const cellByKey = useMemo(
@@ -125,13 +139,15 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
     [columns],
   );
 
-  // A column exists only where a plan row does. Zero-penetration columns are
-  // real and must be renderable (their Signature column is an explicit zero),
-  // but hiding them by default keeps the table readable.
+  // Renovation type is the OUTER grouping and floorplan the inner one, so the
+  // type header merges across the floorplans it covers. A column exists only
+  // where a plan row does. Zero-penetration columns are real and must be
+  // renderable (their Signature column is an explicit zero), but hiding them by
+  // default keeps the table readable.
   const visibleColumns = useMemo(() => {
-    const ordered = unitGroups.flatMap((g) =>
-      tiers
-        .map((t) => ({ group: g, tier: t, column: colByKey.get(colKey(g.id, t.id)) }))
+    const ordered = tiers.flatMap((t) =>
+      unitGroups
+        .map((g) => ({ group: g, tier: t, column: colByKey.get(colKey(g.id, t.id)) }))
         .filter((x): x is { group: PivotUnitGroup; tier: PivotTier; column: PivotColumnData } => !!x.column),
     );
     return showEmpty ? ordered : ordered.filter((c) => c.column.plannedUnits > 0);
@@ -139,15 +155,33 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
 
   const hiddenCount = useMemo(() => columns.filter((c) => c.plannedUnits <= 0).length, [columns]);
 
-  const groupSpans = useMemo(() => {
-    const spans: { group: PivotUnitGroup; span: number }[] = [];
+  const tierSpans = useMemo(() => {
+    const spans: { tier: PivotTier; span: number }[] = [];
     for (const c of visibleColumns) {
       const last = spans[spans.length - 1];
-      if (last && last.group.id === c.group.id) last.span++;
-      else spans.push({ group: c.group, span: 1 });
+      if (last && last.tier.id === c.tier.id) last.span++;
+      else spans.push({ tier: c.tier, span: 1 });
     }
     return spans;
   }, [visibleColumns]);
+
+  /**
+   * Floorplans planned past the number of units that actually exist.
+   *
+   * Only reachable through drift — a committed rent roll shrinking a floorplan
+   * under a plan that was legal when written — because `upsertPlanCell` refuses
+   * any edit that would create this. Surfaced rather than blocked, so the way back
+   * into compliance is to edit the numbers down.
+   */
+  const overAllocated = useMemo(() => {
+    const plannedByGroup = new Map<number, number>();
+    for (const c of columns) {
+      plannedByGroup.set(c.unitGroupId, (plannedByGroup.get(c.unitGroupId) ?? 0) + c.plannedUnits);
+    }
+    return unitGroups
+      .map((g) => ({ group: g, planned: plannedByGroup.get(g.id) ?? 0 }))
+      .filter((x) => x.group.unitCount > 0 && x.planned > x.group.unitCount);
+  }, [columns, unitGroups]);
 
   const rowsByCategory = useMemo(() => {
     const out: { category: string; rows: PivotRowData[] }[] = [];
@@ -159,10 +193,27 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
     return out;
   }, [rows]);
 
-  if (unitGroups.length === 0) {
-    return (
-      <EmptyState message="No unit groups yet. Seed them from a committed rent roll to build the interior budget." />
-    );
+  const isCustomByColumn = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const c of visibleColumns) {
+      const k = colKey(c.group.id, c.tier.id);
+      map.set(
+        k,
+        cells.some(
+          (cell) =>
+            cell.unitGroupId === c.group.id &&
+            cell.tierId === c.tier.id &&
+            cell.overridden,
+        ),
+      );
+    }
+    return map;
+  }, [visibleColumns, cells]);
+
+  // Three distinct nothing-yet states, because each has a different way out: get a
+  // rent roll, define a renovation type, or put units into one.
+  if (!rentRoll.hasCommitted) {
+    return <NoRentRollState propertySlug={propertySlug} pendingCount={rentRoll.pendingCount} />;
   }
   if (visibleColumns.length === 0) {
     return (
@@ -170,38 +221,53 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
         <EmptyState
           message={
             availableTiers.length === 0
-              ? "No upgrade tiers exist for this property yet. Create one under Unit Upgrades, then plan units into it."
-              : "No upgrade tiers are planned for any unit group yet. Plan units into a tier to build the budget."
+              ? "No renovation types exist for this property yet. Create one under Unit Upgrades, then add units to it."
+              : "Nothing renovated yet. Add a unit renovation to build the budget."
           }
         />
         {availableTiers.length > 0 && (
           <div className="flex justify-center">
-            <Button size="sm" onClick={() => setPlanTiersOpen(true)}>
-              Plan units into a tier
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
+              <Plus className="size-3.5" />
+              Add unit renovation
             </Button>
           </div>
         )}
         {hiddenCount > 0 && (
           <ShowEmptyToggle showEmpty={showEmpty} hiddenCount={hiddenCount} onToggle={setShowEmpty} />
         )}
-        <PlanTiersDialog
+        <AddUnitRenovationWizard
           propertyId={propertyId}
-          open={planTiersOpen}
-          availableTiers={availableTiers}
-          unitGroups={unitGroups}
-          onClose={() => setPlanTiersOpen(false)}
+          floorplans={availableFloorplans}
+          tiers={availableTiers}
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
         />
       </div>
     );
   }
 
-  const th = "px-2 py-1.5 text-right text-[11px] font-semibold whitespace-nowrap";
   const td = "px-2 py-1.5 text-right tabular-nums whitespace-nowrap";
 
   return (
     <div className="space-y-3">
-      {(unmappedFloorplans.length > 0 || unattributedProjects > 0) && (
+      {(unmappedFloorplans.length > 0 || unattributedProjects > 0 || overAllocated.length > 0) && (
         <div className="space-y-1.5">
+          {overAllocated.length > 0 && (
+            <Warning>
+              {overAllocated.length === 1
+                ? "1 floorplan plans more renovations than it has units"
+                : `${overAllocated.length} floorplans plan more renovations than they have units`}
+              , so this budget overstates cost. Reduce the units planned on:{" "}
+              <span className="font-medium">
+                {overAllocated
+                  .slice(0, 6)
+                  .map((o) => `${o.group.name} (${o.planned} of ${o.group.unitCount})`)
+                  .join(", ")}
+                {overAllocated.length > 6 ? "…" : ""}
+              </span>
+            </Warning>
+          )}
           {unmappedFloorplans.length > 0 && (
             <Warning>
               {unmappedFloorplans.length} floorplan{unmappedFloorplans.length === 1 ? "" : "s"} (
@@ -227,32 +293,54 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
           <thead>
             <tr className="bg-band">
               <th className={cn(STICKY, "bg-band px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-900")}>
-                Item
+                Renovation Type
               </th>
-              {groupSpans.map(({ group, span }) => (
+              {tierSpans.map(({ tier, span }) => (
                 <th
-                  key={group.id}
+                  key={tier.id}
                   colSpan={span}
                   className="border-l border-hairline px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-ink-900"
                 >
+                  {tier.name}
+                </th>
+              ))}
+            </tr>
+            <tr className="bg-band">
+              <th className={cn(STICKY, "bg-band px-2 pb-1.5 text-left text-[11px] uppercase tracking-[0.08em] text-ink-500")}>
+                Floorplan Type
+              </th>
+              {visibleColumns.map(({ group, tier }) => (
+                <th
+                  key={colKey(group.id, tier.id)}
+                  className="border-l border-hairline px-2 pb-1.5 text-center text-[11px] font-semibold whitespace-nowrap text-ink-700"
+                >
                   {group.name}
-                  <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-ink-500">
+                  <div className="mt-0.5 text-[10px] font-normal text-ink-500">
                     {group.avgSqft != null ? `${group.avgSqft.toLocaleString()} SF avg` : "no SF on file"}
-                    {group.sqftOverridden && " (set)"} · {group.unitCount.toLocaleString()} units
-                    {group.countOverridden && " (set)"}
+                    {group.sqftOverridden && " (set)"}
                   </div>
                 </th>
               ))}
             </tr>
             <tr className="bg-band">
-              <th className={cn(STICKY, "bg-band px-2 pb-1.5 text-left text-[11px] text-ink-500")}>
-                Cost code
-              </th>
-              {visibleColumns.map(({ group, tier }) => (
-                <th key={colKey(group.id, tier.id)} className={cn(th, "border-l border-hairline text-ink-700")}>
-                  {tier.name}
-                </th>
-              ))}
+              <th className={cn(STICKY, "bg-band px-2 pb-1 text-left text-[11px] text-ink-500")} />
+              {visibleColumns.map(({ group, tier }) => {
+                const custom = isCustomByColumn.get(colKey(group.id, tier.id));
+                return (
+                  <th key={colKey(group.id, tier.id)} className="border-l border-hairline px-2 pb-1 text-center">
+                    <span
+                      className={cn(
+                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
+                        custom
+                          ? "bg-blue-50 text-blue-700 border border-blue-200"
+                          : "text-ink-400 border border-hairline",
+                      )}
+                    >
+                      {custom ? "Custom" : "Default"}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
@@ -288,14 +376,11 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                                 groupName: group.name,
                                 tierName: tier.name,
                                 tierUnitPrice: cell.tierUnitPrice,
-                                // How many cells on this row are pinned, so the
-                                // dialog can warn that a tier price change won't
-                                // move them.
-                                rowPinCount: cells.filter(
+                                rowOverrideCount: cells.filter(
                                   (c) =>
                                     c.tierId === tier.id &&
                                     c.costCodeId === row.costCodeId &&
-                                    c.pinned,
+                                    c.overridden,
                                 ).length,
                                 columnCount: visibleColumns.filter(
                                   (c) => c.tier.id === tier.id,
@@ -317,7 +402,7 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
               label="TOTAL"
               bold
               columns={visibleColumns}
-              value={(c) => moneyExact(c.scopeTotal)}
+              value={(c) => money(c.scopeTotal)}
             />
             <FooterRow
               label="CM / Supervision"
@@ -325,7 +410,7 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                 <RateButton pct={cmPct} onClick={() => setRatesOpen(true)} />
               }
               columns={visibleColumns}
-              value={(c) => moneyExact(c.cm)}
+              value={(c) => money(c.cm)}
             />
             <FooterRow
               label="Contingency"
@@ -333,14 +418,14 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                 <RateButton pct={contingencyPct} onClick={() => setRatesOpen(true)} />
               }
               columns={visibleColumns}
-              value={(c) => moneyExact(c.contingency)}
+              value={(c) => money(c.contingency)}
             />
             <FooterRow
               label="GRAND TOTAL / unit"
               bold
               band
               columns={visibleColumns}
-              value={(c) => moneyExact(c.perUnitTotal)}
+              value={(c) => money(c.perUnitTotal)}
             />
             <FooterRow
               label="Penetration"
@@ -362,6 +447,12 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                   groupName: group.name,
                   tierName: tier.name,
                   unitCount: group.unitCount,
+                  // From `columns`, not `visibleColumns` — a hidden zero-unit column
+                  // is still a real allocation.
+                  plannedElsewhere: columns
+                    .filter((x) => x.unitGroupId === group.id && x.tierId !== tier.id)
+                    .reduce((s, x) => s + x.plannedUnits, 0),
+                  group,
                 })
               }
               value={(c) => c.plannedUnits.toLocaleString()}
@@ -386,7 +477,7 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                 colSpan={visibleColumns.length}
                 className="px-2 py-2 text-right font-bold tabular-nums text-ink-900"
               >
-                {moneyExact(total)}
+                {money(total)}
               </td>
             </tr>
           </tfoot>
@@ -395,30 +486,30 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] text-ink-500">
-          Click any cell to change that tier&apos;s price for the row, or to pin a negotiated amount for
-          one unit group. Pinned cells show{" "}
-          <Pin className="inline size-3 -translate-y-px text-link" /> and ignore the pricing method.
-          Everything else derives from the tier&apos;s pricing against the group&apos;s average SF.
+          Click any cell to change the default price or set a custom override.
+          Cells with a custom amount are highlighted; everything else derives from the
+          renovation type&apos;s pricing.
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {hiddenCount > 0 && (
             <ShowEmptyToggle showEmpty={showEmpty} hiddenCount={hiddenCount} onToggle={setShowEmpty} />
           )}
           {availableTiers.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => setPlanTiersOpen(true)}>
-              Plan a tier
+            <Button size="sm" variant="outline" onClick={() => setWizardOpen(true)}>
+              <Plus className="size-3.5" />
+              Add units
             </Button>
           )}
         </div>
       </div>
 
       <CellDialog propertyId={propertyId} target={cellTarget} onClose={() => setCellTarget(null)} />
-      <PlanTiersDialog
+      <AddUnitRenovationWizard
         propertyId={propertyId}
-        open={planTiersOpen}
-        availableTiers={availableTiers}
-        unitGroups={unitGroups}
-        onClose={() => setPlanTiersOpen(false)}
+        floorplans={availableFloorplans}
+        tiers={availableTiers}
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
       />
       <RatesDialog
         propertyId={propertyId}
@@ -434,8 +525,135 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Unit count and average SF normally derive from the rent roll and must not be
+ * typed in. These overrides exist for pre-acquisition underwriting where there is
+ * no rent roll yet — and avg SF is the multiplier for every per-square-foot line,
+ * so losing the ability to set it would break that case entirely. Tucked away
+ * because reaching for it is almost always a mistake.
+ */
+function FloorplanOverrides({
+  propertyId,
+  group,
+}: {
+  propertyId: number;
+  group: PivotUnitGroup;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const numOrUndef = (k: string) => {
+      const v = String(fd.get(k) ?? "").trim();
+      return v === "" ? undefined : Number(v);
+    };
+    setBusy(true);
+    try {
+      const result = await updateUnitGroup({
+        id: group.id,
+        propertyId,
+        name: group.name,
+        unitCountOverride: numOrUndef("unitCount"),
+        avgSqftOverride: numOrUndef("avgSqft"),
+      });
+      if (!result.ok) return toast.error(result.error);
+      toast.success("Floorplan updated");
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="rounded-md border border-hairline">
+      <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold text-ink-700">
+        Override {group.name} unit count or size
+      </summary>
+      <form className="space-y-3 border-t border-hairline px-3 py-3" onSubmit={handleSubmit}>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="fo-count">Unit count</Label>
+            <Input
+              id="fo-count"
+              name="unitCount"
+              type="number"
+              min="0"
+              step="1"
+              defaultValue={group.countOverridden ? group.unitCount : ""}
+              placeholder={`${group.unitCount} from rent roll`}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fo-sqft">Avg SF</Label>
+            <Input
+              id="fo-sqft"
+              name="avgSqft"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={group.sqftOverridden ? (group.avgSqft ?? "") : ""}
+              placeholder={group.avgSqft != null ? `${group.avgSqft} from rent roll` : "none on file"}
+            />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Leave blank to keep deriving from the rent roll. Average SF prices every per-square-foot
+          line, so an override here changes this floorplan&apos;s whole column.
+        </p>
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={busy}>
+            Save
+          </Button>
+        </div>
+      </form>
+    </details>
+  );
+}
+
 function EmptyState({ message }: { message: string }) {
   return <p className="py-10 text-center text-sm text-muted-foreground">{message}</p>;
+}
+
+/**
+ * Where the interior budget starts for a property with nothing to draw from.
+ *
+ * Floorplans come from a COMMITTED rent roll, so a batch sitting in review is a
+ * different dead end from no batch at all — one needs finishing, the other needs a
+ * file. Both resolve on the rent rolls page, which owns the whole upload → review
+ * → commit workflow.
+ */
+function NoRentRollState({
+  propertySlug,
+  pendingCount,
+}: {
+  propertySlug: string;
+  pendingCount: number;
+}) {
+  const pending = pendingCount > 0;
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+      <FileSpreadsheet className="size-7 text-ink-400" />
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-navy">
+          {pending ? "Rent roll not committed yet" : "No rent roll uploaded yet"}
+        </p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          {pending
+            ? `${pendingCount} rent roll${pendingCount === 1 ? "" : "s"} uploaded but not committed. Floorplans come from a committed snapshot — finish the review to renovate units.`
+            : "Renovations are planned against the floorplans on a committed rent roll. Upload one to build the interior budget."}
+        </p>
+      </div>
+      <Button
+        size="sm"
+        render={<Link href={`/properties/${propertySlug}/rent-rolls`} />}
+        nativeButton={false}
+      >
+        {pending ? "Finish rent roll review" : "Upload a rent roll"}
+      </Button>
+    </div>
+  );
 }
 
 function Warning({ children }: { children: React.ReactNode }) {
@@ -468,8 +686,8 @@ function CellButton({ cell, onClick }: { cell: PivotCellData | undefined; onClic
   if (!cell) return <span className="block px-2 py-1.5 text-ink-200">—</span>;
 
   const basis =
-    cell.pinned
-      ? `Pinned${cell.pinNote ? ` — ${cell.pinNote}` : ""}`
+    cell.overridden
+      ? `Custom${cell.overrideNote ? ` — ${cell.overrideNote}` : ""}`
       : `${PRICING_METHOD_LABELS[cell.pricingMethod]}${
           cell.quantity !== 1 ? ` · qty ${cell.quantity.toLocaleString()}` : ""
         }`;
@@ -480,14 +698,13 @@ function CellButton({ cell, onClick }: { cell: PivotCellData | undefined; onClic
       onClick={onClick}
       title={`${moneyExact(cell.amount)} · ${basis}${cell.note ? ` · ${cell.note}` : ""}`}
       className={cn(
-        "block w-full px-2 py-1.5 text-right tabular-nums transition-colors hover:bg-hover",
-        // Blue for a pinned value, mirroring a financial model's input convention.
-        cell.pinned ? "font-semibold text-link" : "text-ink-500",
-        cell.note && !cell.pinned && "text-alert",
+        "block w-full px-2 py-1.5 text-right tabular-nums transition-colors",
+        "hover:bg-blue-50/80",
+        cell.overridden ? "bg-blue-50/60 text-ink-700" : "text-ink-500",
+        cell.note && !cell.overridden && "text-alert",
       )}
     >
       {money(cell.amount)}
-      {cell.pinned && <Pin className="ml-1 inline size-2.5 -translate-y-px" />}
     </button>
   );
 }
@@ -575,19 +792,6 @@ function FooterRow({
 
 // ---------------------------------------------------------------------------
 
-/**
- * Editing a cell means one of two quite different things, so the dialog makes the
- * user choose rather than guessing:
- *
- *  - **Set the tier's price** — the common edit. Moves this row in every unit
- *    group's column at once.
- *  - **Pin this one cell** — the escape hatch for a negotiated amount that only
- *    applies to one unit group.
- *
- * Defaulting to the tier price matters: if a bare edit silently pinned, a
- * property would accumulate pins everywhere and lose the benefit of derived
- * pricing entirely.
- */
 function CellDialog({
   propertyId,
   target,
@@ -600,7 +804,7 @@ function CellDialog({
     groupName: string;
     tierName: string;
     tierUnitPrice: number;
-    rowPinCount: number;
+    rowOverrideCount: number;
     columnCount: number;
   } | null;
   onClose: () => void;
@@ -609,12 +813,11 @@ function CellDialog({
   const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState<"tier" | "cell">("tier");
 
-  // Pinned cells start on the pin tab — that's the thing the user came to change.
   const key = target ? `${target.cell.tierId}:${target.cell.costCodeId}:${target.cell.unitGroupId}` : "";
   const [lastKey, setLastKey] = useState("");
   if (target && key !== lastKey) {
     setLastKey(key);
-    setScope(target.cell.pinned ? "cell" : "tier");
+    setScope(target.cell.overridden ? "cell" : "tier");
   }
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
@@ -644,19 +847,19 @@ function CellDialog({
           costCodeId: target.cell.costCodeId,
           unitPrice: value,
         });
-        if (r.ok && r.pinnedCells > 0) {
+        if (r.ok && r.overriddenCells > 0) {
           toast.info(
-            `${r.pinnedCells} pinned cell${r.pinnedCells === 1 ? "" : "s"} on this row keep their own amount`,
+            `${r.overriddenCells} custom override${r.overriddenCells === 1 ? "" : "s"} on this row keep their amounts`,
           );
         }
         return r;
-      }, `${target.tierName} price updated`);
+      }, `${target.tierName} default updated`);
       return;
     }
 
     await run(
       () =>
-        upsertPin({
+        upsertOverride({
           propertyId,
           budgetGroupId: target.cell.tierId,
           costCodeId: target.cell.costCodeId,
@@ -664,7 +867,7 @@ function CellDialog({
           amount: value,
           note: String(fd.get("note") ?? "") || undefined,
         }),
-      `Pinned for ${target.groupName}`,
+      `Custom override saved for ${target.groupName}`,
     );
   }
 
@@ -680,9 +883,9 @@ function CellDialog({
               <DialogTitle>{target.row.label}</DialogTitle>
               <DialogDescription>
                 {target.tierName} · {target.groupName} · currently{" "}
-                {target.cell.pinned ? "pinned at " : "deriving "}
+                {target.cell.overridden ? "custom at " : "default "}
                 {moneyExact(target.cell.amount)}
-                {!target.cell.pinned && isRate && ` from ${methodLabel.toLowerCase()}`}
+                {!target.cell.overridden && isRate && ` from ${methodLabel.toLowerCase()}`}
               </DialogDescription>
             </DialogHeader>
 
@@ -690,18 +893,18 @@ function CellDialog({
               <ScopeChoice
                 checked={scope === "tier"}
                 onSelect={() => setScope("tier")}
-                title={`Set the ${target.tierName} price`}
+                title={`Change the ${target.tierName} default`}
                 detail={
                   target.columnCount > 1
-                    ? `Moves this row for all ${target.columnCount} unit groups on this tier.`
-                    : "Moves this row wherever this tier is planned."
+                    ? `Updates this row for all ${target.columnCount} floorplans on this tier.`
+                    : "Updates this row wherever this tier is planned."
                 }
               />
               <ScopeChoice
                 checked={scope === "cell"}
                 onSelect={() => setScope("cell")}
-                title={`Pin just ${target.groupName}`}
-                detail="A negotiated amount for this one cell. Overrides the pricing method here only."
+                title={`Custom override for ${target.groupName}`}
+                detail="A negotiated amount for this cell only. Ignores the default pricing."
               />
             </div>
 
@@ -711,8 +914,8 @@ function CellDialog({
                   {scope === "tier"
                     ? isRate
                       ? `${methodLabel} rate ($)`
-                      : "Price per unit ($)"
-                    : "Amount ($)"}
+                      : "Default price ($)"
+                    : "Override amount ($)"}
                 </Label>
                 <Input
                   id="cell-amount"
@@ -731,33 +934,33 @@ function CellDialog({
                 <p className="text-[11px] text-muted-foreground">
                   {scope === "tier"
                     ? isRate
-                      ? `A ${methodLabel.toLowerCase()} rate — each group's cell is this × its own quantity.`
-                      : "A flat amount every unit group on this tier gets."
+                      ? `A ${methodLabel.toLowerCase()} rate — each floorplan's cell is this × its own quantity.`
+                      : "A flat amount every floorplan on this tier gets."
                     : "A finished total for this cell, not a rate — it is never multiplied by square footage."}
                 </p>
               </div>
 
               {scope === "cell" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="cell-note">Why</Label>
+                  <Label htmlFor="cell-note">Reason</Label>
                   <Input
                     id="cell-note"
                     name="note"
-                    defaultValue={target.cell.pinNote ?? ""}
+                    defaultValue={target.cell.overrideNote ?? ""}
                     placeholder="GC quote 6/12"
                   />
                 </div>
               )}
 
-              {scope === "tier" && target.rowPinCount > 0 && (
+              {scope === "tier" && target.rowOverrideCount > 0 && (
                 <p className="rounded border border-hairline bg-alert-bg px-2 py-1.5 text-[11px] text-ink-700">
-                  {target.rowPinCount} cell{target.rowPinCount === 1 ? "" : "s"} on this row{" "}
-                  {target.rowPinCount === 1 ? "is" : "are"} pinned and will not move.
+                  {target.rowOverrideCount} cell{target.rowOverrideCount === 1 ? "" : "s"} on this row{" "}
+                  {target.rowOverrideCount === 1 ? "has a" : "have"} custom override{target.rowOverrideCount === 1 ? "" : "s"} and will not change.
                 </p>
               )}
 
               <DialogFooter className="gap-2 sm:justify-between">
-                {target.cell.pinned ? (
+                {target.cell.overridden ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -766,23 +969,23 @@ function CellDialog({
                     onClick={() =>
                       run(
                         () =>
-                          clearPin({
+                          clearOverride({
                             propertyId,
                             budgetGroupId: target.cell.tierId,
                             costCodeId: target.cell.costCodeId,
                             unitGroupId: target.cell.unitGroupId,
                           }),
-                        "Pin cleared — cell derives again",
+                        "Override removed — cell uses default pricing",
                       )
                     }
                   >
-                    Clear pin
+                    Revert to default
                   </Button>
                 ) : (
                   <span />
                 )}
                 <Button type="submit" disabled={busy}>
-                  {busy ? "Saving…" : scope === "tier" ? "Update tier price" : "Pin this cell"}
+                  {busy ? "Saving…" : scope === "tier" ? "Update default" : "Save override"}
                 </Button>
               </DialogFooter>
             </form>
@@ -917,117 +1120,6 @@ function ScopeChoice({
   );
 }
 
-/**
- * Lay down the starting grid: offer one tier to every unit group at a single
- * penetration. With one column per floorplan a property can have 20+ groups, so
- * creating plan rows one cell at a time isn't viable — and until a plan row
- * exists there is no column to click, which is the deadlock this resolves.
- */
-function PlanTiersDialog({
-  propertyId,
-  open,
-  availableTiers,
-  unitGroups,
-  onClose,
-}: {
-  propertyId: number;
-  open: boolean;
-  availableTiers: PivotTier[];
-  unitGroups: PivotUnitGroup[];
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [tierId, setTierId] = useState<string>("");
-  const [pct, setPct] = useState("100");
-
-  const totalUnits = unitGroups.reduce((s, g) => s + g.unitCount, 0);
-  const parsedPct = Number(pct);
-  const validPct = Number.isFinite(parsedPct) && parsedPct >= 0 && parsedPct <= 100;
-  const affectedUnits = validPct ? roundMoney(totalUnits * (parsedPct / 100)) : 0;
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const result = await planTierForAllGroups({
-        propertyId,
-        budgetGroupId: Number(tierId),
-        penetrationPct: parsedPct,
-      });
-      if (!result.ok) return toast.error(result.error);
-      toast.success(`Planned across ${result.groups} unit group${result.groups === 1 ? "" : "s"}`);
-      onClose();
-      router.refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose();
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Plan units into a tier</DialogTitle>
-          <DialogDescription>
-            Offers the tier to all {unitGroups.length} unit group
-            {unitGroups.length === 1 ? "" : "s"} at one penetration. Tune each column afterwards from
-            the Units planned row.
-          </DialogDescription>
-        </DialogHeader>
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="space-y-1.5">
-            <Label htmlFor="plan-tier">Upgrade tier</Label>
-            <select
-              id="plan-tier"
-              value={tierId}
-              onChange={(e) => setTierId(e.target.value)}
-              required
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <option value="" disabled>
-                Select…
-              </option>
-              {availableTiers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="plan-all-pct">Penetration (%)</Label>
-            <Input
-              id="plan-all-pct"
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              value={pct}
-              onChange={(e) => setPct(e.target.value)}
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {validPct
-              ? `${affectedUnits.toLocaleString()} of ${totalUnits.toLocaleString()} units across the property. Fractional values are expected.`
-              : "Enter a penetration between 0 and 100."}
-          </p>
-          <DialogFooter>
-            <Button type="submit" disabled={busy || !tierId || !validPct}>
-              {busy ? "Planning…" : "Plan tier"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function PlanDialog({
   propertyId,
   target,
@@ -1039,6 +1131,8 @@ function PlanDialog({
     groupName: string;
     tierName: string;
     unitCount: number;
+    plannedElsewhere: number;
+    group: PivotUnitGroup;
   } | null;
   onClose: () => void;
 }) {
@@ -1046,10 +1140,36 @@ function PlanDialog({
   const [busy, setBusy] = useState(false);
   const [units, setUnits] = useState("");
 
-  // Two linked inputs over ONE stored value: editing either updates plannedUnits.
-  const current = target ? (units === "" ? target.column.plannedUnits : Number(units)) : 0;
+  // Seed the field from the cell each time the dialog opens, rather than falling
+  // back to the stored value whenever the box is empty — that made the digits snap
+  // back the moment you cleared them, so the number couldn't be retyped.
+  const key = target ? `${target.column.unitGroupId}:${target.column.tierId}` : "";
+  const [lastKey, setLastKey] = useState("");
+  if (target && key !== lastKey) {
+    setLastKey(key);
+    setUnits(String(target.column.plannedUnits));
+  }
+
+  // Units are the only input; penetration is read out of them. A whole count is
+  // the real quantity — half a renovated apartment doesn't exist.
+  const current = Number(units);
+  const valid = units.trim() !== "" && Number.isInteger(current) && current >= 0;
+
+  // Capacity is the floorplan's units MINUS whatever its other renovation types
+  // already claim: 30 units in two types on a 49-unit floorplan is legal per cell
+  // and impossible in total. A unit count of 0 means no rent-roll basis to check
+  // against (pre-acquisition), so it isn't enforced.
+  const stored = target?.column.plannedUnits ?? 0;
+  const remaining =
+    target && target.unitCount > 0 ? target.unitCount - target.plannedElsewhere : null;
+  // Only an INCREASE past capacity is refused, so an already-over cell can always
+  // be edited back down — rent-roll drift must never lock the number.
+  const overCapacity = valid && remaining != null && current > remaining && current > stored;
+
   const pct =
-    target && target.unitCount > 0 ? Math.round((current / target.unitCount) * 1000) / 10 : 0;
+    target && target.unitCount > 0 && valid
+      ? Math.round((current / target.unitCount) * 1000) / 10
+      : null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1076,7 +1196,9 @@ function PlanDialog({
       open={target != null}
       onOpenChange={(open) => {
         if (!open) {
-          setUnits("");
+          // Clearing lastKey makes the next open re-seed from the cell, so an
+          // abandoned edit isn't still sitting there.
+          setLastKey("");
           onClose();
         }
       }}
@@ -1090,51 +1212,75 @@ function PlanDialog({
               </DialogTitle>
               <DialogDescription>
                 How many of this group&apos;s {target.unitCount.toLocaleString()} units get this tier.
-                Fractional values are expected — a 70% penetration of 293 units is 205.1.
               </DialogDescription>
             </DialogHeader>
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="plan-units">Units</Label>
-                  <Input
-                    id="plan-units"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={units === "" ? target.column.plannedUnits : units}
-                    onChange={(e) => setUnits(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="plan-pct">Penetration (%)</Label>
-                  <Input
-                    id="plan-pct"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={pct}
-                    onChange={(e) =>
-                      setUnits(
-                        String(
-                          Math.round((Number(e.target.value) / 100) * target.unitCount * 100) / 100,
-                        ),
-                      )
-                    }
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="plan-units">Units</Label>
+                <Input
+                  id="plan-units"
+                  type="number"
+                  min="0"
+                  max={target.unitCount}
+                  step="1"
+                  value={units}
+                  onChange={(e) => setUnits(e.target.value)}
+                />
+                <p className={cn("text-[11px]", overCapacity ? "text-alert" : "text-muted-foreground")}>
+                  {!valid
+                    ? "Enter a whole number of units."
+                    : overCapacity
+                      ? target.plannedElsewhere > 0
+                        ? `Only ${remaining!.toLocaleString()} of this floorplan's ${target.unitCount.toLocaleString()} units are unplanned — ${target.plannedElsewhere.toLocaleString()} are in other renovation types.`
+                        : `Only ${target.unitCount.toLocaleString()} units in this floorplan.`
+                      : `${pct}% penetration of ${target.unitCount.toLocaleString()} units.` +
+                        (target.plannedElsewhere > 0
+                          ? ` ${target.plannedElsewhere.toLocaleString()} in other renovation types.`
+                          : "")}
+                </p>
               </div>
               <p className="text-[11px] text-muted-foreground">
                 {target.column.actualUnits > 0
                   ? `${target.column.actualUnits} unit${target.column.actualUnits === 1 ? "" : "s"} already started on this tier.`
                   : "No units started on this tier yet."}
               </p>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={busy}>
+
+              <div className="flex items-center justify-between gap-3">
+                {/* The only way to take a floorplan back off the budget now that unit
+                    groups aren't user-managed. Drops the column; overrides survive in
+                    case the floorplan is added back. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const result = await removePlanCell({
+                        propertyId,
+                        unitGroupId: target.column.unitGroupId,
+                        budgetGroupId: target.column.tierId,
+                      });
+                      if (!result.ok) return toast.error(result.error);
+                      toast.success(`Removed ${target.groupName} from ${target.tierName}`);
+                      onClose();
+                      router.refresh();
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="text-destructive hover:text-destructive"
+                >
+                  Remove column
+                </Button>
+                <Button type="submit" disabled={busy || !valid || overCapacity}>
                   {busy ? "Saving…" : "Save plan"}
                 </Button>
               </div>
             </form>
+
+            <FloorplanOverrides propertyId={propertyId} group={target.group} />
           </>
         )}
       </DialogContent>

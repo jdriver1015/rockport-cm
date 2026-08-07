@@ -158,7 +158,7 @@ export async function updateGroup(input: {
 export async function duplicateGroup(input: {
   id: number;
   propertyId: number;
-}): Promise<ActionResult<{ groupId: number; pinsCopied: number }>> {
+}): Promise<ActionResult<{ groupId: number; overridesCopied: number }>> {
   const source = await db().query.budgetGroups.findFirst({
     where: eq(schema.budgetGroups.id, input.id),
   });
@@ -195,18 +195,15 @@ export async function duplicateGroup(input: {
     );
   }
 
-  // Carry the interior-budget pins across too. Duplicating a tier is the usual
-  // way a second tier gets created (Enhanced → Signature), and pins are
-  // negotiated prices — losing them silently would be the worst kind of quiet
-  // data loss. Pins are keyed by (tier, cost code, unit group), so the copy just
-  // re-points the tier.
-  const pins = await db()
+  // Carry custom overrides across too — losing negotiated prices silently would
+  // be quiet data loss.
+  const existingOverrides = await db()
     .select()
     .from(schema.interiorBudgetLineOverrides)
     .where(eq(schema.interiorBudgetLineOverrides.budgetGroupId, input.id));
-  if (pins.length > 0) {
+  if (existingOverrides.length > 0) {
     await db().insert(schema.interiorBudgetLineOverrides).values(
-      pins.map((p) => ({
+      existingOverrides.map((p) => ({
         propertyId: p.propertyId,
         budgetGroupId: group.id,
         costCodeId: p.costCodeId,
@@ -219,7 +216,7 @@ export async function duplicateGroup(input: {
   }
 
   await revalidateGroups(source.propertyId);
-  return { ok: true, groupId: group.id, pinsCopied: pins.length };
+  return { ok: true, groupId: group.id, overridesCopied: existingOverrides.length };
 }
 
 export async function archiveGroup(input: { id: number; propertyId: number }): Promise<ActionResult> {
@@ -331,17 +328,16 @@ export async function updateGroupLine(formData: FormData): Promise<ActionResult>
  * than line id so the budget pivot can call it straight from a cell.
  *
  * This is the *common* edit — it moves every unit group's cell for that row.
- * Pinning one cell is the rarer escape hatch and lives in the interior plan
- * actions. Existing pins deliberately survive and keep winning; the pivot warns
- * when a row is pinned everywhere so a price change with no visible effect is
- * explainable.
+ * Custom overrides deliberately survive and keep winning; the pivot warns
+ * when a row is overridden everywhere so a price change with no visible effect
+ * is explainable.
  */
 export async function setTierLinePrice(input: {
   propertyId: number;
   budgetGroupId: number;
   costCodeId: number;
   unitPrice: number;
-}): Promise<ActionResult<{ pinnedCells: number }>> {
+}): Promise<ActionResult<{ overriddenCells: number }>> {
   const propertyId = Number(input.propertyId);
   const budgetGroupId = Number(input.budgetGroupId);
   const costCodeId = Number(input.costCodeId);
@@ -372,10 +368,8 @@ export async function setTierLinePrice(input: {
     .set({ unitPrice: unitPrice.toFixed(2) })
     .where(eq(schema.budgetGroupLines.id, line.id));
 
-  // Report how many cells on this row are pinned, so the caller can say "3 cells
-  // stay at their pinned amounts" instead of the change appearing to do nothing.
-  const [{ pinnedCells }] = await db()
-    .select({ pinnedCells: sql<number>`count(*)::int` })
+  const [{ overriddenCells }] = await db()
+    .select({ overriddenCells: sql<number>`count(*)::int` })
     .from(schema.interiorBudgetLineOverrides)
     .where(
       and(
@@ -387,7 +381,90 @@ export async function setTierLinePrice(input: {
   await revalidateGroups(propertyId);
   const budgetPath = await propertyPath(propertyId, "/budget");
   if (budgetPath) revalidatePath(budgetPath);
-  return { ok: true, pinnedCells };
+  return { ok: true, overriddenCells };
+}
+
+const tierDefaultsSchema = z.object({
+  propertyId: z.coerce.number().int().positive(),
+  budgetGroupId: z.coerce.number().int().positive(),
+  lines: z
+    .array(
+      z.object({
+        costCodeId: z.coerce.number().int().positive(),
+        /**
+         * Only the two bases the inline editor offers. A line using one of the
+         * other pricing methods is shown read-only there and never round-trips
+         * through here, so an exotic method can't be flattened to `fixed` by
+         * someone editing an unrelated row.
+         */
+        pricingMethod: z.enum(["fixed", "sqft"]),
+        unitPrice: z.coerce.number().nonnegative("Price must be zero or more"),
+      }),
+    )
+    .min(1, "Nothing to save"),
+});
+
+/**
+ * Save a renovation type's default pricing in one pass — the amount and the
+ * fixed-vs-per-square-foot basis for each of its cost codes.
+ *
+ * These defaults flow to every floorplan planned into the type EXCEPT cells with
+ * a custom override, which are per-cell negotiated amounts and deliberately
+ * immune. The returned `overriddenCells` count lets the caller say so, rather
+ * than leaving an edit looking like it did nothing.
+ */
+export async function updateTierDefaults(
+  input: z.input<typeof tierDefaultsSchema>,
+): Promise<ActionResult<{ updated: number; overriddenCells: number }>> {
+  const parsed = tierDefaultsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
+
+  const tier = await db().query.budgetGroups.findFirst({
+    where: eq(schema.budgetGroups.id, d.budgetGroupId),
+    columns: { propertyId: true },
+  });
+  if (!tier || tier.propertyId !== d.propertyId) {
+    return { ok: false, error: "Renovation type not found for this property" };
+  }
+
+  const existing = await db()
+    .select({ id: schema.budgetGroupLines.id, costCodeId: schema.budgetGroupLines.costCodeId })
+    .from(schema.budgetGroupLines)
+    .where(eq(schema.budgetGroupLines.budgetGroupId, d.budgetGroupId));
+  const idByCode = new Map(existing.map((l) => [l.costCodeId, l.id]));
+
+  const unknown = d.lines.filter((l) => !idByCode.has(l.costCodeId));
+  if (unknown.length > 0) {
+    return { ok: false, error: "A line no longer exists on this renovation type — reload and retry." };
+  }
+
+  await db().transaction(async (tx) => {
+    for (const l of d.lines) {
+      await tx
+        .update(schema.budgetGroupLines)
+        .set({ pricingMethod: l.pricingMethod, unitPrice: l.unitPrice.toFixed(2) })
+        .where(eq(schema.budgetGroupLines.id, idByCode.get(l.costCodeId)!));
+    }
+  });
+
+  const [{ overriddenCells }] = await db()
+    .select({ overriddenCells: sql<number>`count(*)::int` })
+    .from(schema.interiorBudgetLineOverrides)
+    .where(
+      and(
+        eq(schema.interiorBudgetLineOverrides.budgetGroupId, d.budgetGroupId),
+        inArray(
+          schema.interiorBudgetLineOverrides.costCodeId,
+          d.lines.map((l) => l.costCodeId),
+        ),
+      ),
+    );
+
+  await revalidateGroups(d.propertyId);
+  const budgetPath = await propertyPath(d.propertyId, "/budget");
+  if (budgetPath) revalidatePath(budgetPath);
+  return { ok: true, updated: d.lines.length, overriddenCells };
 }
 
 export async function deleteGroupLine(input: {
@@ -401,11 +478,8 @@ export async function deleteGroupLine(input: {
   });
   if (!line) return { ok: false, error: "Budget line not found" };
 
-  // Pins are keyed on (tier, cost code, unit group), not on the line id, so they
-  // survive this delete and would silently reattach if the same cost code were
-  // added back. Say so rather than letting a stale negotiated price reappear.
-  const [{ pinCount }] = await db()
-    .select({ pinCount: sql<number>`count(*)::int` })
+  const [{ overrideCount }] = await db()
+    .select({ overrideCount: sql<number>`count(*)::int` })
     .from(schema.interiorBudgetLineOverrides)
     .where(
       and(
@@ -414,15 +488,15 @@ export async function deleteGroupLine(input: {
       ),
     );
 
-  if (pinCount > 0 && !input.confirm) {
+  if (overrideCount > 0 && !input.confirm) {
     return {
       ok: false,
-      error: `This line has ${pinCount} pinned amount${pinCount === 1 ? "" : "s"} in the interior budget. Removing the line leaves them orphaned — they'd reapply if this cost code is added back. Confirm to remove both.`,
+      error: `This line has ${overrideCount} custom override${overrideCount === 1 ? "" : "s"} in the interior budget. Removing the line leaves them orphaned — they'd reapply if this cost code is added back. Confirm to remove both.`,
     };
   }
 
   await db().transaction(async (tx) => {
-    if (pinCount > 0) {
+    if (overrideCount > 0) {
       await tx
         .delete(schema.interiorBudgetLineOverrides)
         .where(
