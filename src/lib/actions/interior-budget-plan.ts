@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { num } from "@/lib/format";
 import { computeInteriorBudgetFor, loadFloorplanFacts } from "@/lib/interior-budget";
 import { propertyPath } from "@/lib/property-path";
 
@@ -45,21 +46,74 @@ async function assertOwnership(
  *
  * Checking a cell against the floorplan's unit count alone is not enough — 30
  * units of Enhanced and 30 of Blended UW on a 49-unit floorplan are each legal
- * and jointly impossible. Unit counts are derived from the rent roll, so this
- * reads through the sanctioned compute path.
+ * and jointly impossible. Unit counts are derived from the rent roll through the
+ * group's floorplan mapping, matching the budget computation's derivation.
  */
 async function capacityFor(propertyId: number, unitGroupId: number, budgetGroupId: number) {
-  const budget = await computeInteriorBudgetFor(propertyId);
-  const group = budget.unitGroups.find((g) => g.id === unitGroupId);
-  if (!group) return null;
+  const d = db();
+  const [group, floorplanCodes, planRows] = await Promise.all([
+    d.query.interiorUnitGroups.findFirst({
+      where: eq(schema.interiorUnitGroups.id, unitGroupId),
+      columns: { propertyId: true, unitCountOverride: true },
+    }),
+    d
+      .select({ floorPlanCode: schema.interiorUnitGroupFloorplans.floorPlanCode })
+      .from(schema.interiorUnitGroupFloorplans)
+      .where(eq(schema.interiorUnitGroupFloorplans.unitGroupId, unitGroupId)),
+    d
+      .select({
+        budgetGroupId: schema.interiorBudgetPlan.budgetGroupId,
+        plannedUnits: schema.interiorBudgetPlan.plannedUnits,
+      })
+      .from(schema.interiorBudgetPlan)
+      .where(eq(schema.interiorBudgetPlan.unitGroupId, unitGroupId)),
+  ]);
+  if (!group || group.propertyId !== propertyId) return null;
+
+  let unitCount: number;
+  if (group.unitCountOverride != null) {
+    unitCount = group.unitCountOverride;
+  } else {
+    const codes = floorplanCodes.map((f) => f.floorPlanCode);
+    if (codes.length === 0) {
+      unitCount = 0;
+    } else {
+      const [batch] = await d
+        .select({ id: schema.rentRollBatches.id })
+        .from(schema.rentRollBatches)
+        .where(
+          and(
+            eq(schema.rentRollBatches.propertyId, propertyId),
+            eq(schema.rentRollBatches.status, "committed"),
+            isNull(schema.rentRollBatches.archivedAt),
+          ),
+        )
+        .orderBy(desc(schema.rentRollBatches.asOfDate), desc(schema.rentRollBatches.createdAt))
+        .limit(1);
+      if (!batch) {
+        unitCount = 0;
+      } else {
+        const [r] = await d
+          .select({ count: sql<number>`count(*)::int` })
+          .from(schema.rentRollUnits)
+          .where(
+            and(
+              eq(schema.rentRollUnits.batchId, batch.id),
+              inArray(schema.rentRollUnits.floorPlanCode, codes),
+            ),
+          );
+        unitCount = r.count;
+      }
+    }
+  }
+
+  const storedRow = planRows.find((r) => r.budgetGroupId === budgetGroupId);
   return {
-    unitCount: group.unitCount,
-    plannedElsewhere: budget.columns
-      .filter((c) => c.unitGroupId === unitGroupId && c.tierId !== budgetGroupId)
-      .reduce((s, c) => s + c.plannedUnits, 0),
-    stored:
-      budget.columns.find((c) => c.unitGroupId === unitGroupId && c.tierId === budgetGroupId)
-        ?.plannedUnits ?? 0,
+    unitCount,
+    plannedElsewhere: planRows
+      .filter((r) => r.budgetGroupId !== budgetGroupId)
+      .reduce((s, r) => s + num(r.plannedUnits), 0),
+    stored: storedRow ? num(storedRow.plannedUnits) : 0,
   };
 }
 
@@ -353,7 +407,8 @@ const overrideSchema = z.object({
   budgetGroupId: z.coerce.number().int().positive(),
   costCodeId: z.coerce.number().int().positive(),
   unitGroupId: z.coerce.number().int().positive(),
-  /** A finished dollar amount for this cell, never a rate. */
+  pricingMethod: z.enum(["fixed", "sqft"]).default("fixed"),
+  /** Unit price / rate. For "fixed" this IS the total; for "sqft" it's $/sqft. */
   amount: z.coerce.number().nonnegative("Amount can't be negative"),
   note: z.string().trim().optional().nullable(),
 });
@@ -391,6 +446,7 @@ export async function upsertOverride(input: z.input<typeof overrideSchema>): Pro
       budgetGroupId: d.budgetGroupId,
       costCodeId: d.costCodeId,
       unitGroupId: d.unitGroupId,
+      pricingMethod: d.pricingMethod,
       amount: d.amount.toFixed(2),
       note: d.note ?? null,
     })
@@ -400,7 +456,7 @@ export async function upsertOverride(input: z.input<typeof overrideSchema>): Pro
         schema.interiorBudgetLineOverrides.costCodeId,
         schema.interiorBudgetLineOverrides.unitGroupId,
       ],
-      set: { amount: d.amount.toFixed(2), note: d.note ?? null },
+      set: { pricingMethod: d.pricingMethod, amount: d.amount.toFixed(2), note: d.note ?? null },
     });
 
   await revalidateBudget(d.propertyId);

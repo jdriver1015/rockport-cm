@@ -1,23 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, SlidersHorizontal } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Pencil, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  AddUnitRenovationWizard,
-  type WizardFloorplan,
-  type WizardTier,
+import type {
+  WizardExistingColumn,
+  WizardFloorplan,
+  WizardTier,
 } from "@/components/add-unit-renovation-wizard";
-import {
-  RenovationTypeEditor,
-  type EditorCodeChoice,
-  type EditorTier,
+import type {
+  EditorCodeChoice,
+  EditorTier,
 } from "@/components/renovation-type-editor";
+
+const AddUnitRenovationWizard = dynamic(() =>
+  import("@/components/add-unit-renovation-wizard").then((m) => m.AddUnitRenovationWizard),
+);
+const RenovationTypeEditor = dynamic(() =>
+  import("@/components/renovation-type-editor").then((m) => m.RenovationTypeEditor),
+);
 
 export type InteriorToolbarProps = {
   propertyId: number;
   floorplans: WizardFloorplan[];
   tiers: WizardTier[];
+  existingColumns: WizardExistingColumn[];
   editorTiers: EditorTier[];
   cmPct: number;
   contingencyPct: number;
@@ -41,8 +49,8 @@ export function InteriorBudgetToolbar(props: InteriorToolbarProps) {
         Edit renovation type
       </Button>
       <Button size="sm" onClick={() => setWizardOpen(true)}>
-        <Plus className="size-3.5" />
-        Add units
+        <Pencil className="size-3.5" />
+        Edit renovation groups
       </Button>
 
       <RenovationTypeEditor
@@ -60,6 +68,7 @@ export function InteriorBudgetToolbar(props: InteriorToolbarProps) {
         propertyId={props.propertyId}
         floorplans={props.floorplans}
         tiers={props.tiers}
+        existingColumns={props.existingColumns}
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
       />

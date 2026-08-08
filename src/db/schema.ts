@@ -596,6 +596,7 @@ export const budgetGroups = pgTable(
     sourceTemplateId: integer("source_template_id").references(() => budgetTemplates.id),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
+    targetTradeOut: numeric("target_trade_out", { precision: 10, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
@@ -747,10 +748,11 @@ export const interiorBudgetLineOverrides = pgTable(
     unitGroupId: integer("unit_group_id")
       .notNull()
       .references(() => interiorUnitGroups.id, { onDelete: "cascade" }),
+    pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
     /**
-     * A total, NOT a rate — deliberately not named unitPrice. A pin on a
-     * per-square-foot line is the finished dollar amount and must never be
-     * multiplied by square footage.
+     * The unit price / rate for the override. Interpretation depends on
+     * pricingMethod: "fixed" → finished dollar amount, "sqft" → $/sqft rate
+     * (multiplied by the unit group's avgSqft at computation time).
      */
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
     /** Why this was pinned — "GC quote 6/12". The point of a pin is provenance. */

@@ -208,6 +208,7 @@ export async function duplicateGroup(input: {
         budgetGroupId: group.id,
         costCodeId: p.costCodeId,
         unitGroupId: p.unitGroupId,
+        pricingMethod: p.pricingMethod,
         amount: p.amount,
         note: p.note,
         createdBy: p.createdBy,
@@ -217,6 +218,21 @@ export async function duplicateGroup(input: {
 
   await revalidateGroups(source.propertyId);
   return { ok: true, groupId: group.id, overridesCopied: existingOverrides.length };
+}
+
+export async function updateTargetTradeOut(input: {
+  id: number;
+  propertyId: number;
+  targetTradeOut: number | null;
+}): Promise<ActionResult> {
+  await db()
+    .update(schema.budgetGroups)
+    .set({ targetTradeOut: input.targetTradeOut != null ? input.targetTradeOut.toFixed(2) : null })
+    .where(eq(schema.budgetGroups.id, input.id));
+  const budgetPath = await propertyPath(input.propertyId, "/budget");
+  if (budgetPath) revalidatePath(budgetPath);
+  await revalidateGroups(input.propertyId);
+  return { ok: true };
 }
 
 export async function archiveGroup(input: { id: number; propertyId: number }): Promise<ActionResult> {

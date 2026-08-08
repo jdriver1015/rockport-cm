@@ -10,6 +10,7 @@
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
   --font-mono: var(--font-geist-mono);
+  --font-plex-mono: var(--font-plex-mono);
   /* Newsreader carries the wordmark, page titles, and card/dialog titles */
   --font-heading: var(--font-serif);
   /* Rockport brand + status tokens */

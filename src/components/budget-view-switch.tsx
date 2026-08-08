@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { BudgetViewKey } from "@/lib/budget-views";
+
+const VIEWS: BudgetViewKey[] = ["consolidated", "exterior", "interior"];
 
 /**
  * Drives the Budget tab's three views through a URL search param rather than
@@ -12,6 +15,13 @@ import type { BudgetViewKey } from "@/lib/budget-views";
 export function BudgetViewSwitch({ value }: { value: BudgetViewKey }) {
   const router = useRouter();
   const pathname = usePathname();
+
+  useEffect(() => {
+    for (const v of VIEWS) {
+      if (v === value) continue;
+      router.prefetch(v === "consolidated" ? pathname : `${pathname}?view=${v}`);
+    }
+  }, [router, pathname, value]);
 
   return (
     <SegmentedControl

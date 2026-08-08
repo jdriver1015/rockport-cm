@@ -21,6 +21,33 @@ async function revalidateBudget(propertyId: number) {
   if (path) revalidatePath(path);
 }
 
+const removeSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  propertyId: z.coerce.number().int().positive(),
+});
+
+export async function removeUnitGroup(
+  input: z.input<typeof removeSchema>,
+): Promise<ActionResult> {
+  const parsed = removeSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
+
+  const group = await db().query.interiorUnitGroups.findFirst({
+    where: eq(schema.interiorUnitGroups.id, d.id),
+  });
+  if (!group || group.propertyId !== d.propertyId) {
+    return { ok: false, error: "Unit group not found for this property" };
+  }
+
+  await db()
+    .delete(schema.interiorUnitGroups)
+    .where(eq(schema.interiorUnitGroups.id, d.id));
+
+  await revalidateBudget(d.propertyId);
+  return { ok: true };
+}
+
 const updateSchema = z.object({
   id: z.coerce.number().int().positive(),
   propertyId: z.coerce.number().int().positive(),

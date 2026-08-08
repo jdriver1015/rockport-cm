@@ -37,9 +37,10 @@ export default async function BudgetPage({
   // code and GL transaction hangs off it, so switching it would invalidate all of
   // them — there is deliberately no way to change it here.
 
-  // These queries don't depend on each other, so fire them in parallel — one
-  // network round-trip instead of seven against the pooled Supabase connection.
-  const [categories, codes, lines, unattributedGlRows, projectRows, jtdRows] =
+  // Wave 1: all independent queries in parallel. rentRollBatches, availableTiers,
+  // and floorplan facts were previously sequential — pulling them in here saves
+  // multiple network round-trips against the pooled Supabase connection.
+  const [categories, codes, lines, unattributedGlRows, projectRows, jtdRows, rentRollBatchRows, availableTiers, facts] =
     await Promise.all([
       db()
         .select()
@@ -101,6 +102,27 @@ export default async function BudgetPage({
           sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
         )
         .groupBy(schema.glTransactions.projectId),
+      db()
+        .select({ status: schema.rentRollBatches.status })
+        .from(schema.rentRollBatches)
+        .where(
+          and(
+            eq(schema.rentRollBatches.propertyId, propertyId),
+            isNull(schema.rentRollBatches.archivedAt),
+          ),
+        ),
+      db()
+        .select({ id: schema.budgetGroups.id, name: schema.budgetGroups.name, targetTradeOut: schema.budgetGroups.targetTradeOut })
+        .from(schema.budgetGroups)
+        .where(
+          and(
+            eq(schema.budgetGroups.propertyId, propertyId),
+            eq(schema.budgetGroups.active, true),
+            isNull(schema.budgetGroups.archivedAt),
+          ),
+        )
+        .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
+      loadFloorplanFacts(propertyId),
     ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
@@ -149,75 +171,64 @@ export default async function BudgetPage({
 
   const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
 
-  // The interior budget is DERIVED from the interior plan when one exists. It's
-  // all-or-nothing per property: with a plan, every interior code's Budgeted
-  // figure comes from the plan and any hand-entered interior line is superseded.
-  // A per-code mix would produce a budget that reconciles to nothing.
-  const interior = await computeInteriorBudgetFor(propertyId);
-  const derivedInteriors = interior.hasPlan;
+  // Wave 2: queries that depend on Wave 1 results. The interior budget gets
+  // pre-fetched cost codes and categories so it skips 2 internal DB queries.
+  // avgTradeOut and tierLines depend on availableTiers from Wave 1.
+  const [interior, avgTradeOutRows, tierLineRows] = await Promise.all([
+    computeInteriorBudgetFor(propertyId, { costCodes: codes, categories }),
+    availableTiers.length
+      ? db()
+          .select({
+            budgetGroupId: schema.projects.budgetGroupId,
+            avgTradeOut: sql<string>`coalesce(avg(${schema.projects.tradeOutRent} - ${schema.projects.previousRent}), 0)`,
+          })
+          .from(schema.projects)
+          .where(
+            and(
+              eq(schema.projects.propertyId, propertyId),
+              isNull(schema.projects.archivedAt),
+              sql`${schema.projects.tradeOutRent} is not null and ${schema.projects.previousRent} is not null and ${schema.projects.budgetGroupId} is not null`,
+            ),
+          )
+          .groupBy(schema.projects.budgetGroupId)
+      : Promise.resolve([]),
+    availableTiers.length
+      ? db()
+          .select({
+            budgetGroupId: schema.budgetGroupLines.budgetGroupId,
+            costCodeId: schema.budgetGroupLines.costCodeId,
+            pricingMethod: schema.budgetGroupLines.pricingMethod,
+            unitPrice: schema.budgetGroupLines.unitPrice,
+            description: schema.budgetGroupLines.description,
+            sortOrder: schema.budgetGroupLines.sortOrder,
+            code: schema.costCodes.code,
+            codeName: schema.costCodes.name,
+            categoryName: schema.costCategories.name,
+          })
+          .from(schema.budgetGroupLines)
+          .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetGroupLines.costCodeId))
+          .innerJoin(
+            schema.costCategories,
+            eq(schema.costCategories.id, schema.costCodes.categoryId),
+          )
+          .where(
+            inArray(
+              schema.budgetGroupLines.budgetGroupId,
+              availableTiers.map((t) => t.id),
+            ),
+          )
+          .orderBy(asc(schema.costCategories.sortOrder), asc(schema.budgetGroupLines.sortOrder))
+      : Promise.resolve([]),
+  ]);
 
-  // Unit groups can only be seeded from a COMMITTED rent roll, so the panel needs to
-  // tell "nothing uploaded" apart from "uploaded but not committed yet" — the two
-  // dead ends have different ways out.
-  const rentRollBatches = await db()
-    .select({ status: schema.rentRollBatches.status })
-    .from(schema.rentRollBatches)
-    .where(
-      and(
-        eq(schema.rentRollBatches.propertyId, propertyId),
-        isNull(schema.rentRollBatches.archivedAt),
-      ),
-    );
+  const derivedInteriors = interior.hasPlan;
   const rentRoll = {
-    hasCommitted: rentRollBatches.some((b) => b.status === "committed"),
-    pendingCount: rentRollBatches.filter(
+    hasCommitted: rentRollBatchRows.some((b) => b.status === "committed"),
+    pendingCount: rentRollBatchRows.filter(
       (b) => b.status === "uploaded" || b.status === "parsing" || b.status === "needs_review",
     ).length,
   };
-
-  // Every tier the property HAS, not just the ones already planned — `interior.tiers`
-  // is derived from the plan rows, so with no plan there is nothing to pick from and
-  // no way to start a budget.
-  const availableTiers = await db()
-    .select({ id: schema.budgetGroups.id, name: schema.budgetGroups.name })
-    .from(schema.budgetGroups)
-    .where(
-      and(
-        eq(schema.budgetGroups.propertyId, propertyId),
-        eq(schema.budgetGroups.active, true),
-        isNull(schema.budgetGroups.archivedAt),
-      ),
-    )
-    .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name));
-
-  // Each renovation type's default pricing, for the inline editor.
-  const tierLineRows = availableTiers.length
-    ? await db()
-        .select({
-          budgetGroupId: schema.budgetGroupLines.budgetGroupId,
-          costCodeId: schema.budgetGroupLines.costCodeId,
-          pricingMethod: schema.budgetGroupLines.pricingMethod,
-          unitPrice: schema.budgetGroupLines.unitPrice,
-          description: schema.budgetGroupLines.description,
-          sortOrder: schema.budgetGroupLines.sortOrder,
-          code: schema.costCodes.code,
-          codeName: schema.costCodes.name,
-          categoryName: schema.costCategories.name,
-        })
-        .from(schema.budgetGroupLines)
-        .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetGroupLines.costCodeId))
-        .innerJoin(
-          schema.costCategories,
-          eq(schema.costCategories.id, schema.costCodes.categoryId),
-        )
-        .where(
-          inArray(
-            schema.budgetGroupLines.budgetGroupId,
-            availableTiers.map((t) => t.id),
-          ),
-        )
-        .orderBy(asc(schema.costCategories.sortOrder), asc(schema.budgetGroupLines.sortOrder))
-    : [];
+  const avgTradeOutByTier = new Map(avgTradeOutRows.map((r) => [r.budgetGroupId!, num(r.avgTradeOut)]));
 
   const editorTiers = availableTiers.map((t) => ({
     id: t.id,
@@ -242,7 +253,6 @@ export default async function BudgetPage({
   for (const c of interior.columns) {
     plannedByGroup.set(c.unitGroupId, (plannedByGroup.get(c.unitGroupId) ?? 0) + c.plannedUnits);
   }
-  const facts = await loadFloorplanFacts(propertyId);
   const availableFloorplans = facts
     .map((f) => {
       const group = interior.unitGroups.find((g) => g.floorPlanCodes.includes(f.floorPlanCode));
@@ -251,9 +261,23 @@ export default async function BudgetPage({
         unitCount: group?.unitCount ?? f.count,
         avgSqft: group?.avgSqft ?? f.avgSqft,
         planned: group ? (plannedByGroup.get(group.id) ?? 0) : 0,
+        unitGroupId: group?.id ?? null,
       };
     })
     .sort((a, b) => a.floorPlanCode.localeCompare(b.floorPlanCode));
+
+  const existingColumns = interior.columns.map((c) => {
+    const group = interior.unitGroups.find((g) => g.id === c.unitGroupId);
+    const tier = interior.tiers.find((t) => t.id === c.tierId);
+    return {
+      unitGroupId: c.unitGroupId,
+      tierId: c.tierId,
+      groupName: group?.name ?? "Unknown",
+      tierName: tier?.name ?? "Unknown",
+      plannedUnits: c.plannedUnits,
+      avgSqft: group?.avgSqft ?? null,
+    };
+  });
 
   // Build the category → lines tree the view renders. A code appears if it has a
   // hand-entered line OR a plan-derived amount — without the second half, the
@@ -366,6 +390,7 @@ export default async function BudgetPage({
               propertyId={property.id}
               floorplans={availableFloorplans}
               tiers={availableTiers}
+              existingColumns={existingColumns}
               editorTiers={editorTiers}
               cmPct={interior.settings.cmPct}
               contingencyPct={interior.settings.contingencyPct}
@@ -394,8 +419,12 @@ export default async function BudgetPage({
                 countOverridden: g.countOverridden,
                 sqftOverridden: g.sqftOverridden,
               }))}
-              tiers={interior.tiers.map((t) => ({ id: t.id, name: t.name }))}
-              availableTiers={availableTiers}
+              tiers={interior.tiers.map((t) => {
+                const at = availableTiers.find((a) => a.id === t.id);
+                return { id: t.id, name: t.name, targetTradeOut: at?.targetTradeOut ? num(at.targetTradeOut) : null };
+              })}
+              availableTiers={availableTiers.map((t) => ({ id: t.id, name: t.name }))}
+              avgTradeOutByTier={Object.fromEntries(avgTradeOutByTier)}
               rows={interior.rows.map((r) => ({
                 costCodeId: r.costCodeId,
                 code: r.code,
@@ -412,6 +441,8 @@ export default async function BudgetPage({
                 tierUnitPrice: c.tierUnitPrice,
                 overridden: c.overridden,
                 overrideNote: c.overrideNote,
+                overridePricingMethod: c.overridePricingMethod,
+                overrideUnitPrice: c.overrideUnitPrice,
                 note: c.note,
               }))}
               columns={interior.columns.map((c) => ({

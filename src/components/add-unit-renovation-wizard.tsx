@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, ChevronLeft } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { addUnitRenovation } from "@/lib/actions/interior-budget-plan";
+import { addUnitRenovation, removePlanCell } from "@/lib/actions/interior-budget-plan";
 
 /** A rent-roll floorplan, with how much of it is already committed. */
 export type WizardFloorplan = {
@@ -25,8 +25,20 @@ export type WizardFloorplan = {
   avgSqft: number | null;
   /** Units already planned into renovation types, across all of them. */
   planned: number;
+  /** Null when this floorplan has no unit group yet. */
+  unitGroupId: number | null;
 };
 export type WizardTier = { id: number; name: string };
+
+/** An existing pivot column — one unit group × tier pair. */
+export type WizardExistingColumn = {
+  unitGroupId: number;
+  tierId: number;
+  groupName: string;
+  tierName: string;
+  plannedUnits: number;
+  avgSqft: number | null;
+};
 
 /**
  * Add one floorplan × renovation type to the interior budget.
@@ -39,18 +51,22 @@ export function AddUnitRenovationWizard({
   propertyId,
   floorplans,
   tiers,
+  existingColumns = [],
   open,
   onClose,
 }: {
   propertyId: number;
   floorplans: WizardFloorplan[];
   tiers: WizardTier[];
+  existingColumns?: WizardExistingColumn[];
   open: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<WizardExistingColumn | null>(null);
+  const [listTab, setListTab] = useState<"available" | "existing">("available");
   const [code, setCode] = useState<string | null>(null);
   const [tierId, setTierId] = useState<number | null>(null);
   const [units, setUnits] = useState("");
@@ -68,6 +84,23 @@ export function AddUnitRenovationWizard({
     setCode(null);
     setTierId(null);
     setUnits("");
+  }
+
+  async function handleRemove(col: WizardExistingColumn) {
+    setBusy(true);
+    try {
+      const result = await removePlanCell({
+        propertyId,
+        unitGroupId: col.unitGroupId,
+        budgetGroupId: col.tierId,
+      });
+      if (!result.ok) return toast.error(result.error);
+      toast.success(`Removed ${col.groupName} · ${col.tierName}`);
+      setConfirmRemove(null);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
   }
 
   function pickFloorplan(f: WizardFloorplan) {
@@ -115,51 +148,46 @@ export function AddUnitRenovationWizard({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add unit renovation</DialogTitle>
+          <DialogTitle>Unit Renovation Groups</DialogTitle>
           <DialogDescription>
             {step === 1
-              ? "Which floorplan are the units coming from?"
+              ? "Add a new floorplan or manage existing groups."
               : step === 2
                 ? `What renovation goes into ${code || "this floorplan"}?`
                 : `How many ${code} units get ${tier?.name}?`}
           </DialogDescription>
         </DialogHeader>
 
-        <StepDots step={step} />
+        {step > 1 && <StepDots step={step} />}
 
         {step === 1 && (
-          <div className="max-h-[45vh] divide-y overflow-y-auto rounded-md border border-hairline">
-            {floorplans.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                No floorplans on the latest committed rent roll.
-              </p>
+          <div className="space-y-2">
+            {confirmRemove && (
+              <div className="flex items-start gap-2 rounded-md border border-alert/30 bg-alert-bg px-3 py-2.5">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-alert" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-xs text-ink-700">
+                    Remove <span className="font-semibold">{confirmRemove.groupName} · {confirmRemove.tierName}</span>?
+                    This deletes planned units and custom overrides for this column.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="destructive" disabled={busy}
+                      onClick={() => handleRemove(confirmRemove)}>
+                      {busy ? "Removing…" : "Remove"}
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={busy}
+                      onClick={() => setConfirmRemove(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <PillSwitch value={listTab} onChange={setListTab} existingCount={existingColumns.length} />
+            {listTab === "available" ? (
+              <AvailableList floorplans={floorplans} onPick={pickFloorplan} />
             ) : (
-              floorplans.map((f) => {
-                const left = f.unitCount - f.planned;
-                const full = left <= 0;
-                return (
-                  <button
-                    key={f.floorPlanCode}
-                    type="button"
-                    disabled={full}
-                    onClick={() => pickFloorplan(f)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left",
-                      full ? "cursor-not-allowed opacity-50" : "hover:bg-hover",
-                    )}
-                  >
-                    <span className="font-medium text-navy">
-                      {f.floorPlanCode || "(blank)"}
-                    </span>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {full
-                        ? "fully planned"
-                        : `${left} of ${f.unitCount} unplanned`}
-                      {f.avgSqft != null && ` · ${f.avgSqft.toLocaleString()} SF avg`}
-                    </span>
-                  </button>
-                );
-              })
+              <ExistingList columns={existingColumns} onRemove={setConfirmRemove} />
             )}
           </div>
         )}
@@ -232,6 +260,128 @@ export function AddUnitRenovationWizard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function PillSwitch({
+  value,
+  onChange,
+  existingCount,
+}: {
+  value: "available" | "existing";
+  onChange: (v: "available" | "existing") => void;
+  existingCount: number;
+}) {
+  return (
+    <div className="flex gap-1 rounded-lg bg-band p-0.5">
+      {([
+        { key: "available" as const, label: "Available" },
+        { key: "existing" as const, label: `Existing (${existingCount})` },
+      ]).map(({ key, label }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onChange(key)}
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            value === key
+              ? "bg-white text-navy shadow-sm"
+              : "text-ink-400 hover:text-ink-700",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AvailableList({
+  floorplans,
+  onPick,
+}: {
+  floorplans: WizardFloorplan[];
+  onPick: (f: WizardFloorplan) => void;
+}) {
+  const available = floorplans.filter((f) => f.unitCount - f.planned > 0);
+  if (available.length === 0) {
+    return (
+      <div className="rounded-md border border-hairline">
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          All floorplans are fully planned.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-[45vh] divide-y divide-hairline overflow-y-auto rounded-md border border-hairline">
+      {available.map((f) => {
+        const left = f.unitCount - f.planned;
+        return (
+          <button
+            key={f.floorPlanCode}
+            type="button"
+            onClick={() => onPick(f)}
+            className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-hover"
+          >
+            <span className="font-medium text-navy">
+              {f.floorPlanCode || "(blank)"}
+            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {left} of {f.unitCount} unplanned
+              {f.avgSqft != null && ` · ${f.avgSqft.toLocaleString()} SF avg`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ExistingList({
+  columns,
+  onRemove,
+}: {
+  columns: WizardExistingColumn[];
+  onRemove: (col: WizardExistingColumn) => void;
+}) {
+  if (columns.length === 0) {
+    return (
+      <div className="rounded-md border border-hairline">
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          No unit groups in the budget yet.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-[45vh] divide-y divide-hairline overflow-y-auto rounded-md border border-hairline">
+      {columns.map((col) => (
+        <div
+          key={`${col.unitGroupId}:${col.tierId}`}
+          className="flex items-center gap-1"
+        >
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2.5">
+            <span className="font-medium text-navy">
+              {col.groupName}
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">{col.tierName}</span>
+            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {col.plannedUnits} unit{col.plannedUnits === 1 ? "" : "s"}
+              {col.avgSqft != null && ` · ${col.avgSqft.toLocaleString()} SF avg`}
+            </span>
+          </div>
+          <button
+            type="button"
+            title={`Remove ${col.groupName} · ${col.tierName}`}
+            onClick={() => onRemove(col)}
+            className="mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-300 transition-colors hover:bg-alert-bg hover:text-alert"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

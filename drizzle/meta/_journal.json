@@ -183,6 +183,20 @@
       "when": 1786060800000,
       "tag": "0025_integer_planned_units",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786147200000,
+      "tag": "0026_override_pricing_method",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786320000000,
+      "tag": "0027_target_trade_out",
+      "breakpoints": true
     }
   ]
 }

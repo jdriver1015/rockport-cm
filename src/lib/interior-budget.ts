@@ -76,6 +76,10 @@ export type PivotCell = {
   tierUnitPrice: number;
   overridden: boolean;
   overrideNote: string | null;
+  /** The override's stored pricing method, so the editor can restore it. */
+  overridePricingMethod: PricingMethod | null;
+  /** The override's stored rate (unit price), not the computed total. */
+  overrideUnitPrice: number | null;
   /** Engine warning, e.g. "Unit has no square footage on file". */
   note?: string;
 };
@@ -255,11 +259,15 @@ type Inputs = InteriorBudgetInputs;
  * Fetch everything needed to compute interior budgets for a set of properties.
  * Fixed number of queries regardless of how many properties are asked for.
  */
-export async function loadInteriorInputs(propertyIds: number[]) {
+export async function loadInteriorInputs(propertyIds: number[], opts?: {
+  costCodes?: typeof schema.costCodes.$inferSelect[];
+  categories?: typeof schema.costCategories.$inferSelect[];
+}) {
   if (propertyIds.length === 0) {
     return {
       groups: [], floorplans: [], plan: [], tiers: [], tierLines: [], pins: [],
-      settings: [], rentRollUnits: [], costCodes: [], categories: [], unitProjects: [],
+      settings: [], rentRollUnits: [], costCodes: [] as typeof schema.costCodes.$inferSelect[],
+      categories: [] as typeof schema.costCategories.$inferSelect[], unitProjects: [],
     };
   }
 
@@ -351,14 +359,24 @@ export async function loadInteriorInputs(propertyIds: number[]) {
       : Promise.resolve([]),
   ]);
 
-  const codeIds = [...new Set(tierLines.map((l) => l.costCodeId))];
-  const costCodes = codeIds.length
-    ? await d.select().from(schema.costCodes).where(inArray(schema.costCodes.id, codeIds))
-    : [];
-  const categoryIds = [...new Set(costCodes.map((c) => c.categoryId))];
-  const categories = categoryIds.length
-    ? await d.select().from(schema.costCategories).where(inArray(schema.costCategories.id, categoryIds))
-    : [];
+  let costCodes: typeof schema.costCodes.$inferSelect[];
+  let categories: typeof schema.costCategories.$inferSelect[];
+
+  if (opts?.costCodes && opts?.categories) {
+    const codeIds = new Set(tierLines.map((l) => l.costCodeId));
+    costCodes = opts.costCodes.filter((c) => codeIds.has(c.id));
+    const catIds = new Set(costCodes.map((c) => c.categoryId));
+    categories = opts.categories.filter((c) => catIds.has(c.id));
+  } else {
+    const codeIds = [...new Set(tierLines.map((l) => l.costCodeId))];
+    costCodes = codeIds.length
+      ? await d.select().from(schema.costCodes).where(inArray(schema.costCodes.id, codeIds))
+      : [];
+    const categoryIds = [...new Set(costCodes.map((c) => c.categoryId))];
+    categories = categoryIds.length
+      ? await d.select().from(schema.costCategories).where(inArray(schema.costCategories.id, categoryIds))
+      : [];
+  }
 
   return { groups, floorplans, plan, tiers, tierLines, pins, settings, rentRollUnits, costCodes, categories, unitProjects };
 }
@@ -507,13 +525,15 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
       if (!plannedByCell.has(key)) continue; // no plan row = tier not offered here
 
       const lines = linesByTier.get(t.id) ?? [];
-      const overrides = overridesForProperty
-        .filter((p) => p.budgetGroupId === t.id && p.unitGroupId === g.id)
-        .map((p) => ({ costCodeId: p.costCodeId, amount: num(p.amount) }));
-      const overrideNoteByCode = new Map(
-        overridesForProperty
-          .filter((p) => p.budgetGroupId === t.id && p.unitGroupId === g.id)
-          .map((p) => [p.costCodeId, p.note] as const),
+      const cellOverrides = overridesForProperty
+        .filter((p) => p.budgetGroupId === t.id && p.unitGroupId === g.id);
+      const overrides = cellOverrides.map((p) => {
+        const rate = num(p.amount);
+        const total = p.pricingMethod === "sqft" ? roundMoney(rate * (unit.sqft ?? 0)) : rate;
+        return { costCodeId: p.costCodeId, amount: total };
+      });
+      const overrideMetaByCode = new Map(
+        cellOverrides.map((p) => [p.costCodeId, { note: p.note, pricingMethod: p.pricingMethod as PricingMethod, unitPrice: num(p.amount) }] as const),
       );
 
       const priced = resolveGroupPricing({
@@ -530,6 +550,7 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
       const plannedUnits = plannedByCell.get(key) ?? 0;
 
       for (const r of priced.perLine) {
+        const meta = r.pinned ? overrideMetaByCode.get(r.line.costCodeId) : undefined;
         cells.push({
           unitGroupId: g.id,
           tierId: t.id,
@@ -539,7 +560,9 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
           pricingMethod: r.line.pricingMethod,
           tierUnitPrice: r.line.unitPrice,
           overridden: r.pinned,
-          overrideNote: r.pinned ? overrideNoteByCode.get(r.line.costCodeId) ?? null : null,
+          overrideNote: meta?.note ?? null,
+          overridePricingMethod: meta?.pricingMethod ?? null,
+          overrideUnitPrice: meta?.unitPrice ?? null,
           note: r.note,
         });
         addCode(r.line.costCodeId, roundMoney(r.total * plannedUnits));
@@ -625,13 +648,17 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
  */
 export async function computeInteriorBudgets(
   propertyIds: number[],
+  opts?: Parameters<typeof loadInteriorInputs>[1],
 ): Promise<Map<number, InteriorBudget>> {
-  const inputs = await loadInteriorInputs(propertyIds);
+  const inputs = await loadInteriorInputs(propertyIds, opts);
   return new Map(propertyIds.map((id) => [id, computeInteriorBudget(inputs, id)]));
 }
 
 /** Single-property convenience. Prefer the plural form in list views. */
-export async function computeInteriorBudgetFor(propertyId: number): Promise<InteriorBudget> {
-  const budgets = await computeInteriorBudgets([propertyId]);
+export async function computeInteriorBudgetFor(
+  propertyId: number,
+  opts?: Parameters<typeof loadInteriorInputs>[1],
+): Promise<InteriorBudget> {
+  const budgets = await computeInteriorBudgets([propertyId], opts);
   return budgets.get(propertyId)!;
 }

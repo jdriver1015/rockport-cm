@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
 import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
-import { updateTierDefaults } from "@/lib/actions/budget-groups";
+import { addGroupLine, updateTierDefaults } from "@/lib/actions/budget-groups";
 import { updateInteriorSettings } from "@/lib/actions/interior-budget-plan";
 
 /** One cost-code line of a renovation type's default pricing. */
@@ -30,7 +31,7 @@ export type EditorLine = {
   unitPrice: number;
 };
 export type EditorTier = { id: number; name: string; lines: EditorLine[] };
-export type EditorCodeChoice = { id: number; name: string };
+export type EditorCodeChoice = { id: number; code: string; name: string };
 
 /** The two bases editable inline; anything else is shown read-only. */
 const INLINE_METHODS = ["fixed", "sqft"] as const;
@@ -72,6 +73,8 @@ export function RenovationTypeEditor({
   const router = useRouter();
   const [tierId, setTierId] = useState<number | null>(tiers[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
   /** Pending edits keyed by cost code — absent means untouched. */
   const [edits, setEdits] = useState<
     Record<number, { pricingMethod: PricingMethod; unitPrice: string }>
@@ -85,6 +88,8 @@ export function RenovationTypeEditor({
   if (tierId !== lastTierId) {
     setLastTierId(tierId);
     setEdits({});
+    setAdding(false);
+    setAddSearch("");
   }
 
   const valueFor = (line: EditorLine) => edits[line.costCodeId] ?? {
@@ -111,6 +116,37 @@ export function RenovationTypeEditor({
     const n = Number(valueFor(l).unitPrice);
     return !Number.isFinite(n) || n < 0;
   });
+
+  const existingCodeIds = new Set((tier?.lines ?? []).map((l) => l.costCodeId));
+  const availableCodes = interiorCodes.filter((c) => !existingCodeIds.has(c.id));
+  const filteredCodes = addSearch.trim()
+    ? availableCodes.filter((c) => {
+        const q = addSearch.toLowerCase();
+        return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+      })
+    : availableCodes;
+
+  async function handleAddLine(costCodeId: number) {
+    if (!tier) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("propertyId", String(propertyId));
+      fd.set("budgetGroupId", String(tier.id));
+      fd.set("costCodeId", String(costCodeId));
+      fd.set("pricingMethod", "fixed");
+      fd.set("unitPrice", "0");
+      const result = await addGroupLine(fd);
+      if (!result.ok) return toast.error(result.error);
+      const code = interiorCodes.find((c) => c.id === costCodeId);
+      toast.success(`Added ${code?.name ?? "item"}`);
+      setAdding(false);
+      setAddSearch("");
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSave() {
     if (!tier || dirty.length === 0) return;
@@ -153,7 +189,7 @@ export function RenovationTypeEditor({
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Edit renovation type</DialogTitle>
+          <DialogTitle>Default Renovation Types</DialogTitle>
           <DialogDescription>
             The default cost of each item for this renovation. Every floorplan planned into it
             inherits these, except cells with a custom override.
@@ -254,16 +290,65 @@ export function RenovationTypeEditor({
                       </tr>
                     );
                   })}
-                  {(tier?.lines ?? []).length === 0 && (
+                  {(tier?.lines ?? []).length === 0 && !adding && (
                     <tr>
                       <td colSpan={3} className="px-2 py-6 text-center text-sm text-muted-foreground">
-                        This renovation type has no lines yet. Add them from Unit Upgrades.
+                        No items yet — click &ldquo;Add item&rdquo; below.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
+
+            {adding ? (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+                  <Input
+                    autoFocus
+                    placeholder="Search cost codes…"
+                    value={addSearch}
+                    onChange={(e) => setAddSearch(e.target.value)}
+                    className="h-9 pl-8 text-sm"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto rounded-md border border-hairline divide-y divide-hairline">
+                  {filteredCodes.length === 0 ? (
+                    <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                      {availableCodes.length === 0 ? "All interior cost codes are already on this tier." : "No matches."}
+                    </p>
+                  ) : (
+                    filteredCodes.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => handleAddLine(c.id)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover disabled:opacity-50"
+                      >
+                        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{c.code}</span>
+                        <span className="truncate text-ink-700">{c.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setAdding(false); setAddSearch(""); }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : availableCodes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="flex items-center gap-1.5 text-xs font-medium text-link hover:text-link/80"
+              >
+                <Plus className="size-3.5" />
+                Add item
+              </button>
+            )}
 
             <UpliftCodesSection
               propertyId={propertyId}
