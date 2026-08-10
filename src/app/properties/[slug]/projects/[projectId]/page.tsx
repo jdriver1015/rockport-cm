@@ -9,19 +9,21 @@ import { RestoreProjectButton } from "@/components/restore-project-button";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
-import { ScopeTable, type ScopeRow } from "@/components/scope-table";
+import {
+  ScopeTable,
+  type ScopeRow,
+  type ScopeCostCodeOption,
+  type CostCodeBudget,
+} from "@/components/scope-table";
 import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope-table";
 import { type LineTxn } from "@/components/line-transactions-dialog";
-import { AdvancePhaseDialog } from "@/components/advance-phase-dialog";
-import { ProjectCostTable, type CostRow } from "@/components/project-cost-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import type { PricingMethod } from "@/lib/pricing";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
 import { fmtDate, num } from "@/lib/format";
-import { nextPhase, phaseLabel } from "@/lib/stages";
-import { evaluateGates } from "@/lib/phase-gates";
+import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
 
@@ -70,7 +72,6 @@ export default async function ProjectDetailPage({
     projectAudits,
     otherProjects,
     findingCounts,
-    milestones,
     glRows,
     openFindings,
   ] = await Promise.all([
@@ -113,17 +114,6 @@ export default async function ProjectDetailPage({
       .from(schema.auditFindings)
       .where(isNull(schema.auditFindings.archivedAt))
       .groupBy(schema.auditFindings.auditId),
-    // Milestones for this project
-    db()
-      .select()
-      .from(schema.projectMilestones)
-      .where(
-        and(
-          eq(schema.projectMilestones.projectId, projectId),
-          isNull(schema.projectMilestones.archivedAt),
-        ),
-      )
-      .orderBy(asc(schema.projectMilestones.sortOrder), asc(schema.projectMilestones.id)),
     // Posted GL transactions for cost detail
     db()
       .select({
@@ -175,11 +165,6 @@ export default async function ProjectDetailPage({
     ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
     : null;
 
-  // Totals still needed by phase-gate evaluation below (KPI strip removed).
-  const budgetAmt = num(project.budgetAmount);
-  const committedAmt = num(project.committedCost);
-  const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
-
   // --- Open items tri-split ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -198,35 +183,6 @@ export default async function ProjectDetailPage({
     else openItemsSummary.later++;
   }
 
-  // --- Phase gate evaluation ---
-  const next = nextPhase(project.phase);
-  const startMilestone = milestones.find((m) => m.phase === "in_process");
-  const gateResult = next
-    ? evaluateGates(project.phase as Parameters<typeof evaluateGates>[0], next.key as Parameters<typeof evaluateGates>[1], {
-        scopeLineCount: scope.length,
-        budgetAmount: budgetAmt,
-        committedCost: committedAmt,
-        vendorAssigned: !!project.vendorId,
-        scopeNotStartedCount: scope.filter((s) => s.status === "not_started").length,
-        scopeCompleteCount: scope.filter((s) => s.status === "complete").length,
-        scopeTotalCount: scope.length,
-        hasStartMilestoneActual: !!startMilestone?.actualDate,
-        openFindingCount: openFindings.length,
-        postedGlTotal: spentAmt,
-      })
-    : null;
-
-  // --- Cost table rows ---
-  const costRows: CostRow[] = glRows.map((r) => ({
-    id: r.id,
-    txnDate: r.txnDate,
-    vendor: r.vendorName ?? r.vendorRaw ?? "—",
-    description: r.description,
-    invoiceNo: r.invoiceNo,
-    costCodeName: r.costCodeName,
-    amount: r.amount,
-  }));
-
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
     name: d.caption ?? d.storagePath.split("/").pop() ?? "document",
@@ -241,7 +197,54 @@ export default async function ProjectDetailPage({
     productLink: s.productLink,
     category: s.category,
     status: s.status,
+    quantity: s.quantity,
+    unitPrice: s.unitPrice,
+    costCodeId: s.costCodeId,
   }));
+
+  const activeCostCodes: ScopeCostCodeOption[] = await db()
+    .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
+    .from(schema.costCodes)
+    .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), eq(schema.costCodes.active, true)))
+    .orderBy(asc(schema.costCodes.code));
+
+  const actualByCode: Record<number, number> = {};
+  for (const r of glRows) {
+    if (r.costCodeId == null) continue;
+    actualByCode[r.costCodeId] = (actualByCode[r.costCodeId] ?? 0) + num(r.amount);
+  }
+
+  // Underwriting budget per code, and everything already allocated to it across
+  // the whole property's scope items — feeds the "remaining budget" preview in
+  // the scope item dialog.
+  const [budgetLineRows, allPropertyScope] = await Promise.all([
+    db()
+      .select({ costCodeId: schema.budgetLines.costCodeId, uwAmount: schema.budgetLines.uwAmount })
+      .from(schema.budgetLines)
+      .where(and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt))),
+    db()
+      .select({
+        costCodeId: schema.scopeItems.costCodeId,
+        quantity: schema.scopeItems.quantity,
+        unitPrice: schema.scopeItems.unitPrice,
+      })
+      .from(schema.scopeItems)
+      .innerJoin(schema.projects, eq(schema.scopeItems.projectId, schema.projects.id))
+      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.scopeItems.archivedAt))),
+  ]);
+
+  const budgetByCode: Record<number, CostCodeBudget> = {};
+  for (const c of activeCostCodes) budgetByCode[c.id] = { budget: 0, allocated: 0 };
+  for (const b of budgetLineRows) {
+    if (b.costCodeId == null) continue;
+    budgetByCode[b.costCodeId] ??= { budget: 0, allocated: 0 };
+    budgetByCode[b.costCodeId].budget += num(b.uwAmount);
+  }
+  for (const s of allPropertyScope) {
+    if (s.costCodeId == null) continue;
+    budgetByCode[s.costCodeId] ??= { budget: 0, allocated: 0 };
+    budgetByCode[s.costCodeId].allocated += num(s.quantity) * num(s.unitPrice);
+  }
 
   const scopeCodeIds = [...new Set(scope.map((s) => s.costCodeId).filter((c): c is number => !!c))];
   const scopeCodes = scopeCodeIds.length
@@ -282,31 +285,24 @@ export default async function ProjectDetailPage({
 
   const overview = (
     <>
-      {gateResult && next && !project.archivedAt && (
-        <div className="flex justify-end">
-          <AdvancePhaseDialog
-            projectId={projectId}
-            gateResult={gateResult}
-            toLabel={next.label}
-          />
-        </div>
-      )}
-
       {/* Open items */}
       <OpenItemsStrip items={openItemsSummary} />
 
-      {/* Scope & cost — priced projects fold GL actuals into the scope table;
-          non-priced projects keep the spec-only scope + a separate cost table. */}
+      {/* Scope & cost — priced projects fold GL actuals into the scope table. */}
       {isPriced ? (
         <PricedScopeTable
           items={pricedScopeRows}
           transactionsByCode={transactionsByCode}
         />
       ) : (
-        <>
-          <ScopeTable propertyId={propertyId} projectId={projectId} items={scopeRows} />
-          <ProjectCostTable rows={costRows} total={spentAmt} />
-        </>
+        <ScopeTable
+          propertyId={propertyId}
+          projectId={projectId}
+          items={scopeRows}
+          costCodes={activeCostCodes}
+          actualByCode={actualByCode}
+          budgetByCode={budgetByCode}
+        />
       )}
     </>
   );

@@ -13,13 +13,19 @@ async function revalidateProject(propertyId: number, projectId: number) {
   if (path) revalidatePath(path);
 }
 
-// Optional URL — accept blank, otherwise require a parseable http(s) link.
-const productLink = z
+const optionalNumeric = z
   .string()
   .trim()
-  .optional()
+  .nullish()
   .transform((v) => (v ? v : null))
-  .refine((v) => v === null || /^https?:\/\/.+/i.test(v), "Enter a valid http(s) link");
+  .refine((v) => v === null || !Number.isNaN(Number(v)), "Enter a valid number");
+
+const optionalCostCodeId = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? Number(v) : null))
+  .refine((v) => v === null || Number.isInteger(v), "Invalid budget line");
 
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -28,14 +34,11 @@ const createSchema = z.object({
   materialQuality: z
     .string()
     .trim()
-    .optional()
+    .nullish()
     .transform((v) => (v ? v : null)),
-  productLink,
-  category: z
-    .string()
-    .trim()
-    .optional()
-    .transform((v) => (v ? v : null)),
+  quantity: optionalNumeric,
+  unitPrice: optionalNumeric,
+  costCodeId: optionalCostCodeId,
 });
 
 export async function createScopeItem(formData: FormData): Promise<ActionResult> {
@@ -44,8 +47,9 @@ export async function createScopeItem(formData: FormData): Promise<ActionResult>
     projectId: formData.get("projectId"),
     item: formData.get("item"),
     materialQuality: formData.get("materialQuality"),
-    productLink: formData.get("productLink"),
-    category: formData.get("category"),
+    quantity: formData.get("quantity"),
+    unitPrice: formData.get("unitPrice"),
+    costCodeId: formData.get("costCodeId"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -59,8 +63,9 @@ export async function createScopeItem(formData: FormData): Promise<ActionResult>
     projectId: d.projectId,
     item: d.item,
     materialQuality: d.materialQuality,
-    productLink: d.productLink,
-    category: d.category,
+    quantity: d.quantity,
+    unitPrice: d.unitPrice,
+    costCodeId: d.costCodeId,
     sortOrder: maxOrder + 1,
   });
   await revalidateProject(d.propertyId, d.projectId);
@@ -73,14 +78,11 @@ export async function updateScopeItem(input: {
   projectId: number;
   item?: string;
   materialQuality?: string | null;
-  productLink?: string | null;
-  category?: string | null;
+  quantity?: string | null;
+  unitPrice?: string | null;
+  costCodeId?: number | null;
 }): Promise<ActionResult> {
   const set: Partial<typeof schema.scopeItems.$inferInsert> = {};
-
-  if (input.category !== undefined) {
-    set.category = input.category?.trim() || null;
-  }
 
   if (input.item !== undefined) {
     const trimmed = input.item.trim();
@@ -90,12 +92,22 @@ export async function updateScopeItem(input: {
   if (input.materialQuality !== undefined) {
     set.materialQuality = input.materialQuality?.trim() || null;
   }
-  if (input.productLink !== undefined) {
-    const link = input.productLink?.trim() || null;
-    if (link !== null && !/^https?:\/\/.+/i.test(link)) {
-      return { ok: false, error: "Enter a valid http(s) link" };
+  if (input.quantity !== undefined) {
+    const trimmed = input.quantity?.trim() || null;
+    if (trimmed !== null && Number.isNaN(Number(trimmed))) {
+      return { ok: false, error: "Enter a valid units value" };
     }
-    set.productLink = link;
+    set.quantity = trimmed;
+  }
+  if (input.unitPrice !== undefined) {
+    const trimmed = input.unitPrice?.trim() || null;
+    if (trimmed !== null && Number.isNaN(Number(trimmed))) {
+      return { ok: false, error: "Enter a valid unit cost" };
+    }
+    set.unitPrice = trimmed;
+  }
+  if (input.costCodeId !== undefined) {
+    set.costCodeId = input.costCodeId;
   }
 
   if (Object.keys(set).length === 0) return { ok: true };

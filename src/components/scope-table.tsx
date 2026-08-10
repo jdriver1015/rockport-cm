@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ExternalLinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,25 +15,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableGroupRow,
-  TableHead,
-  TableHeader,
-  TableRow,
-  TableSpacerRow,
-} from "@/components/ui/table";
-import { ScopeStatusSelect } from "@/components/scope-status-select";
-import { groupScopeByCategory } from "@/lib/scope-grouping";
-import { SCOPE_SECTIONS } from "@/lib/scope-sections";
-import {
-  createScopeItem,
-  deleteScopeItem,
-  restoreScopeItem,
-  updateScopeItem,
-} from "@/lib/actions/scope";
+import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
+import { money } from "@/lib/format";
 
 export type ScopeRow = {
   id: number;
@@ -43,29 +27,50 @@ export type ScopeRow = {
   productLink: string | null;
   category: string | null;
   status: string;
+  quantity: string | null;
+  unitPrice: string | null;
+  costCodeId: number | null;
 };
 
-const COLS = 5;
+export type ScopeCostCodeOption = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+/** Underwriting budget for a cost code, and everything already allocated to it property-wide. */
+export type CostCodeBudget = {
+  budget: number;
+  allocated: number;
+};
 
 export function ScopeTable({
   propertyId,
   projectId,
   items,
+  costCodes,
+  actualByCode,
+  budgetByCode,
 }: {
   propertyId: number;
   projectId: number;
   items: ScopeRow[];
+  costCodes: ScopeCostCodeOption[];
+  actualByCode: Record<number, number>;
+  budgetByCode: Record<number, CostCodeBudget>;
 }) {
-  // Spec-only lines carry no pricing, so the rollup is a plain line count here.
-  const groups = groupScopeByCategory(
-    items.map((r) => ({ ...r, quantity: null, unitPrice: null, row: r })),
-  );
+  const codeById = useMemo(() => new Map(costCodes.map((c) => [c.id, c])), [costCodes]);
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base text-navy">Scope</CardTitle>
-        <ScopeItemDialog propertyId={propertyId} projectId={projectId} />
+        <ScopeItemDialog
+          propertyId={propertyId}
+          projectId={projectId}
+          costCodes={costCodes}
+          budgetByCode={budgetByCode}
+        />
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
@@ -78,30 +83,28 @@ export function ScopeTable({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Item</TableHead>
-                  <TableHead>Materials / quality</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Product link</TableHead>
-                  <TableHead className="text-right">Edit</TableHead>
+                  <TableHead>Budget line</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right">Units</TableHead>
+                  <TableHead className="text-right">Unit cost</TableHead>
+                  <TableHead className="text-right">Total cost</TableHead>
+                  <TableHead className="text-right">Reconciled cost</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groups.flatMap((g, gi) => [
-                  ...(gi > 0 ? [<TableSpacerRow key={`sp-${g.label}`} colSpan={COLS} />] : []),
-                  <TableGroupRow
-                    key={`g-${g.label}`}
-                    label={g.label}
-                    count={`${g.progress.complete} of ${g.progress.total} complete`}
-                    colSpan={COLS}
-                  />,
-                  ...g.lines.map(({ row }) => (
-                    <ScopeItemRow
-                      key={row.id}
-                      row={row}
-                      propertyId={propertyId}
-                      projectId={projectId}
-                    />
-                  )),
-                ])}
+                {items.map((row) => (
+                  <ScopeItemRow
+                    key={row.id}
+                    row={row}
+                    propertyId={propertyId}
+                    projectId={projectId}
+                    costCodes={costCodes}
+                    budgetByCode={budgetByCode}
+                    costCodeLabel={row.costCodeId != null ? codeById.get(row.costCodeId) : undefined}
+                    actual={row.costCodeId != null ? actualByCode[row.costCodeId] ?? 0 : 0}
+                  />
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -115,43 +118,46 @@ function ScopeItemRow({
   row,
   propertyId,
   projectId,
+  costCodes,
+  budgetByCode,
+  costCodeLabel,
+  actual,
 }: {
   row: ScopeRow;
   propertyId: number;
   projectId: number;
+  costCodes: ScopeCostCodeOption[];
+  budgetByCode: Record<number, CostCodeBudget>;
+  costCodeLabel: ScopeCostCodeOption | undefined;
+  actual: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
+  const quantity = row.quantity != null ? Number(row.quantity) : null;
+  const unitPrice = row.unitPrice != null ? Number(row.unitPrice) : null;
+  const totalCost = quantity != null && unitPrice != null ? quantity * unitPrice : null;
+
   return (
     <TableRow className={pending ? "opacity-60" : undefined}>
       <TableCell className="font-medium text-navy">{row.item}</TableCell>
-      <TableCell className="max-w-xs text-muted-foreground">{row.materialQuality || "—"}</TableCell>
-      <TableCell>
-        <ScopeStatusSelect
-          id={row.id}
-          propertyId={propertyId}
-          projectId={projectId}
-          status={row.status}
-        />
-      </TableCell>
       <TableCell className="text-muted-foreground">
-        {row.productLink ? (
-          <a
-            href={row.productLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-link hover:underline"
-          >
-            View <ExternalLinkIcon className="size-3.5" />
-          </a>
-        ) : (
-          "—"
-        )}
+        {costCodeLabel ? `${costCodeLabel.code} — ${costCodeLabel.name}` : "—"}
       </TableCell>
+      <TableCell className="max-w-xs text-muted-foreground">{row.materialQuality || "—"}</TableCell>
+      <TableCell className="text-right tabular-nums">{quantity != null ? quantity.toLocaleString() : "—"}</TableCell>
+      <TableCell className="text-right tabular-nums">{unitPrice != null ? money(unitPrice) : "—"}</TableCell>
+      <TableCell className="text-right tabular-nums">{totalCost != null ? money(totalCost) : "—"}</TableCell>
+      <TableCell className="text-right tabular-nums">{actual > 0 ? money(actual) : "—"}</TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
-          <ScopeItemDialog propertyId={propertyId} projectId={projectId} existing={row} />
+          <ScopeItemDialog
+            propertyId={propertyId}
+            projectId={projectId}
+            existing={row}
+            costCodes={costCodes}
+            budgetByCode={budgetByCode}
+          />
           <Button
             size="sm"
             variant="ghost"
@@ -190,15 +196,41 @@ function ScopeItemDialog({
   propertyId,
   projectId,
   existing,
+  costCodes,
+  budgetByCode,
 }: {
   propertyId: number;
   projectId: number;
   existing?: ScopeRow;
+  costCodes: ScopeCostCodeOption[];
+  budgetByCode: Record<number, CostCodeBudget>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const editing = !!existing;
+
+  const [costCodeId, setCostCodeId] = useState(existing?.costCodeId != null ? String(existing.costCodeId) : "");
+  const [quantity, setQuantity] = useState(existing?.quantity ?? "");
+  const [unitPrice, setUnitPrice] = useState(existing?.unitPrice ?? "");
+
+  // Local input state only initializes on mount, so re-pull it from the latest
+  // `existing` every time the dialog opens — otherwise, after a save, closing
+  // and reopening this same row's dialog shows the pre-save values (or blanks
+  // out entirely) because the state never re-synced to the refreshed row.
+  function syncFromExisting() {
+    setCostCodeId(existing?.costCodeId != null ? String(existing.costCodeId) : "");
+    setQuantity(existing?.quantity ?? "");
+    setUnitPrice(existing?.unitPrice ?? "");
+  }
+
+  const selectedId = costCodeId ? Number(costCodeId) : null;
+  const selectedBudget = selectedId != null ? budgetByCode[selectedId] : undefined;
+  const ownOriginal =
+    existing && existing.costCodeId === selectedId ? Number(existing.quantity ?? 0) * Number(existing.unitPrice ?? 0) : 0;
+  const liveTotal = quantity && unitPrice ? Number(quantity) * Number(unitPrice) : 0;
+  const baseAllocated = (selectedBudget?.allocated ?? 0) - ownOriginal;
+  const remaining = selectedBudget ? selectedBudget.budget - baseAllocated - liveTotal : null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -212,8 +244,9 @@ function ScopeItemDialog({
             projectId,
             item: String(fd.get("item") ?? ""),
             materialQuality: String(fd.get("materialQuality") ?? ""),
-            productLink: String(fd.get("productLink") ?? ""),
-            category: String(fd.get("category") ?? ""),
+            quantity: String(fd.get("quantity") ?? ""),
+            unitPrice: String(fd.get("unitPrice") ?? ""),
+            costCodeId: selectedId,
           })
         : await createScopeItem(fd);
       if (!res.ok) {
@@ -231,7 +264,13 @@ function ScopeItemDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) syncFromExisting();
+      }}
+    >
       <DialogTrigger render={<Button size="sm" variant={editing ? "ghost" : "default"} />}>
         {editing ? "Edit" : "Add scope item"}
       </DialogTrigger>
@@ -245,6 +284,7 @@ function ScopeItemDialog({
         <form className="space-y-4" onSubmit={handleSubmit}>
           <input type="hidden" name="propertyId" value={propertyId} />
           <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="costCodeId" value={costCodeId} />
           <div className="space-y-1.5">
             <Label htmlFor="scope-item">Item</Label>
             <Input
@@ -256,39 +296,66 @@ function ScopeItemDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="scope-category">Trade section</Label>
-            <select
-              id="scope-category"
-              name="category"
-              defaultValue={existing?.category ?? ""}
-              className="h-9 w-full rounded-control border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <option value="">—</option>
-              {SCOPE_SECTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="scope-quality">Materials / quality</Label>
-            <Input
+            <Label htmlFor="scope-quality">Description</Label>
+            <Textarea
               id="scope-quality"
               name="materialQuality"
+              rows={4}
               defaultValue={existing?.materialQuality ?? ""}
               placeholder="20 mil wear layer, waterproof core"
             />
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="scope-quantity">Units</Label>
+              <Input
+                id="scope-quantity"
+                name="quantity"
+                type="number"
+                step="0.01"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="1"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="scope-unit-price">Unit cost ($)</Label>
+              <Input
+                id="scope-unit-price"
+                name="unitPrice"
+                type="number"
+                step="0.01"
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                placeholder="1,200.00"
+              />
+            </div>
+          </div>
           <div className="space-y-1.5">
-            <Label htmlFor="scope-link">Product link</Label>
-            <Input
-              id="scope-link"
-              name="productLink"
-              type="url"
-              defaultValue={existing?.productLink ?? ""}
-              placeholder="https://…"
-            />
+            <Label htmlFor="scope-cost-code">Budget line</Label>
+            <select
+              id="scope-cost-code"
+              value={costCodeId}
+              onChange={(e) => setCostCodeId(e.target.value)}
+              className="h-9 w-full rounded-control border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <option value="">—</option>
+              {costCodes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+            {selectedBudget && (
+              <p className="text-xs text-muted-foreground">
+                Total budget: <span className="font-medium text-navy">{money(selectedBudget.budget)}</span>
+                {" · "}
+                Remaining after this line:{" "}
+                <span className={`font-medium ${remaining != null && remaining < 0 ? "text-red-600" : "text-navy"}`}>
+                  {money(remaining ?? 0)}
+                </span>
+              </p>
+            )}
           </div>
           <div className="flex justify-end">
             <Button type="submit" disabled={busy}>
