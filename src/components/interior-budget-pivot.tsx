@@ -191,6 +191,11 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
       .filter((x) => x.group.unitCount > 0 && x.planned > x.group.unitCount);
   }, [columns, unitGroups]);
 
+  const totalPropertyUnits = useMemo(
+    () => unitGroups.reduce((s, g) => s + g.unitCount, 0) + unmappedFloorplans.reduce((s, f) => s + f.unitCount, 0),
+    [unitGroups, unmappedFloorplans],
+  );
+
   const tierSummary = useMemo(() => {
     const allUnits = columns.reduce((s, c) => s + c.plannedUnits, 0);
     return tiers
@@ -198,17 +203,20 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
         const cols = columns.filter((c) => c.tierId === t.id);
         const units = cols.reduce((s, c) => s + c.plannedUnits, 0);
         const cost = cols.reduce((s, c) => s + c.totalCost, 0);
+        const costPerUnit = units > 0 ? cost / units : 0;
+        const targetTradeOut = t.targetTradeOut ?? null;
         return {
-          tier: t, idx, units, cost,
-          costPerUnit: units > 0 ? cost / units : 0,
+          tier: t, idx, units, cost, costPerUnit,
           share: allUnits > 0 ? units / allUnits : 0,
+          pctOfProperty: totalPropertyUnits > 0 ? units / totalPropertyUnits : 0,
           allUnits,
-          targetTradeOut: t.targetTradeOut ?? null,
+          targetTradeOut,
           avgTradeOut: avgTradeOutByTier?.[t.id] ?? null,
+          roi: targetTradeOut != null && costPerUnit > 0 ? (targetTradeOut * 12) / costPerUnit : null,
         };
       })
       .filter((s) => s.units > 0);
-  }, [tiers, columns, avgTradeOutByTier]);
+  }, [tiers, columns, avgTradeOutByTier, totalPropertyUnits]);
 
   if (!rentRoll.hasCommitted) {
     return <NoRentRollState propertySlug={propertySlug} pendingCount={rentRoll.pendingCount} />;
@@ -530,21 +538,17 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
               })}
               {valueRow("grand", "Grand total / unit", (c) => money(c.perUnitTotal), { weight: "grand" })}
 
-              {/* Rollout section */}
+              {/* Unit economics section */}
               <tr>
                 <td
                   colSpan={visibleColumns.length + 1}
                   className="sticky left-0 bg-white px-4 py-[9px] text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b8d93]"
                   style={{ borderTop: "1px solid #e6e6e1", borderBottom: "1px solid #e6e6e1" }}
                 >
-                  Rollout
+                  Unit Economics
                 </td>
               </tr>
-              {valueRow("pen", "Penetration", (c, group) =>
-                group.unitCount > 0 ? `${Math.round((c.plannedUnits / group.unitCount) * 1000) / 10}%` : "—",
-                { tone: "quiet" },
-              )}
-              {valueRow("planned", "Units planned", (c) => c.plannedUnits.toLocaleString(), {
+              {valueRow("planned", "Units budgeted", (c) => c.plannedUnits.toLocaleString(), {
                 tone: "accent", editable: true,
                 onEdit: (c, group, tier) => setPlanTarget({
                   column: c, groupName: group.name, tierName: tier.name, unitCount: group.unitCount,
@@ -552,14 +556,29 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
                   group,
                 }),
               })}
-              {valueRow("started", "Started", (c) => c.actualUnits > 0 ? c.actualUnits.toLocaleString() : "—", { tone: "accent" })}
-              {valueRow("totalcost", "Total cost", (c) => money(c.totalCost), { weight: "grand" })}
+              {valueRow("pen", "% of total units", (c, group) =>
+                group.unitCount > 0 ? `${Math.round((c.plannedUnits / group.unitCount) * 1000) / 10}%` : "—",
+                { tone: "quiet" },
+              )}
+              {valueRow("tradeout", "Projected trade out", (c, group, tier) =>
+                tier.targetTradeOut != null ? money(tier.targetTradeOut) : "—",
+                { tone: "quiet" },
+              )}
+              {valueRow("costperunit", "Total cost / unit", (c) =>
+                c.plannedUnits > 0 ? money(c.totalCost / c.plannedUnits) : "—",
+              )}
+              {valueRow("roi", "Projected ROI", (c, group, tier) => {
+                if (c.plannedUnits <= 0 || !tier.targetTradeOut) return "—";
+                const costPerUnit = c.totalCost / c.plannedUnits;
+                if (costPerUnit <= 0) return "—";
+                return `${Math.round((tier.targetTradeOut * 12 / costPerUnit) * 1000) / 10}%`;
+              }, { weight: "grand" })}
             </tbody>
           </table>
         </div>
 
         {/* Summary footer */}
-        <SummaryFooter propertyId={propertyId} tierSummary={tierSummary} />
+        <SummaryFooter propertyId={propertyId} tierSummary={tierSummary} totalPropertyUnits={totalPropertyUnits} />
       </div>
 
       {/* Help text + actions */}
@@ -598,15 +617,17 @@ type TierSummaryRow = {
   cost: number;
   costPerUnit: number;
   share: number;
+  pctOfProperty: number;
   allUnits: number;
   targetTradeOut: number | null;
   avgTradeOut: number | null;
+  roi: number | null;
 };
 
-function SummaryFooter({ propertyId, tierSummary }: { propertyId: number; tierSummary: TierSummaryRow[] }) {
+function SummaryFooter({ propertyId, tierSummary, totalPropertyUnits }: { propertyId: number; tierSummary: TierSummaryRow[]; totalPropertyUnits: number }) {
   const router = useRouter();
-  const COLS = "minmax(130px, 1.3fr) repeat(6, minmax(90px, 1fr))";
-  const HEADERS = ["Renovation type", "Units planned", "Target trade out", "% of total units", "Total cost", "Cost / unit", "Avg budgeted trade out"];
+  const COLS = "minmax(130px, 1.3fr) repeat(5, minmax(90px, 1fr))";
+  const HEADERS = ["Renovation type", "Units budgeted", "% of total property", "Projected trade out", "Projected cost / unit", "Projected ROI"];
   const hdrCls = "text-[10px] font-semibold uppercase tracking-[0.09em] text-[#8b8d93] leading-tight";
   const cellCls = "py-[9px] text-right font-sans text-[12.5px] tabular-nums text-[#1a2440]";
   const mutedCls = "py-[9px] text-right font-sans text-[12.5px] tabular-nums text-[#8b8d93]";
@@ -626,9 +647,8 @@ function SummaryFooter({ propertyId, tierSummary }: { propertyId: number; tierSu
   const waTarget = tu > 0
     ? tierSummary.reduce((a, s) => a + (s.targetTradeOut ?? 0) * s.units, 0) / tu
     : 0;
-  const waAvgTO = tu > 0
-    ? tierSummary.reduce((a, s) => a + (s.avgTradeOut ?? 0) * s.units, 0) / tu
-    : 0;
+  const waPctOfProperty = totalPropertyUnits > 0 ? tu / totalPropertyUnits : 0;
+  const waRoi = waCost > 0 && waTarget > 0 ? (waTarget * 12) / waCost : null;
 
   return (
     <div
@@ -636,7 +656,7 @@ function SummaryFooter({ propertyId, tierSummary }: { propertyId: number; tierSu
       style={{ background: "#fbfbf8", borderTop: "1px solid #dedeD8" }}
     >
       <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b8d93]">
-        Interior budget
+        Summary by renovation type
       </div>
       <div className="grid items-center" style={{ gridTemplateColumns: COLS, columnGap: 18 }}>
         {HEADERS.map((h, i) => (
@@ -657,6 +677,7 @@ function SummaryFooter({ propertyId, tierSummary }: { propertyId: number; tierSu
                 {s.tier.name}
               </div>
               <div className={cellCls}>{s.units.toLocaleString()}</div>
+              <div className={mutedCls}>{Math.round(s.pctOfProperty * 100)}%</div>
               <div className="flex items-center justify-end gap-0.5 py-[9px]">
                 <span className="text-[12px] text-[#8b8d93]">$</span>
                 <input
@@ -664,26 +685,23 @@ function SummaryFooter({ propertyId, tierSummary }: { propertyId: number; tierSu
                   inputMode="numeric"
                   defaultValue={s.targetTradeOut != null ? Math.round(s.targetTradeOut).toLocaleString() : ""}
                   placeholder="—"
-                  className="w-[72px] border-0 border-b border-dashed border-[#ccc] bg-transparent py-0.5 text-right font-sans text-[12.5px] tabular-nums text-[#1a2440] outline-none focus:border-[#4a74c4]"
+                  className="w-[72px] border-0 bg-transparent py-0.5 text-right font-sans text-[12.5px] tabular-nums text-[#1a2440] outline-none focus:border-b focus:border-[#4a74c4]"
                   onBlur={(e) => saveTradeOut(s.tier.id, e.target.value.replace(/,/g, ""))}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 />
               </div>
-              <div className={mutedCls}>{Math.round(s.share * 100)}%</div>
-              <div className={cellCls}>{money(s.cost)}</div>
               <div className={cellCls}>{money(Math.round(s.costPerUnit))}</div>
-              <div className={mutedCls}>{s.avgTradeOut ? money(Math.round(s.avgTradeOut)) : "—"}</div>
+              <div className={mutedCls}>{s.roi != null ? `${Math.round(s.roi * 1000) / 10}%` : "—"}</div>
             </Fragment>
           );
         })}
         {/* Total row */}
         <div className="py-[9px] text-[12.5px] font-semibold text-[#1a2440]" style={topBorder}>Total</div>
         <div className={cn(cellCls, "font-semibold")} style={topBorder}>{tu.toLocaleString()}</div>
+        <div className={mutedCls} style={topBorder}>{Math.round(waPctOfProperty * 100)}%</div>
         <div className={cn(cellCls, "font-semibold")} style={topBorder}>{waTarget ? money(Math.round(waTarget)) : "—"}</div>
-        <div className={mutedCls} style={topBorder}>100%</div>
-        <div className={cn(cellCls, "font-semibold")} style={topBorder}>{money(tc)}</div>
         <div className={cn(cellCls, "font-semibold")} style={topBorder}>{money(Math.round(waCost))}</div>
-        <div className={mutedCls} style={topBorder}>{waAvgTO ? money(Math.round(waAvgTO)) : "—"}</div>
+        <div className={mutedCls} style={topBorder}>{waRoi != null ? `${Math.round(waRoi * 1000) / 10}%` : "—"}</div>
       </div>
     </div>
   );
