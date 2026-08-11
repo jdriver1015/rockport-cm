@@ -39,6 +39,8 @@ export function RentRollUpload({
       // Land on the new batch; the detail page kicks off parsing + progress.
       router.push(`/properties/${propertySlug}/rent-rolls/${data.batchId}`);
       router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload rent roll");
     } finally {
       setBusy(false);
     }

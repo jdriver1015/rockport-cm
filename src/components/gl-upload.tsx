@@ -53,6 +53,8 @@ export function GlUpload({
       // Land on the new batch — account picker (needs_accounts) or review queue.
       router.push(`/properties/${propertySlug}/gl/${data.batchId}`);
       router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload GL file");
     } finally {
       setBusy(false);
     }

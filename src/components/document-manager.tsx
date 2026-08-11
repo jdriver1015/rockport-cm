@@ -158,6 +158,8 @@ export function DocumentManager({
       }
       toast.success(`Uploaded ${file.name}`);
       router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
     }

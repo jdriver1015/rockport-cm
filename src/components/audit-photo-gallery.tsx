@@ -93,6 +93,8 @@ export function AuditPhotoGallery({
         toast.success(`${successCount} photo${successCount === 1 ? "" : "s"} uploaded`);
         await router.refresh();
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
     }
