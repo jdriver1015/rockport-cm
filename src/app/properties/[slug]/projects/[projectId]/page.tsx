@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,10 +15,7 @@ import {
   type ScopeCostCodeOption,
   type CostCodeBudget,
 } from "@/components/scope-table";
-import { PricedScopeTable, type PricedScopeRow } from "@/components/priced-scope-table";
-import { type LineTxn } from "@/components/line-transactions-dialog";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
-import type { PricingMethod } from "@/lib/pricing";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
@@ -205,7 +202,13 @@ export default async function ProjectDetailPage({
   const activeCostCodes: ScopeCostCodeOption[] = await db()
     .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
     .from(schema.costCodes)
-    .where(and(eq(schema.costCodes.chartId, property.chartOfAccountsId), eq(schema.costCodes.active, true)))
+    .where(
+      and(
+        eq(schema.costCodes.chartId, property.chartOfAccountsId),
+        eq(schema.costCodes.active, true),
+        eq(schema.costCodes.isInterior, project.kind === "unit"),
+      ),
+    )
     .orderBy(asc(schema.costCodes.code));
 
   const actualByCode: Record<number, number> = {};
@@ -246,64 +249,19 @@ export default async function ProjectDetailPage({
     budgetByCode[s.costCodeId].allocated += num(s.quantity) * num(s.unitPrice);
   }
 
-  const scopeCodeIds = [...new Set(scope.map((s) => s.costCodeId).filter((c): c is number => !!c))];
-  const scopeCodes = scopeCodeIds.length
-    ? await db()
-        .select({ id: schema.costCodes.id, name: schema.costCodes.name })
-        .from(schema.costCodes)
-        .where(inArray(schema.costCodes.id, scopeCodeIds))
-    : [];
-  const codeById = new Map(scopeCodes.map((c) => [c.id, c.name]));
-  const isPriced = project.kind === "unit" && scope.some((s) => s.pricingMethod != null);
-  const pricedScopeRows: PricedScopeRow[] = scope.map((s) => ({
-    id: s.id,
-    item: s.item,
-    materialQuality: s.materialQuality,
-    category: s.category,
-    status: s.status,
-    pricingMethod: s.pricingMethod as PricingMethod | null,
-    unitPrice: s.unitPrice,
-    quantity: s.quantity,
-    costCode: s.costCodeId != null ? codeById.get(s.costCodeId) ?? null : null,
-    costCodeId: s.costCodeId,
-  }));
-
-  // Group posted GL transactions by cost code so each scope line's Actual
-  // column can drill down to the underlying invoices for its code.
-  const transactionsByCode: Record<number, LineTxn[]> = {};
-  for (const r of glRows) {
-    if (r.costCodeId == null) continue;
-    (transactionsByCode[r.costCodeId] ??= []).push({
-      id: r.id,
-      txnDate: r.txnDate,
-      vendor: r.vendorName ?? r.vendorRaw ?? "—",
-      description: r.description,
-      invoiceNo: r.invoiceNo,
-      amount: r.amount,
-    });
-  }
-
   const overview = (
     <>
       {/* Open items */}
       <OpenItemsStrip items={openItemsSummary} />
 
-      {/* Scope & cost — priced projects fold GL actuals into the scope table. */}
-      {isPriced ? (
-        <PricedScopeTable
-          items={pricedScopeRows}
-          transactionsByCode={transactionsByCode}
-        />
-      ) : (
-        <ScopeTable
-          propertyId={propertyId}
-          projectId={projectId}
-          items={scopeRows}
-          costCodes={activeCostCodes}
-          actualByCode={actualByCode}
-          budgetByCode={budgetByCode}
-        />
-      )}
+      <ScopeTable
+        propertyId={propertyId}
+        projectId={projectId}
+        items={scopeRows}
+        costCodes={activeCostCodes}
+        actualByCode={actualByCode}
+        budgetByCode={budgetByCode}
+      />
     </>
   );
 

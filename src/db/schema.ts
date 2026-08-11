@@ -507,13 +507,9 @@ export const scopeItems = pgTable("scope_items", {
   materialQuality: text("material_quality"),
   /** URL to the product/spec so anyone can view it online */
   productLink: text("product_link"),
-  /**
-   * Trade section, e.g. "Cabinets", "Flooring" — snapshotted from the source
-   * scope-group item (see src/lib/scope-sections.ts). Groups the scope table
-   * and drives the per-trade progress rollup.
-   */
+  /** Trade section, e.g. "Cabinets", "Flooring" — snapshotted from the source scope-group item. Not currently surfaced in the scope table UI. */
   category: text("category"),
-  /** Where this line stands; rolls up per category on the project dashboard */
+  /** Where this line stands. Not currently surfaced in the scope table UI. */
   status: scopeItemStatus("status").notNull().default("not_started"),
   // --- Estimate pricing (set for template-generated interior scope; null for
   // legacy/manual spec-only items) ---

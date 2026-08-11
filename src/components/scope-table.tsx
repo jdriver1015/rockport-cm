@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,8 +12,13 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,12 +71,7 @@ export function ScopeTable({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base text-navy">Scope</CardTitle>
-        <ScopeItemDialog
-          propertyId={propertyId}
-          projectId={projectId}
-          costCodes={costCodes}
-          budgetByCode={budgetByCode}
-        />
+        <AddScopeItemButton propertyId={propertyId} projectId={projectId} costCodes={costCodes} budgetByCode={budgetByCode} />
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
@@ -83,7 +84,6 @@ export function ScopeTable({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Item</TableHead>
-                  <TableHead>Budget line</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Unit cost</TableHead>
@@ -133,72 +133,116 @@ function ScopeItemRow({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [editOpen, setEditOpen] = useState(false);
 
   const quantity = row.quantity != null ? Number(row.quantity) : null;
   const unitPrice = row.unitPrice != null ? Number(row.unitPrice) : null;
   const totalCost = quantity != null && unitPrice != null ? quantity * unitPrice : null;
 
+  function handleDelete() {
+    startTransition(async () => {
+      const res = await deleteScopeItem({ id: row.id, propertyId, projectId });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Scope item deleted", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            startTransition(async () => {
+              const undo = await restoreScopeItem({ id: row.id, propertyId, projectId });
+              if (!undo.ok) toast.error(undo.error);
+            });
+          },
+        },
+      });
+      router.refresh();
+    });
+  }
+
   return (
     <TableRow className={pending ? "opacity-60" : undefined}>
-      <TableCell className="font-medium text-navy">{row.item}</TableCell>
-      <TableCell className="text-muted-foreground">
-        {costCodeLabel ? `${costCodeLabel.code} — ${costCodeLabel.name}` : "—"}
-      </TableCell>
-      <TableCell className="max-w-xs text-muted-foreground">{row.materialQuality || "—"}</TableCell>
-      <TableCell className="text-right tabular-nums">{quantity != null ? quantity.toLocaleString() : "—"}</TableCell>
-      <TableCell className="text-right tabular-nums">{unitPrice != null ? money(unitPrice) : "—"}</TableCell>
-      <TableCell className="text-right tabular-nums">{totalCost != null ? money(totalCost) : "—"}</TableCell>
-      <TableCell className="text-right tabular-nums">{actual > 0 ? money(actual) : "—"}</TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          <ScopeItemDialog
-            propertyId={propertyId}
-            projectId={projectId}
-            existing={row}
-            costCodes={costCodes}
-            budgetByCode={budgetByCode}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={pending}
-            onClick={() => {
-              startTransition(async () => {
-                const res = await deleteScopeItem({ id: row.id, propertyId, projectId });
-                if (!res.ok) {
-                  toast.error(res.error);
-                  return;
-                }
-                toast.success("Scope item deleted", {
-                  action: {
-                    label: "Undo",
-                    onClick: () => {
-                      startTransition(async () => {
-                        const undo = await restoreScopeItem({ id: row.id, propertyId, projectId });
-                        if (!undo.ok) toast.error(undo.error);
-                      });
-                    },
-                  },
-                });
-                router.refresh();
-              });
-            }}
-          >
-            Delete
-          </Button>
+      <TableCell className="py-5 align-top">
+        <div className="font-medium text-navy">{row.item}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {costCodeLabel ? `${costCodeLabel.code} — ${costCodeLabel.name}` : "—"}
         </div>
+      </TableCell>
+      <TableCell className="max-w-md whitespace-normal py-5 align-top text-muted-foreground">
+        {row.materialQuality || "—"}
+      </TableCell>
+      <TableCell className="py-5 text-right tabular-nums">{quantity != null ? quantity.toLocaleString() : "—"}</TableCell>
+      <TableCell className="py-5 text-right tabular-nums">{unitPrice != null ? money(unitPrice) : "—"}</TableCell>
+      <TableCell className="py-5 text-right tabular-nums">{totalCost != null ? money(totalCost) : "—"}</TableCell>
+      <TableCell className="py-5 text-right tabular-nums">{actual > 0 ? money(actual) : "—"}</TableCell>
+      <TableCell className="py-5 text-right" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenu>
+          <DropdownMenuTrigger disabled={pending} render={<Button variant="ghost" size="icon-sm" />}>
+            <EllipsisIcon />
+            <span className="sr-only">Actions</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit</DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" disabled={pending} onClick={handleDelete}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <ScopeItemFormDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          propertyId={propertyId}
+          projectId={projectId}
+          existing={row}
+          costCodes={costCodes}
+          budgetByCode={budgetByCode}
+        />
       </TableCell>
     </TableRow>
   );
 }
 
-function ScopeItemDialog({
+function AddScopeItemButton({
+  propertyId,
+  projectId,
+  costCodes,
+  budgetByCode,
+}: {
+  propertyId: number;
+  projectId: number;
+  costCodes: ScopeCostCodeOption[];
+  budgetByCode: Record<number, CostCodeBudget>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        Add scope item
+      </Button>
+      <ScopeItemFormDialog
+        open={open}
+        onOpenChange={setOpen}
+        propertyId={propertyId}
+        projectId={projectId}
+        costCodes={costCodes}
+        budgetByCode={budgetByCode}
+      />
+    </>
+  );
+}
+
+function ScopeItemFormDialog({
+  open,
+  onOpenChange,
   propertyId,
   projectId,
   existing,
   costCodes,
   budgetByCode,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   propertyId: number;
   projectId: number;
   existing?: ScopeRow;
@@ -206,7 +250,6 @@ function ScopeItemDialog({
   budgetByCode: Record<number, CostCodeBudget>;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const editing = !!existing;
 
@@ -254,7 +297,7 @@ function ScopeItemDialog({
         return;
       }
       toast.success(editing ? "Scope item updated" : "Scope item added");
-      setOpen(false);
+      onOpenChange(false);
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save scope item");
@@ -267,13 +310,10 @@ function ScopeItemDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
+        onOpenChange(next);
         if (next) syncFromExisting();
       }}
     >
-      <DialogTrigger render={<Button size="sm" variant={editing ? "ghost" : "default"} />}>
-        {editing ? "Edit" : "Add scope item"}
-      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{editing ? "Edit scope item" : "Add scope item"}</DialogTitle>
