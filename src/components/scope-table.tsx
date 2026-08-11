@@ -6,13 +6,7 @@ import { toast } from "sonner";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ComboboxSelect } from "@/components/ui/combobox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +14,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { money } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type ScopeRow = {
   id: number;
@@ -50,6 +44,8 @@ export type CostCodeBudget = {
   allocated: number;
 };
 
+const inputClass = "h-8 text-xs";
+
 export function ScopeTable({
   propertyId,
   projectId,
@@ -65,16 +61,30 @@ export function ScopeTable({
   actualByCode: Record<number, number>;
   budgetByCode: Record<number, CostCodeBudget>;
 }) {
-  const codeById = useMemo(() => new Map(costCodes.map((c) => [c.id, c])), [costCodes]);
+  const costCodeOptions = useMemo(
+    () => costCodes.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })),
+    [costCodes],
+  );
+
+  // A draft is a not-yet-created row added via "Add scope item". Once it's
+  // saved server-side, its id shows up in `items` (after the next refresh) —
+  // filtered out here at render time so the real row takes over instead of
+  // showing twice, without needing an effect to prune state.
+  const [drafts, setDrafts] = useState<{ key: string; createdId: number | null }[]>([]);
+  const visibleDrafts = drafts.filter(
+    (d) => d.createdId == null || !items.some((i) => i.id === d.createdId),
+  );
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base text-navy">Scope</CardTitle>
-        <AddScopeItemButton propertyId={propertyId} projectId={projectId} costCodes={costCodes} budgetByCode={budgetByCode} />
+        <Button size="sm" onClick={() => setDrafts((ds) => [...ds, { key: crypto.randomUUID(), createdId: null }])}>
+          Add scope item
+        </Button>
       </CardHeader>
       <CardContent>
-        {items.length === 0 ? (
+        {items.length === 0 && visibleDrafts.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No scope items yet — add the first with “Add scope item”.
           </p>
@@ -84,6 +94,7 @@ export function ScopeTable({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Item</TableHead>
+                  <TableHead>Budget line</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="text-right">Units</TableHead>
                   <TableHead className="text-right">Unit cost</TableHead>
@@ -99,10 +110,24 @@ export function ScopeTable({
                     row={row}
                     propertyId={propertyId}
                     projectId={projectId}
-                    costCodes={costCodes}
+                    costCodeOptions={costCodeOptions}
                     budgetByCode={budgetByCode}
-                    costCodeLabel={row.costCodeId != null ? codeById.get(row.costCodeId) : undefined}
-                    actual={row.costCodeId != null ? actualByCode[row.costCodeId] ?? 0 : 0}
+                    actualByCode={actualByCode}
+                  />
+                ))}
+                {visibleDrafts.map((d) => (
+                  <ScopeItemRow
+                    key={d.key}
+                    row={null}
+                    propertyId={propertyId}
+                    projectId={projectId}
+                    costCodeOptions={costCodeOptions}
+                    budgetByCode={budgetByCode}
+                    actualByCode={actualByCode}
+                    onDraftCreated={(id) =>
+                      setDrafts((ds) => ds.map((x) => (x.key === d.key ? { ...x, createdId: id } : x)))
+                    }
+                    onDraftRemoved={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}
                   />
                 ))}
               </TableBody>
@@ -118,30 +143,90 @@ function ScopeItemRow({
   row,
   propertyId,
   projectId,
-  costCodes,
+  costCodeOptions,
   budgetByCode,
-  costCodeLabel,
-  actual,
+  actualByCode,
+  onDraftCreated,
+  onDraftRemoved,
 }: {
-  row: ScopeRow;
+  row: ScopeRow | null;
   propertyId: number;
   projectId: number;
-  costCodes: ScopeCostCodeOption[];
+  costCodeOptions: { value: number; label: string }[];
   budgetByCode: Record<number, CostCodeBudget>;
-  costCodeLabel: ScopeCostCodeOption | undefined;
-  actual: number;
+  actualByCode: Record<number, number>;
+  onDraftCreated?: (id: number) => void;
+  onDraftRemoved?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [editOpen, setEditOpen] = useState(false);
 
-  const quantity = row.quantity != null ? Number(row.quantity) : null;
-  const unitPrice = row.unitPrice != null ? Number(row.unitPrice) : null;
-  const totalCost = quantity != null && unitPrice != null ? quantity * unitPrice : null;
+  const [id, setId] = useState<number | null>(row?.id ?? null);
+  const [item, setItem] = useState(row?.item ?? "");
+  const [materialQuality, setMaterialQuality] = useState(row?.materialQuality ?? "");
+  const [quantity, setQuantity] = useState(row?.quantity ?? "");
+  const [unitPrice, setUnitPrice] = useState(row?.unitPrice ?? "");
+  const [costCodeId, setCostCodeId] = useState<number | null>(row?.costCodeId ?? null);
+
+  // Fixed snapshot of what this row originally contributed to its budget code,
+  // so the remaining-budget preview doesn't double-count this row's own spend.
+  const originalCostCodeId = row?.costCodeId ?? null;
+  const originalQuantity = row?.quantity ?? null;
+  const originalUnitPrice = row?.unitPrice ?? null;
+
+  type FieldPatch = Partial<{
+    item: string;
+    materialQuality: string;
+    quantity: string;
+    unitPrice: string;
+    costCodeId: number | null;
+  }>;
+
+  function commit(patch: FieldPatch) {
+    const next = {
+      item: patch.item ?? item,
+      materialQuality: patch.materialQuality ?? materialQuality,
+      quantity: patch.quantity ?? quantity,
+      unitPrice: patch.unitPrice ?? unitPrice,
+      costCodeId: patch.costCodeId !== undefined ? patch.costCodeId : costCodeId,
+    };
+    startTransition(async () => {
+      if (id == null) {
+        if (!next.item.trim()) return; // nothing to create until there's an item name
+        const res = await createScopeItem({
+          propertyId,
+          projectId,
+          item: next.item,
+          materialQuality: next.materialQuality || null,
+          quantity: next.quantity || null,
+          unitPrice: next.unitPrice || null,
+          costCodeId: next.costCodeId,
+        });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        setId(res.id);
+        onDraftCreated?.(res.id);
+        router.refresh();
+        return;
+      }
+      const res = await updateScopeItem({ id, propertyId, projectId, ...patch });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
 
   function handleDelete() {
+    if (id == null) {
+      onDraftRemoved?.();
+      return;
+    }
     startTransition(async () => {
-      const res = await deleteScopeItem({ id: row.id, propertyId, projectId });
+      const res = await deleteScopeItem({ id, propertyId, projectId });
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -151,7 +236,7 @@ function ScopeItemRow({
           label: "Undo",
           onClick: () => {
             startTransition(async () => {
-              const undo = await restoreScopeItem({ id: row.id, propertyId, projectId });
+              const undo = await restoreScopeItem({ id, propertyId, projectId });
               if (!undo.ok) toast.error(undo.error);
             });
           },
@@ -161,249 +246,97 @@ function ScopeItemRow({
     });
   }
 
+  const qtyNum = quantity ? Number(quantity) : null;
+  const priceNum = unitPrice ? Number(unitPrice) : null;
+  const totalCost = qtyNum != null && priceNum != null ? qtyNum * priceNum : null;
+  const actual = costCodeId != null ? actualByCode[costCodeId] ?? 0 : 0;
+
+  const selectedBudget = costCodeId != null ? budgetByCode[costCodeId] : undefined;
+  const ownOriginal =
+    originalCostCodeId === costCodeId ? Number(originalQuantity ?? 0) * Number(originalUnitPrice ?? 0) : 0;
+  const liveTotal = totalCost ?? 0;
+  const baseAllocated = (selectedBudget?.allocated ?? 0) - ownOriginal;
+  const remaining = selectedBudget ? selectedBudget.budget - baseAllocated - liveTotal : null;
+
   return (
     <TableRow className={pending ? "opacity-60" : undefined}>
-      <TableCell className="py-5 align-top">
-        <div className="font-medium text-navy">{row.item}</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {costCodeLabel ? `${costCodeLabel.code} — ${costCodeLabel.name}` : "—"}
-        </div>
+      <TableCell>
+        <Input
+          className={inputClass}
+          value={item}
+          placeholder="Item name"
+          onChange={(e) => setItem(e.target.value)}
+          onBlur={() => commit({ item })}
+        />
       </TableCell>
-      <TableCell className="max-w-md whitespace-normal py-5 align-top text-muted-foreground">
-        {row.materialQuality || "—"}
+      <TableCell className="align-top">
+        <ComboboxSelect
+          className="w-48"
+          options={costCodeOptions}
+          value={costCodeId}
+          placeholder="Search codes…"
+          emptyMessage="No matching cost codes"
+          onValueChange={(next) => {
+            setCostCodeId(next);
+            commit({ costCodeId: next });
+          }}
+        />
+        {selectedBudget && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Budget {money(selectedBudget.budget)} · Remaining{" "}
+            <span className={cn("font-medium", remaining != null && remaining < 0 ? "text-red-600" : "text-navy")}>
+              {money(remaining ?? 0)}
+            </span>
+          </p>
+        )}
       </TableCell>
-      <TableCell className="py-5 text-right tabular-nums">{quantity != null ? quantity.toLocaleString() : "—"}</TableCell>
-      <TableCell className="py-5 text-right tabular-nums">{unitPrice != null ? money(unitPrice) : "—"}</TableCell>
-      <TableCell className="py-5 text-right tabular-nums">{totalCost != null ? money(totalCost) : "—"}</TableCell>
-      <TableCell className="py-5 text-right tabular-nums">{actual > 0 ? money(actual) : "—"}</TableCell>
-      <TableCell className="py-5 text-right" onClick={(e) => e.stopPropagation()}>
+      <TableCell className="min-w-56">
+        <Textarea
+          className="min-h-8 text-xs"
+          rows={1}
+          value={materialQuality}
+          placeholder="Description"
+          onChange={(e) => setMaterialQuality(e.target.value)}
+          onBlur={() => commit({ materialQuality })}
+        />
+      </TableCell>
+      <TableCell className="text-right">
+        <Input
+          className={cn(inputClass, "w-16 text-right")}
+          type="number"
+          step="0.01"
+          value={quantity}
+          placeholder="1"
+          onChange={(e) => setQuantity(e.target.value)}
+          onBlur={() => commit({ quantity })}
+        />
+      </TableCell>
+      <TableCell className="text-right">
+        <Input
+          className={cn(inputClass, "w-24 text-right")}
+          type="number"
+          step="0.01"
+          value={unitPrice}
+          placeholder="0.00"
+          onChange={(e) => setUnitPrice(e.target.value)}
+          onBlur={() => commit({ unitPrice })}
+        />
+      </TableCell>
+      <TableCell className="text-right tabular-nums">{totalCost != null ? money(totalCost) : "—"}</TableCell>
+      <TableCell className="text-right tabular-nums">{actual > 0 ? money(actual) : "—"}</TableCell>
+      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
         <DropdownMenu>
           <DropdownMenuTrigger disabled={pending} render={<Button variant="ghost" size="icon-sm" />}>
             <EllipsisIcon />
             <span className="sr-only">Actions</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit</DropdownMenuItem>
             <DropdownMenuItem variant="destructive" disabled={pending} onClick={handleDelete}>
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ScopeItemFormDialog
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          propertyId={propertyId}
-          projectId={projectId}
-          existing={row}
-          costCodes={costCodes}
-          budgetByCode={budgetByCode}
-        />
       </TableCell>
     </TableRow>
-  );
-}
-
-function AddScopeItemButton({
-  propertyId,
-  projectId,
-  costCodes,
-  budgetByCode,
-}: {
-  propertyId: number;
-  projectId: number;
-  costCodes: ScopeCostCodeOption[];
-  budgetByCode: Record<number, CostCodeBudget>;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        Add scope item
-      </Button>
-      <ScopeItemFormDialog
-        open={open}
-        onOpenChange={setOpen}
-        propertyId={propertyId}
-        projectId={projectId}
-        costCodes={costCodes}
-        budgetByCode={budgetByCode}
-      />
-    </>
-  );
-}
-
-function ScopeItemFormDialog({
-  open,
-  onOpenChange,
-  propertyId,
-  projectId,
-  existing,
-  costCodes,
-  budgetByCode,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  propertyId: number;
-  projectId: number;
-  existing?: ScopeRow;
-  costCodes: ScopeCostCodeOption[];
-  budgetByCode: Record<number, CostCodeBudget>;
-}) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const editing = !!existing;
-
-  const [costCodeId, setCostCodeId] = useState(existing?.costCodeId != null ? String(existing.costCodeId) : "");
-  const [quantity, setQuantity] = useState(existing?.quantity ?? "");
-  const [unitPrice, setUnitPrice] = useState(existing?.unitPrice ?? "");
-
-  // Local input state only initializes on mount, so re-pull it from the latest
-  // `existing` every time the dialog opens — otherwise, after a save, closing
-  // and reopening this same row's dialog shows the pre-save values (or blanks
-  // out entirely) because the state never re-synced to the refreshed row.
-  function syncFromExisting() {
-    setCostCodeId(existing?.costCodeId != null ? String(existing.costCodeId) : "");
-    setQuantity(existing?.quantity ?? "");
-    setUnitPrice(existing?.unitPrice ?? "");
-  }
-
-  const selectedId = costCodeId ? Number(costCodeId) : null;
-  const selectedBudget = selectedId != null ? budgetByCode[selectedId] : undefined;
-  const ownOriginal =
-    existing && existing.costCodeId === selectedId ? Number(existing.quantity ?? 0) * Number(existing.unitPrice ?? 0) : 0;
-  const liveTotal = quantity && unitPrice ? Number(quantity) * Number(unitPrice) : 0;
-  const baseAllocated = (selectedBudget?.allocated ?? 0) - ownOriginal;
-  const remaining = selectedBudget ? selectedBudget.budget - baseAllocated - liveTotal : null;
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const fd = new FormData(e.currentTarget);
-      const res = editing
-        ? await updateScopeItem({
-            id: existing!.id,
-            propertyId,
-            projectId,
-            item: String(fd.get("item") ?? ""),
-            materialQuality: String(fd.get("materialQuality") ?? ""),
-            quantity: String(fd.get("quantity") ?? ""),
-            unitPrice: String(fd.get("unitPrice") ?? ""),
-            costCodeId: selectedId,
-          })
-        : await createScopeItem(fd);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(editing ? "Scope item updated" : "Scope item added");
-      onOpenChange(false);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save scope item");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next);
-        if (next) syncFromExisting();
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{editing ? "Edit scope item" : "Add scope item"}</DialogTitle>
-          <DialogDescription>
-            The work and materials for this line — vendors price it in their bids.
-          </DialogDescription>
-        </DialogHeader>
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <input type="hidden" name="propertyId" value={propertyId} />
-          <input type="hidden" name="projectId" value={projectId} />
-          <input type="hidden" name="costCodeId" value={costCodeId} />
-          <div className="space-y-1.5">
-            <Label htmlFor="scope-item">Item</Label>
-            <Input
-              id="scope-item"
-              name="item"
-              required
-              defaultValue={existing?.item}
-              placeholder="LVP flooring"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="scope-quality">Description</Label>
-            <Textarea
-              id="scope-quality"
-              name="materialQuality"
-              rows={4}
-              defaultValue={existing?.materialQuality ?? ""}
-              placeholder="20 mil wear layer, waterproof core"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="scope-quantity">Units</Label>
-              <Input
-                id="scope-quantity"
-                name="quantity"
-                type="number"
-                step="0.01"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                placeholder="1"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="scope-unit-price">Unit cost ($)</Label>
-              <Input
-                id="scope-unit-price"
-                name="unitPrice"
-                type="number"
-                step="0.01"
-                value={unitPrice}
-                onChange={(e) => setUnitPrice(e.target.value)}
-                placeholder="1,200.00"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="scope-cost-code">Budget line</Label>
-            <select
-              id="scope-cost-code"
-              value={costCodeId}
-              onChange={(e) => setCostCodeId(e.target.value)}
-              className="h-9 w-full rounded-control border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <option value="">—</option>
-              {costCodes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
-                </option>
-              ))}
-            </select>
-            {selectedBudget && (
-              <p className="text-xs text-muted-foreground">
-                Total budget: <span className="font-medium text-navy">{money(selectedBudget.budget)}</span>
-                {" · "}
-                Remaining after this line:{" "}
-                <span className={`font-medium ${remaining != null && remaining < 0 ? "text-red-600" : "text-navy"}`}>
-                  {money(remaining ?? 0)}
-                </span>
-              </p>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={busy}>
-              {busy ? "Saving…" : editing ? "Save" : "Add scope item"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -20,13 +20,6 @@ const optionalNumeric = z
   .transform((v) => (v ? v : null))
   .refine((v) => v === null || !Number.isNaN(Number(v)), "Enter a valid number");
 
-const optionalCostCodeId = z
-  .string()
-  .trim()
-  .nullish()
-  .transform((v) => (v ? Number(v) : null))
-  .refine((v) => v === null || Number.isInteger(v), "Invalid budget line");
-
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   projectId: z.coerce.number().int().positive(),
@@ -38,19 +31,14 @@ const createSchema = z.object({
     .transform((v) => (v ? v : null)),
   quantity: optionalNumeric,
   unitPrice: optionalNumeric,
-  costCodeId: optionalCostCodeId,
+  costCodeId: z.number().int().positive().nullish(),
 });
 
-export async function createScopeItem(formData: FormData): Promise<ActionResult> {
-  const parsed = createSchema.safeParse({
-    propertyId: formData.get("propertyId"),
-    projectId: formData.get("projectId"),
-    item: formData.get("item"),
-    materialQuality: formData.get("materialQuality"),
-    quantity: formData.get("quantity"),
-    unitPrice: formData.get("unitPrice"),
-    costCodeId: formData.get("costCodeId"),
-  });
+/** Creates a scope item and returns its id — the caller keeps editing that row inline once it exists. */
+export async function createScopeItem(
+  input: z.input<typeof createSchema>,
+): Promise<ActionResult<{ id: number }>> {
+  const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
 
@@ -59,17 +47,20 @@ export async function createScopeItem(formData: FormData): Promise<ActionResult>
     .from(schema.scopeItems)
     .where(eq(schema.scopeItems.projectId, d.projectId));
 
-  await db().insert(schema.scopeItems).values({
-    projectId: d.projectId,
-    item: d.item,
-    materialQuality: d.materialQuality,
-    quantity: d.quantity,
-    unitPrice: d.unitPrice,
-    costCodeId: d.costCodeId,
-    sortOrder: maxOrder + 1,
-  });
+  const [row] = await db()
+    .insert(schema.scopeItems)
+    .values({
+      projectId: d.projectId,
+      item: d.item,
+      materialQuality: d.materialQuality,
+      quantity: d.quantity,
+      unitPrice: d.unitPrice,
+      costCodeId: d.costCodeId ?? null,
+      sortOrder: maxOrder + 1,
+    })
+    .returning({ id: schema.scopeItems.id });
   await revalidateProject(d.propertyId, d.projectId);
-  return { ok: true };
+  return { ok: true, id: row.id };
 }
 
 export async function updateScopeItem(input: {
