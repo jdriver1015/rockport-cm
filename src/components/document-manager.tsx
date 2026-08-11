@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRef, useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -57,10 +58,13 @@ function DocumentPreview({
 
         <div className="flex-1 overflow-auto">
           {fileType === "image" && (
-            <img
+            <Image
               src={docUrl}
               alt={document.name}
-              className="max-w-full h-auto mx-auto"
+              width={1200}
+              height={900}
+              unoptimized
+              className="mx-auto h-auto max-w-full"
             />
           )}
 
