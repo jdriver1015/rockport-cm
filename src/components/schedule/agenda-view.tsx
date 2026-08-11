@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { StageDot } from "@/components/ui/stage-dot";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { TableCard } from "@/components/ui/table-card";
 import {
   Table,
@@ -111,19 +111,17 @@ function TableRowsForMonth({
           m.date < todayIso &&
           !DONE_PHASES.has(m.project.phase);
         return (
-          <TableRow key={`${m.project.id}-${m.label}-${i}`}>
+          <ClickableTableRow
+            key={`${m.project.id}-${m.label}-${i}`}
+            href={`/properties/${m.project.propertySlug}/projects/${projectSlug(m.project)}`}
+          >
             <TableCell className={cn(overdue && "font-semibold text-alert")}>
               {fmtDay(m.date)}
               {overdue && <span className="ml-1.5 text-xs">overdue</span>}
             </TableCell>
             <TableCell className="text-muted-foreground">{m.project.propertyName}</TableCell>
             <TableCell>
-              <Link
-                href={`/properties/${m.project.propertySlug}/projects/${projectSlug(m.project)}`}
-                className="font-medium text-navy hover:underline"
-              >
-                {m.project.name}
-              </Link>
+              <span className="font-medium text-navy">{m.project.name}</span>
               {m.project.unitLabel && (
                 <span className="ml-1.5 text-xs text-muted-foreground">
                   {m.project.unitLabel}
@@ -134,7 +132,7 @@ function TableRowsForMonth({
             <TableCell>
               <StageDot phase={m.project.phase} />
             </TableCell>
-          </TableRow>
+          </ClickableTableRow>
         );
       })}
     </>

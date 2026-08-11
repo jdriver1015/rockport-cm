@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { PropertyHeader } from "@/components/property-header";
 import { RestoreBatchButton } from "@/components/restore-batch-button";
 import { fmtDate } from "@/lib/format";
@@ -78,23 +79,16 @@ export default async function ArchivedBatchesPage({
                 </TableHeader>
                 <TableBody>
                   {archived.map((b) => (
-                    <TableRow key={b.id}>
-                      <TableCell>
-                        <Link
-                          href={`/properties/${slug}/gl/${b.id}`}
-                          className="font-medium text-navy hover:underline"
-                        >
-                          {b.fileName}
-                        </Link>
-                      </TableCell>
+                    <ClickableTableRow key={b.id} href={`/properties/${slug}/gl/${b.id}`}>
+                      <TableCell className="font-medium text-navy">{b.fileName}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{b.rowCount}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {b.archivedAt ? fmtDate(b.archivedAt) : "—"}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <RestoreBatchButton batchId={b.id} />
                       </TableCell>
-                    </TableRow>
+                    </ClickableTableRow>
                   ))}
                 </TableBody>
               </Table>

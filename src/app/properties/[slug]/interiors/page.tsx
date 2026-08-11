@@ -8,6 +8,7 @@ import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { ManageBudgetGroupsButton } from "@/components/interior-budget-groups";
 import { AmountCell } from "@/components/ui/amount-cell";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { TableCard } from "@/components/ui/table-card";
 import {
   Table,
@@ -181,13 +182,11 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
                     const jtd = jtdByProject.get(p.id) ?? 0;
                     const reconciledCost = jtd;
                     const displayCommitted = Math.max(committed, jtd);
+                    const href = `/properties/${slug}/projects/${projectSlug(p)}`;
                     return (
-                      <TableRow key={p.id}>
+                      <ClickableTableRow key={p.id} href={href}>
                         <TableCell className="truncate">
-                          <Link
-                            href={`/properties/${slug}/projects/${projectSlug(p)}`}
-                            className="font-medium text-navy hover:underline"
-                          >
+                          <Link href={href} className="font-medium text-navy">
                             {p.unitNumber ? `Unit ${p.unitNumber}` : p.name}
                           </Link>
                         </TableCell>
@@ -215,7 +214,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
                         <TableCell>
                           <VarianceCell budget={num(p.budgetAmount)} actual={reconciledCost} />
                         </TableCell>
-                      </TableRow>
+                      </ClickableTableRow>
                     );
                   })}
                 </Fragment>

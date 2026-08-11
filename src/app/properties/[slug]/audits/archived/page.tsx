@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { PropertyHeader } from "@/components/property-header";
 import { RestoreAuditButton } from "@/components/restore-audit-button";
 import { fmtDate } from "@/lib/format";
@@ -71,25 +72,18 @@ export default async function ArchivedAuditsPage({
                 </TableHeader>
                 <TableBody>
                   {archived.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>
-                        <Link
-                          href={`/properties/${slug}/audits/${a.id}`}
-                          className="font-medium text-navy hover:underline"
-                        >
-                          {a.title}
-                        </Link>
-                      </TableCell>
+                    <ClickableTableRow key={a.id} href={`/properties/${slug}/audits/${a.id}`}>
+                      <TableCell className="font-medium text-navy">{a.title}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {fmtDate(a.auditDate)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {a.archivedAt ? fmtDate(a.archivedAt) : "—"}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <RestoreAuditButton propertyId={propertyId} auditId={a.id} />
                       </TableCell>
-                    </TableRow>
+                    </ClickableTableRow>
                   ))}
                 </TableBody>
               </Table>

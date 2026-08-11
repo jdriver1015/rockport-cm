@@ -358,15 +358,19 @@ function ProjectLink({
   project,
   propertySlug,
   className,
+  interactive = true,
 }: {
   project: BoardProject;
   propertySlug: string;
   className?: string;
+  /** False inside a row that's already click-to-navigate — the link's own hover
+   * cue would otherwise make it look like the only clickable spot in the row. */
+  interactive?: boolean;
 }) {
   return (
     <Link
       href={`/properties/${propertySlug}/projects/${projectSlug(project)}`}
-      className={cn("font-medium text-navy hover:text-link hover:underline", className)}
+      className={cn("font-medium text-navy", interactive && "hover:text-link hover:underline", className)}
     >
       {project.name}
     </Link>
@@ -415,7 +419,7 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                     className="cursor-pointer hover:bg-muted/50"
                   >
                     <TableCell className="truncate">
-                      <ProjectLink project={p} propertySlug={propertySlug} />
+                      <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
                     </TableCell>
                     <TableCell>
                       <StageDot phase={p.phase} />

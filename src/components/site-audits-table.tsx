@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDate } from "@/lib/format";
 
@@ -42,19 +42,15 @@ export function SiteAuditsTable({
         </TableHeader>
         <TableBody>
           {audits.map((a) => (
-            <TableRow key={a.id} className="cursor-pointer">
-              <TableCell className="font-medium text-navy">
-                <Link href={`/properties/${propertySlug}/audits/${a.id}`} className="hover:underline">
-                  {a.title}
-                </Link>
-              </TableCell>
+            <ClickableTableRow key={a.id} href={`/properties/${propertySlug}/audits/${a.id}`}>
+              <TableCell className="font-medium text-navy">{a.title}</TableCell>
               <TableCell className="text-muted-foreground">{fmtDate(a.auditDate)}</TableCell>
               <TableCell className="text-muted-foreground">{a.auditorName ?? "—"}</TableCell>
               <TableCell className="text-right tabular-nums">{findingsByAudit.get(a.id) ?? 0}</TableCell>
               <TableCell>
                 <Badge variant={a.status === "complete" ? "positive" : "pending"}>{a.status}</Badge>
               </TableCell>
-            </TableRow>
+            </ClickableTableRow>
           ))}
         </TableBody>
       </Table>

@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { PropertyHeader } from "@/components/property-header";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { fmtDate } from "@/lib/format";
@@ -81,11 +82,11 @@ export default async function ArchivedProjectsPage({
                 </TableHeader>
                 <TableBody>
                   {archived.map((p) => (
-                    <TableRow key={p.id}>
+                    <ClickableTableRow key={p.id} href={`/properties/${slug}/projects/${projectSlug(p)}`}>
                       <TableCell>
                         <Link
                           href={`/properties/${slug}/projects/${projectSlug(p)}`}
-                          className="font-medium text-navy hover:underline"
+                          className="font-medium text-navy"
                         >
                           {p.name}
                         </Link>
@@ -96,10 +97,10 @@ export default async function ArchivedProjectsPage({
                       <TableCell className="text-sm text-muted-foreground">
                         {p.archivedAt ? fmtDate(p.archivedAt) : "—"}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <RestoreProjectButton projectId={p.id} />
                       </TableCell>
-                    </TableRow>
+                    </ClickableTableRow>
                   ))}
                 </TableBody>
               </Table>
