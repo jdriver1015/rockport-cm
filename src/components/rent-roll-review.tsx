@@ -77,6 +77,7 @@ const FIELD_COLORS: Record<string, { bg: string; label: string }> = {
 
 export function RentRollReview({
   batchId,
+  propertySlug,
   committed,
   summary,
   warnings,
@@ -87,6 +88,7 @@ export function RentRollReview({
   mapping,
 }: {
   batchId: number;
+  propertySlug: string;
   committed: boolean;
   summary: {
     unitCount: number;
@@ -138,8 +140,13 @@ export function RentRollReview({
   function handleCommit() {
     startTransition(async () => {
       const res = await commitRentRoll(batchId);
-      if (!res.ok) toast.error(res.error);
-      else toast.success("Rent roll committed");
+      if (!res.ok) {
+        toast.error(res.error);
+        router.refresh();
+        return;
+      }
+      toast.success("Rent roll committed");
+      router.push(`/properties/${propertySlug}/rent-rolls`);
       router.refresh();
     });
   }

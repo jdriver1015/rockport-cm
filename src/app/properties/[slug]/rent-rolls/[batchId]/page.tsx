@@ -144,6 +144,7 @@ export default async function RentRollDetailPage({
       <PropertyNav slug={property.slug} />
       <RentRollReview
         batchId={batch.id}
+        propertySlug={slug}
         committed={batch.status === "committed"}
         summary={{
           unitCount: batch.rowCount,
