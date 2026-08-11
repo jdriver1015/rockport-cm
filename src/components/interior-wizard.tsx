@@ -236,7 +236,7 @@ export function InteriorWizard({
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Interior project created");
-      router.push(`/properties/${propertySlug}/projects/${result.slug}`);
+      router.push(`/properties/${propertySlug}/interiors`);
       router.refresh();
     } finally {
       setBusy(false);
