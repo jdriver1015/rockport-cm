@@ -34,6 +34,7 @@ import {
 } from "@/lib/actions/interior-budget-plan";
 import { updateTargetTradeOut, updateTierDefaults } from "@/lib/actions/budget-groups";
 import { updateUnitGroup } from "@/lib/actions/interior-unit-groups";
+import { TIER_PALETTE } from "@/lib/tier-palette";
 
 export type PivotUnitGroup = {
   id: number;
@@ -94,11 +95,6 @@ export type InteriorPivotProps = {
   availableFloorplans: WizardFloorplan[];
   avgTradeOutByTier?: Record<number, number>;
 };
-
-const TIER_PALETTE = [
-  { text: "#1b3a6b", bg: "#dde6f5", border: "#c3d3ec", dot: "#4a74c4" },
-  { text: "#7a4711", bg: "#f7e7cf", border: "#ecd4ae", dot: "#c9873a" },
-] as const;
 
 const cellKey = (unitGroupId: number, tierId: number, costCodeId: number) =>
   `${unitGroupId}:${tierId}:${costCodeId}`;

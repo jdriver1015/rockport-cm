@@ -10,6 +10,7 @@ import { ManageBudgetGroupsButton } from "@/components/interior-budget-groups";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { TableCard } from "@/components/ui/table-card";
+import { TierBadge } from "@/components/ui/tier-badge";
 import {
   Table,
   TableBody,
@@ -85,7 +86,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
         name: schema.projects.name,
         phase: schema.projects.phase,
         budgetAmount: schema.projects.budgetAmount,
-        committedCost: schema.projects.committedCost,
+        budgetGroupId: schema.projects.budgetGroupId,
         startDate: schema.projects.startDate,
         completeDate: schema.projects.completeDate,
         unitNumber: schema.units.unitNumber,
@@ -114,6 +115,11 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
   ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+
+  // Same tier ordering/coloring as the budget pivot — index is the group's
+  // position among the property's budget groups, not tied to its name.
+  const tierIndexById = new Map(groups.map((g, i) => [g.id, i]));
+  const tierNameById = new Map(groups.map((g) => [g.id, g.name]));
 
   const phaseGroups = PROJECT_PHASES
     .map((ph) => ({
@@ -162,15 +168,15 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
           <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[14%]">Project</TableHead>
-                <TableHead className="w-[9%]">Floorplan</TableHead>
-                <TableHead className="w-[11%]">Est. Start</TableHead>
-                <TableHead className="w-[11%]">Date Complete</TableHead>
-                <TableHead className="w-[7%] text-right">Days</TableHead>
-                <TableHead className="w-[13%] text-right">Planned Cost</TableHead>
-                <TableHead className="w-[12%] text-right">Committed</TableHead>
-                <TableHead className="w-[13%] text-right">Reconciled Cost</TableHead>
-                <TableHead className="w-[10%] text-right">Variance</TableHead>
+                <TableHead className="w-[15%]">Project</TableHead>
+                <TableHead className="w-[8%]">Floorplan</TableHead>
+                <TableHead className="w-[11%]">Upgrade Type</TableHead>
+                <TableHead className="w-[10%]">Est. Start</TableHead>
+                <TableHead className="w-[10%]">Date Complete</TableHead>
+                <TableHead className="w-[6%] text-right">Days</TableHead>
+                <TableHead className="w-[13%] text-right">Budgeted Cost</TableHead>
+                <TableHead className="w-[15%] text-right">Reconciled Cost</TableHead>
+                <TableHead className="w-[12%] text-right">Variance</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -178,11 +184,11 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
                 <Fragment key={g.key}>
                   <TableGroupRow label={g.label} count={g.projects.length} colSpan={9} />
                   {g.projects.map((p) => {
-                    const committed = num(p.committedCost);
                     const jtd = jtdByProject.get(p.id) ?? 0;
                     const reconciledCost = jtd;
-                    const displayCommitted = Math.max(committed, jtd);
                     const href = `/properties/${slug}/projects/${projectSlug(p)}`;
+                    const tierName = p.budgetGroupId != null ? tierNameById.get(p.budgetGroupId) : undefined;
+                    const tierIndex = p.budgetGroupId != null ? tierIndexById.get(p.budgetGroupId) ?? 0 : 0;
                     return (
                       <ClickableTableRow key={p.id} href={href}>
                         <TableCell className="truncate">
@@ -192,6 +198,13 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {p.floorplan ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          {tierName ? (
+                            <TierBadge label={tierName} index={tierIndex} />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="tabular-nums text-muted-foreground">
                           {fmtDate(p.startDate)}
@@ -204,9 +217,6 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
                         </TableCell>
                         <TableCell>
                           <AmountCell value={p.budgetAmount} />
-                        </TableCell>
-                        <TableCell>
-                          <AmountCell value={displayCommitted} />
                         </TableCell>
                         <TableCell>
                           <AmountCell value={reconciledCost} positive={reconciledCost > 0} />
