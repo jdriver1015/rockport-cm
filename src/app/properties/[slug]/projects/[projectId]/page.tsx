@@ -15,16 +15,36 @@ import {
   type ScopeCostCodeOption,
   type CostCodeBudget,
 } from "@/components/scope-table";
+import { ProjectMilestonesTable, type MilestoneRow } from "@/components/project-milestones-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
-import { fmtDate, num } from "@/lib/format";
+import { TierBadge } from "@/components/ui/tier-badge";
+import { fmtDate, money, num } from "@/lib/format";
 import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+function HeaderKpi({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("mt-1 truncate font-mono text-sm font-semibold text-navy", valueClassName)}>{value}</div>
+    </div>
+  );
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -71,6 +91,8 @@ export default async function ProjectDetailPage({
     findingCounts,
     glRows,
     openFindings,
+    milestones,
+    budgetGroups,
   ] = await Promise.all([
     db()
       .select()
@@ -150,6 +172,24 @@ export default async function ProjectDetailPage({
           eq(schema.auditFindings.status, "open"),
         ),
       ),
+    db()
+      .select({
+        id: schema.projectMilestones.id,
+        label: schema.projectMilestones.label,
+        plannedDate: schema.projectMilestones.plannedDate,
+        actualDate: schema.projectMilestones.actualDate,
+      })
+      .from(schema.projectMilestones)
+      .where(
+        and(eq(schema.projectMilestones.projectId, projectId), isNull(schema.projectMilestones.archivedAt)),
+      )
+      .orderBy(asc(schema.projectMilestones.sortOrder), asc(schema.projectMilestones.id)),
+    // Unit projects only — for the tier badge, colored the same way as the budget pivot.
+    db()
+      .select({ id: schema.budgetGroups.id, name: schema.budgetGroups.name })
+      .from(schema.budgetGroups)
+      .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
+      .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
   ]);
 
   const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
@@ -249,8 +289,57 @@ export default async function ProjectDetailPage({
     budgetByCode[s.costCodeId].allocated += num(s.quantity) * num(s.unitPrice);
   }
 
+  // --- Header KPIs ---
+  const budgetAmt = num(project.budgetAmount);
+  const committedAmt = num(project.committedCost);
+  const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
+
+  const tierIndexById = new Map(budgetGroups.map((g, i) => [g.id, i]));
+  const tierName =
+    project.kind === "unit" && project.budgetGroupId != null
+      ? budgetGroups.find((g) => g.id === project.budgetGroupId)?.name
+      : undefined;
+  const tierIndex = project.budgetGroupId != null ? tierIndexById.get(project.budgetGroupId) ?? 0 : 0;
+
+  const milestoneRows: MilestoneRow[] = milestones.map((m) => ({
+    id: m.id,
+    label: m.label,
+    plannedDate: m.plannedDate,
+    actualDate: m.actualDate,
+  }));
+
+  const slips = milestones
+    .map((m) => {
+      if (!m.plannedDate || !m.actualDate) return null;
+      const p = new Date(m.plannedDate + "T00:00:00");
+      const a = new Date(m.actualDate + "T00:00:00");
+      return Math.round((a.getTime() - p.getTime()) / 86_400_000);
+    })
+    .filter((d): d is number => d !== null);
+  const worstSlip = slips.length ? Math.max(...slips) : null;
+  const scheduleLabel =
+    worstSlip == null ? "No dates yet" : worstSlip > 0 ? `+${worstSlip}d late` : worstSlip < 0 ? `${worstSlip}d early` : "On plan";
+  const scheduleColor = worstSlip == null ? "text-muted-foreground" : worstSlip > 0 ? "text-alert" : "text-positive";
+
+  const nextMilestone = milestones.find((m) => !m.actualDate) ?? null;
+
   const overview = (
     <>
+      {/* Dates & milestones */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base text-navy">Dates &amp; milestones</CardTitle>
+          <span className="text-sm text-muted-foreground">
+            {nextMilestone
+              ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
+              : "All milestones met"}
+          </span>
+        </CardHeader>
+        <CardContent>
+          <ProjectMilestonesTable projectId={projectId} milestones={milestoneRows} />
+        </CardContent>
+      </Card>
+
       {/* Open items */}
       <OpenItemsStrip items={openItemsSummary} />
 
@@ -312,63 +401,80 @@ export default async function ProjectDetailPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm">
-          <Link
-            href={project.kind === "unit" ? `/properties/${slug}/interiors` : `/properties/${slug}`}
-            className="text-link hover:underline"
-          >
-            {project.kind === "unit" ? "← Unit Upgrades" : "← All projects"}
-          </Link>
-        </p>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
-            <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
-            {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
+      <p className="text-sm">
+        <Link
+          href={project.kind === "unit" ? `/properties/${slug}/interiors` : `/properties/${slug}`}
+          className="text-link hover:underline"
+        >
+          {project.kind === "unit" ? "← Unit Upgrades" : "← All projects"}
+        </Link>
+      </p>
+
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider">
+                  {project.kind === "unit" ? "Unit" : "Common"}
+                </Badge>
+                <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
+                {tierName && <TierBadge label={tierName} index={tierIndex} />}
+                {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
+              </div>
+              <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
+              <p className="text-sm text-muted-foreground">
+                {costCode ? (
+                  <>UW line item: {costCode.name}</>
+                ) : (
+                  "Interior unit turn — spend across all interior codes"
+                )}
+                {unit ? ` · Unit ${unit.unitNumber}` : ""}
+                {vendor ? ` · ${vendor.name}` : ""}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {project.archivedAt ? (
+                <RestoreProjectButton projectId={project.id} />
+              ) : (
+                <>
+                  <ProjectEditDialog
+                    project={{
+                      id: project.id,
+                      name: project.name,
+                      kind: project.kind,
+                      startDate: project.startDate,
+                      completeDate: project.completeDate,
+                      notes: project.notes,
+                      previousRent: project.previousRent,
+                      tradeOutRent: project.tradeOutRent,
+                      leaseDate: project.leaseDate,
+                    }}
+                  />
+                  <ArchiveProjectDialog
+                    propertySlug={slug}
+                    projectId={project.id}
+                    projectName={project.name}
+                    redirectTo={
+                      project.kind === "unit"
+                        ? `/properties/${slug}/interiors`
+                        : `/properties/${slug}`
+                    }
+                  />
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {project.archivedAt ? (
-              <RestoreProjectButton projectId={project.id} />
-            ) : (
-              <>
-                <ProjectEditDialog
-                  project={{
-                    id: project.id,
-                    name: project.name,
-                    kind: project.kind,
-                    startDate: project.startDate,
-                    completeDate: project.completeDate,
-                    notes: project.notes,
-                    previousRent: project.previousRent,
-                    tradeOutRent: project.tradeOutRent,
-                    leaseDate: project.leaseDate,
-                  }}
-                />
-                <ArchiveProjectDialog
-                  propertySlug={slug}
-                  projectId={project.id}
-                  projectName={project.name}
-                  redirectTo={
-                    project.kind === "unit"
-                      ? `/properties/${slug}/interiors`
-                      : `/properties/${slug}`
-                  }
-                />
-              </>
-            )}
+
+          <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-5">
+            <HeaderKpi label="Budget" value={money(budgetAmt)} />
+            <HeaderKpi label="Committed" value={money(committedAmt)} />
+            <HeaderKpi label="Actual to date" value={money(spentAmt)} />
+            <HeaderKpi label="Schedule" value={scheduleLabel} valueClassName={scheduleColor} />
+            <HeaderKpi label="Next milestone" value={nextMilestone ? nextMilestone.label : "All milestones met"} />
           </div>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {costCode ? (
-            <>UW line item: {costCode.name}</>
-          ) : (
-            "Interior unit turn — spend across all interior codes"
-          )}
-          {unit ? ` · Unit ${unit.unitNumber}` : ""}
-          {vendor ? ` · ${vendor.name}` : ""}
-        </p>
-      </div>
+        </CardContent>
+      </Card>
 
       <ProjectDetailTabs
         overview={overview}
