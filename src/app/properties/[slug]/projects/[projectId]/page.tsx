@@ -7,14 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
-import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import {
-  ScopeTable,
+  ProjectScopeList,
   type ScopeRow,
   type ScopeCostCodeOption,
+  type ScopeVendorOption,
   type CostCodeBudget,
-} from "@/components/scope-table";
+} from "@/components/project-scope-list";
 import { ProjectMilestonesTable, type MilestoneRow } from "@/components/project-milestones-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { DocumentManager, type DocumentRow } from "@/components/document-manager";
@@ -93,6 +93,7 @@ export default async function ProjectDetailPage({
     openFindings,
     milestones,
     budgetGroups,
+    vendorOptions,
   ] = await Promise.all([
     db()
       .select()
@@ -178,6 +179,7 @@ export default async function ProjectDetailPage({
         label: schema.projectMilestones.label,
         plannedDate: schema.projectMilestones.plannedDate,
         actualDate: schema.projectMilestones.actualDate,
+        note: schema.projectMilestones.note,
       })
       .from(schema.projectMilestones)
       .where(
@@ -190,6 +192,10 @@ export default async function ProjectDetailPage({
       .from(schema.budgetGroups)
       .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
       .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
+    db()
+      .select({ id: schema.vendors.id, name: schema.vendors.name })
+      .from(schema.vendors)
+      .orderBy(asc(schema.vendors.name)),
   ]);
 
   const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
@@ -231,13 +237,16 @@ export default async function ProjectDetailPage({
     id: s.id,
     item: s.item,
     materialQuality: s.materialQuality,
-    productLink: s.productLink,
-    category: s.category,
     status: s.status,
     quantity: s.quantity,
     unitPrice: s.unitPrice,
     costCodeId: s.costCodeId,
+    vendorId: s.vendorId,
+    startDate: s.startDate,
+    endDate: s.endDate,
   }));
+
+  const scopeVendors: ScopeVendorOption[] = vendorOptions;
 
   const activeCostCodes: ScopeCostCodeOption[] = await db()
     .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
@@ -306,7 +315,15 @@ export default async function ProjectDetailPage({
     label: m.label,
     plannedDate: m.plannedDate,
     actualDate: m.actualDate,
+    note: m.note,
   }));
+
+  // Current stage = the most recently completed milestone.
+  const completedMilestones = milestones.filter((m) => m.actualDate);
+  const activeMilestone = completedMilestones.length
+    ? completedMilestones[completedMilestones.length - 1]
+    : null;
+
 
   const slips = milestones
     .map((m) => {
@@ -322,37 +339,6 @@ export default async function ProjectDetailPage({
   const scheduleColor = worstSlip == null ? "text-muted-foreground" : worstSlip > 0 ? "text-alert" : "text-positive";
 
   const nextMilestone = milestones.find((m) => !m.actualDate) ?? null;
-
-  const overview = (
-    <>
-      {/* Dates & milestones */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-navy">Dates &amp; milestones</CardTitle>
-          <span className="text-sm text-muted-foreground">
-            {nextMilestone
-              ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
-              : "All milestones met"}
-          </span>
-        </CardHeader>
-        <CardContent>
-          <ProjectMilestonesTable projectId={projectId} milestones={milestoneRows} />
-        </CardContent>
-      </Card>
-
-      {/* Open items */}
-      <OpenItemsStrip items={openItemsSummary} />
-
-      <ScopeTable
-        propertyId={propertyId}
-        projectId={projectId}
-        items={scopeRows}
-        costCodes={activeCostCodes}
-        actualByCode={actualByCode}
-        budgetByCode={budgetByCode}
-      />
-    </>
-  );
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
   const audits = (
@@ -467,23 +453,51 @@ export default async function ProjectDetailPage({
           </div>
 
           <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-5">
-            <HeaderKpi label="Budget" value={money(budgetAmt)} />
+            <HeaderKpi label="Approved budget" value={money(budgetAmt)} />
             <HeaderKpi label="Committed" value={money(committedAmt)} />
             <HeaderKpi label="Actual to date" value={money(spentAmt)} />
             <HeaderKpi label="Schedule" value={scheduleLabel} valueClassName={scheduleColor} />
-            <HeaderKpi label="Next milestone" value={nextMilestone ? nextMilestone.label : "All milestones met"} />
+            <HeaderKpi label="Current stage" value={activeMilestone ? activeMilestone.label : "Not started"} />
           </div>
         </CardContent>
       </Card>
 
-      <ProjectDetailTabs
-        overview={overview}
-        documents={
-          <DocumentManager propertyId={propertyId} projectId={projectId} documents={documentRows} />
-        }
-        audits={audits}
-        log={log}
+      {/* Dates & milestones */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base text-navy">Dates &amp; milestones</CardTitle>
+          <span className="text-sm text-muted-foreground">
+            {nextMilestone
+              ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
+              : "All milestones met"}
+          </span>
+        </CardHeader>
+        <CardContent>
+          <ProjectMilestonesTable
+            projectId={projectId}
+            milestones={milestoneRows}
+            activeId={activeMilestone?.id ?? null}
+          />
+        </CardContent>
+      </Card>
+
+      <OpenItemsStrip items={openItemsSummary} />
+
+      <ProjectScopeList
+        propertyId={propertyId}
+        projectId={projectId}
+        items={scopeRows}
+        costCodes={activeCostCodes}
+        vendors={scopeVendors}
+        actualByCode={actualByCode}
+        budgetByCode={budgetByCode}
       />
+
+      <DocumentManager propertyId={propertyId} projectId={projectId} documents={documentRows} />
+
+      {audits}
+
+      {log}
     </div>
   );
 }

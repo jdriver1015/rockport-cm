@@ -22,12 +22,19 @@ const optDate = z
   .nullish()
   .transform((v) => (v ? v : null));
 
+const optText = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? v : null));
+
 const createSchema = z.object({
   projectId: z.coerce.number().int().positive(),
   label: z.string().trim().min(1, "Label is required"),
   phase: z.enum(phaseKeys).nullish(),
   plannedDate: optDate,
   actualDate: optDate,
+  note: optText,
   sortOrder: z.coerce.number().int().default(0),
 });
 
@@ -49,6 +56,7 @@ export async function createMilestone(
       phase: (d.phase ?? null) as typeof project.phase | null,
       plannedDate: d.plannedDate,
       actualDate: d.actualDate,
+      note: d.note,
       sortOrder: d.sortOrder,
     })
     .returning({ id: schema.projectMilestones.id });
@@ -62,6 +70,7 @@ const updateSchema = z.object({
   label: z.string().trim().min(1, "Label is required").optional(),
   plannedDate: optDate,
   actualDate: optDate,
+  note: optText,
 });
 
 export async function updateMilestone(input: z.input<typeof updateSchema>): Promise<ActionResult> {
@@ -81,6 +90,7 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
   if (d.label !== undefined) set.label = d.label;
   if (input.plannedDate !== undefined) set.plannedDate = d.plannedDate;
   if (input.actualDate !== undefined) set.actualDate = d.actualDate;
+  if (input.note !== undefined) set.note = d.note;
 
   if (Object.keys(set).length > 0) {
     await db().update(schema.projectMilestones).set(set).where(eq(schema.projectMilestones.id, d.id));

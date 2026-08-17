@@ -440,6 +440,8 @@ export const projectMilestones = pgTable("project_milestones", {
   phase: projectPhase("phase"),
   plannedDate: date("planned_date"),
   actualDate: date("actual_date"),
+  /** What happened at this milestone — shown inline on the project timeline. */
+  note: text("note"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the timeline but restorable. Null = active. */
@@ -509,8 +511,13 @@ export const scopeItems = pgTable("scope_items", {
   productLink: text("product_link"),
   /** Trade section, e.g. "Cabinets", "Flooring" — snapshotted from the source scope-group item. Not currently surfaced in the scope table UI. */
   category: text("category"),
-  /** Where this line stands. Not currently surfaced in the scope table UI. */
+  /** Where this line stands; shown as a pill on the project's scope list. */
   status: scopeItemStatus("status").notNull().default("not_started"),
+  /** Trade partner doing this line. Distinct from the project's overall GC. */
+  vendorId: integer("vendor_id").references(() => vendors.id),
+  /** This line's own window within the project schedule. */
+  startDate: date("start_date"),
+  endDate: date("end_date"),
   // --- Estimate pricing (set for template-generated interior scope; null for
   // legacy/manual spec-only items) ---
   /** 4000-series code this line reconciles to, for budget-vs-actual per code */

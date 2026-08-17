@@ -20,6 +20,12 @@ const optionalNumeric = z
   .transform((v) => (v ? v : null))
   .refine((v) => v === null || !Number.isNaN(Number(v)), "Enter a valid number");
 
+const optionalDate = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? v : null));
+
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   projectId: z.coerce.number().int().positive(),
@@ -32,6 +38,10 @@ const createSchema = z.object({
   quantity: optionalNumeric,
   unitPrice: optionalNumeric,
   costCodeId: z.number().int().positive().nullish(),
+  vendorId: z.number().int().positive().nullish(),
+  startDate: optionalDate,
+  endDate: optionalDate,
+  status: z.enum(SCOPE_STATUS_KEYS).optional(),
 });
 
 /** Creates a scope item and returns its id — the caller keeps editing that row inline once it exists. */
@@ -56,6 +66,10 @@ export async function createScopeItem(
       quantity: d.quantity,
       unitPrice: d.unitPrice,
       costCodeId: d.costCodeId ?? null,
+      vendorId: d.vendorId ?? null,
+      startDate: d.startDate,
+      endDate: d.endDate,
+      ...(d.status ? { status: d.status } : {}),
       sortOrder: maxOrder + 1,
     })
     .returning({ id: schema.scopeItems.id });
@@ -72,6 +86,10 @@ export async function updateScopeItem(input: {
   quantity?: string | null;
   unitPrice?: string | null;
   costCodeId?: number | null;
+  vendorId?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  status?: string;
 }): Promise<ActionResult> {
   const set: Partial<typeof schema.scopeItems.$inferInsert> = {};
 
@@ -99,6 +117,20 @@ export async function updateScopeItem(input: {
   }
   if (input.costCodeId !== undefined) {
     set.costCodeId = input.costCodeId;
+  }
+  if (input.vendorId !== undefined) {
+    set.vendorId = input.vendorId;
+  }
+  if (input.startDate !== undefined) {
+    set.startDate = input.startDate?.trim() || null;
+  }
+  if (input.endDate !== undefined) {
+    set.endDate = input.endDate?.trim() || null;
+  }
+  if (input.status !== undefined) {
+    const parsed = z.enum(SCOPE_STATUS_KEYS).safeParse(input.status);
+    if (!parsed.success) return { ok: false, error: "Invalid status" };
+    set.status = parsed.data;
   }
 
   if (Object.keys(set).length === 0) return { ok: true };
