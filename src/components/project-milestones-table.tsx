@@ -237,7 +237,7 @@ function MilestoneRowItem({
             onBlur={() => commit({ plannedDate })}
           />
         ) : (
-          <span className="font-mono text-xs text-muted-foreground">{fmtDate(plannedDate || null)}</span>
+          <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(plannedDate || null)}</span>
         )}
       </TableCell>
       <TableCell className="text-right">
@@ -250,7 +250,7 @@ function MilestoneRowItem({
             onBlur={() => commit({ actualDate })}
           />
         ) : (
-          <span className={cn("font-mono text-xs", done ? "font-semibold text-navy" : "text-ink-300")}>
+          <span className={cn("tabular-nums text-xs", done ? "font-semibold text-navy" : "text-ink-300")}>
             {fmtDate(actualDate || null)}
           </span>
         )}
@@ -261,7 +261,7 @@ function MilestoneRowItem({
         ) : (
           <span
             className={cn(
-              "inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+              "inline-block rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.09em]",
               variance > 0 ? "bg-alert/10 text-alert" : "bg-positive/10 text-positive",
             )}
           >

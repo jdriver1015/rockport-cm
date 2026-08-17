@@ -17,7 +17,8 @@ import {
 } from "@/components/project-scope-list";
 import { ProjectMilestonesTable, type MilestoneRow } from "@/components/project-milestones-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
-import { DocumentManager, type DocumentRow } from "@/components/document-manager";
+import { DocumentsDialogButton, type DocumentRow } from "@/components/document-manager";
+import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
 import { TierBadge } from "@/components/ui/tier-badge";
@@ -40,8 +41,8 @@ function HeaderKpi({
 }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={cn("mt-1 truncate font-mono text-sm font-semibold text-navy", valueClassName)}>{value}</div>
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">{label}</div>
+      <div className={cn("mt-1 truncate tabular-nums text-sm font-semibold text-navy", valueClassName)}>{value}</div>
     </div>
   );
 }
@@ -359,31 +360,16 @@ export default async function ProjectDetailPage({
     </Card>
   );
 
-  const log = (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base text-navy">Audit log</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {auditLog.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No activity yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {auditLog.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 text-sm">
-                <span className="w-32 shrink-0 text-muted-foreground">{fmtDate(e.createdAt)}</span>
-                <Badge variant="secondary" className="border border-border">
-                  {e.fromPhase ? `${phaseLabel(e.fromPhase)} → ` : ""}
-                  {e.toPhase ? phaseLabel(e.toPhase) : e.fromPhase ? "" : "Created"}
-                </Badge>
-                {e.note && <span className="text-muted-foreground">{e.note}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
-  );
+  // Phase labels resolve here so the log dialog stays a presentational client component.
+  const logEntries: LogEntry[] = auditLog.map((e) => ({
+    id: e.id,
+    createdAt: e.createdAt,
+    fromPhase: e.fromPhase,
+    toPhase: e.toPhase,
+    fromPhaseLabel: e.fromPhase ? phaseLabel(e.fromPhase) : null,
+    toPhaseLabel: e.toPhase ? phaseLabel(e.toPhase) : null,
+    note: e.note,
+  }));
 
   return (
     <div className="space-y-6">
@@ -401,7 +387,7 @@ export default async function ProjectDetailPage({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider">
+                <Badge variant="secondary" className="text-[10.5px] font-bold uppercase tracking-[0.09em]">
                   {project.kind === "unit" ? "Unit" : "Common"}
                 </Badge>
                 <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
@@ -419,7 +405,13 @@ export default async function ProjectDetailPage({
                 {vendor ? ` · ${vendor.name}` : ""}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <DocumentsDialogButton
+                propertyId={propertyId}
+                projectId={projectId}
+                documents={documentRows}
+              />
+              <ActivityLogDialogButton entries={logEntries} />
               {project.archivedAt ? (
                 <RestoreProjectButton projectId={project.id} />
               ) : (
@@ -493,11 +485,7 @@ export default async function ProjectDetailPage({
         budgetByCode={budgetByCode}
       />
 
-      <DocumentManager propertyId={propertyId} projectId={projectId} documents={documentRows} />
-
       {audits}
-
-      {log}
     </div>
   );
 }

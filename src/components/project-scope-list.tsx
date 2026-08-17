@@ -97,7 +97,7 @@ export function ProjectScopeList({
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-3">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-navy">Scope items</h2>
+          <h2 className="font-heading text-base leading-snug font-medium text-navy">Scope items</h2>
           <span className="text-sm text-muted-foreground">
             {items.length} item{items.length === 1 ? "" : "s"}
             {vendorCount > 0 && ` · ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`}
@@ -334,25 +334,25 @@ function ScopeCard({
         <div className="flex min-w-0 items-center gap-2">
           {vendorName ? (
             <>
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-[#c3d3ec] bg-[#dde6f5] text-[10px] font-bold text-[#1b3a6b]">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-[#c3d3ec] bg-[#dde6f5] text-[10.5px] font-bold text-[#1b3a6b]">
                 {initials(vendorName)}
               </span>
-              <span className="truncate text-[13px] text-ink-700">{vendorName}</span>
+              <span className="truncate text-sm text-ink-700">{vendorName}</span>
             </>
           ) : (
-            <span className="text-[13px] text-muted-foreground">No vendor</span>
+            <span className="text-sm text-muted-foreground">No vendor</span>
           )}
         </div>
         <span
           className={cn(
-            "inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+            "inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold",
             STATUS_PILL[status as ScopeStatusKey] ?? STATUS_PILL.not_started,
           )}
         >
           {statusLabel(status)}
         </span>
-        <span className="text-right font-mono text-xs whitespace-nowrap text-muted-foreground">{dateRange}</span>
-        <span className="w-24 text-right font-mono text-sm font-semibold text-navy">
+        <span className="text-right tabular-nums text-xs whitespace-nowrap text-muted-foreground">{dateRange}</span>
+        <span className="w-24 text-right tabular-nums text-sm font-semibold text-navy">
           {totalCost != null ? money(totalCost) : "—"}
         </span>
         <span className="text-muted-foreground">
@@ -364,7 +364,7 @@ function ScopeCard({
         <div className="space-y-4 border-t border-border bg-muted/30 px-4 py-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Item
               </Label>
               <Input
@@ -376,7 +376,7 @@ function ScopeCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Vendor
               </Label>
               <ComboboxSelect
@@ -393,7 +393,7 @@ function ScopeCard({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
               Description
             </Label>
             <Textarea
@@ -408,7 +408,7 @@ function ScopeCard({
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Status
               </Label>
               <select
@@ -427,7 +427,7 @@ function ScopeCard({
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Start
               </Label>
               <Input
@@ -439,7 +439,7 @@ function ScopeCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 End
               </Label>
               <Input
@@ -451,7 +451,7 @@ function ScopeCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Budget line
               </Label>
               <ComboboxSelect
@@ -469,7 +469,7 @@ function ScopeCard({
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Units
               </Label>
               <Input
@@ -483,7 +483,7 @@ function ScopeCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
                 Unit cost
               </Label>
               <Input
@@ -541,10 +541,10 @@ function ScopeCard({
 function ReadOnlyStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <Label className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
         {label}
       </Label>
-      <div className="flex h-8 items-center justify-end rounded-control border border-transparent bg-card px-2 font-mono text-xs font-semibold text-navy">
+      <div className="flex h-8 items-center justify-end rounded-control border border-transparent bg-card px-2 tabular-nums text-xs font-semibold text-navy">
         {value}
       </div>
     </div>
