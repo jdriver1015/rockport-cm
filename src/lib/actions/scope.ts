@@ -20,6 +20,12 @@ const optionalNumeric = z
   .transform((v) => (v ? v : null))
   .refine((v) => v === null || !Number.isNaN(Number(v)), "Enter a valid number");
 
+/** Product spec grid: rows are cell arrays parallel to cols. */
+const specsSchema = z.object({
+  cols: z.array(z.string()),
+  rows: z.array(z.array(z.string())),
+});
+
 const optionalDate = z
   .string()
   .trim()
@@ -42,6 +48,7 @@ const createSchema = z.object({
   startDate: optionalDate,
   endDate: optionalDate,
   status: z.enum(SCOPE_STATUS_KEYS).optional(),
+  specs: specsSchema.nullish(),
 });
 
 /** Creates a scope item and returns its id — the caller keeps editing that row inline once it exists. */
@@ -70,6 +77,7 @@ export async function createScopeItem(
       startDate: d.startDate,
       endDate: d.endDate,
       ...(d.status ? { status: d.status } : {}),
+      specs: d.specs ?? null,
       sortOrder: maxOrder + 1,
     })
     .returning({ id: schema.scopeItems.id });
@@ -90,6 +98,7 @@ export async function updateScopeItem(input: {
   startDate?: string | null;
   endDate?: string | null;
   status?: string;
+  specs?: { cols: string[]; rows: string[][] } | null;
 }): Promise<ActionResult> {
   const set: Partial<typeof schema.scopeItems.$inferInsert> = {};
 
@@ -126,6 +135,11 @@ export async function updateScopeItem(input: {
   }
   if (input.endDate !== undefined) {
     set.endDate = input.endDate?.trim() || null;
+  }
+  if (input.specs !== undefined) {
+    const parsed = input.specs === null ? null : specsSchema.safeParse(input.specs);
+    if (parsed && !parsed.success) return { ok: false, error: "Invalid specification grid" };
+    set.specs = parsed ? parsed.data : null;
   }
   if (input.status !== undefined) {
     const parsed = z.enum(SCOPE_STATUS_KEYS).safeParse(input.status);

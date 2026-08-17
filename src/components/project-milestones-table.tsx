@@ -1,16 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -58,11 +52,11 @@ export function ProjectMilestonesTable({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead>Milestone</TableHead>
-            <TableHead className="text-right">Planned</TableHead>
-            <TableHead className="text-right">Actual</TableHead>
-            <TableHead className="text-right">Variance</TableHead>
+            <TableHead className="w-32 text-right">Planned</TableHead>
+            <TableHead className="w-32 text-right">Actual</TableHead>
+            <TableHead className="w-24 text-right">Var</TableHead>
             <TableHead>Notes</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead className="w-40 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -97,13 +91,13 @@ export function ProjectMilestonesTable({
             </>
           )}
           <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={6} className="py-2">
+            <TableCell colSpan={6} className="border-t border-border bg-muted/30 py-2">
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => setDrafts((ds) => [...ds, { key: crypto.randomUUID(), createdId: null }])}
               >
-                Add milestone
+                + Add milestone
               </Button>
             </TableCell>
           </TableRow>
@@ -128,9 +122,10 @@ function MilestoneRowItem({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  // A saved row shows read-only text until you choose to edit it, so the
-  // timeline reads as a record rather than a wall of inputs.
+  // A saved row reads as a record until you choose to edit it; clicking an
+  // empty date or note is itself the affordance for entering edit mode.
   const [editing, setEditing] = useState(milestone == null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [id, setId] = useState<number | null>(milestone?.id ?? null);
   const [label, setLabel] = useState(milestone?.label ?? "");
@@ -176,6 +171,7 @@ function MilestoneRowItem({
   }
 
   function handleDelete() {
+    setMenuOpen(false);
     if (id == null) {
       onDraftRemoved?.();
       return;
@@ -190,123 +186,173 @@ function MilestoneRowItem({
     });
   }
 
-  function handleMarkComplete() {
-    const t = todayIso();
-    setActualDate(t);
-    commit({ actualDate: t });
+  function toggleComplete() {
+    setMenuOpen(false);
+    const next = actualDate ? "" : todayIso();
+    setActualDate(next);
+    commit({ actualDate: next });
   }
 
   const variance = daysBetween(plannedDate || null, actualDate || null);
   const done = !!actualDate;
+  const rowBg = isActive ? "bg-gold/5" : undefined;
 
   return (
-    <TableRow className={pending ? "opacity-60" : undefined}>
-      <TableCell>
-        <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className={cn(
-              "size-2 shrink-0 rounded-full",
-              !done
-                ? "border-2 border-ink-300"
-                : isActive
-                  ? "bg-gold"
-                  : "bg-navy",
+    <Fragment>
+      <TableRow className={cn(rowBg, pending && "opacity-60")}>
+        <TableCell>
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className={cn(
+                "shrink-0 rounded-full",
+                isActive ? "size-2.5 ring-4 ring-gold/20" : "size-2",
+                !done ? "border-2 border-ink-300" : isActive ? "bg-gold" : "bg-navy",
+              )}
+            />
+            {editing ? (
+              <Input
+                className="h-8 text-xs"
+                value={label}
+                placeholder="Milestone name"
+                onChange={(e) => setLabel(e.target.value)}
+                onBlur={() => commit({ label })}
+              />
+            ) : (
+              <span className="text-sm font-semibold text-navy">{label}</span>
             )}
-          />
+          </div>
+        </TableCell>
+
+        <TableCell className="text-right">
+          {editing ? (
+            <Input
+              className="h-8 text-right text-xs"
+              type="date"
+              value={plannedDate}
+              onChange={(e) => setPlannedDate(e.target.value)}
+              onBlur={() => commit({ plannedDate })}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className={cn(
+                "cursor-pointer text-xs tabular-nums",
+                plannedDate ? "text-muted-foreground" : "text-ink-300 hover:text-link",
+              )}
+            >
+              {plannedDate ? fmtDate(plannedDate) : "Set date"}
+            </button>
+          )}
+        </TableCell>
+
+        <TableCell className="text-right">
+          {editing ? (
+            <Input
+              className="h-8 text-right text-xs"
+              type="date"
+              value={actualDate}
+              onChange={(e) => setActualDate(e.target.value)}
+              onBlur={() => commit({ actualDate })}
+            />
+          ) : (
+            <span className={cn("text-xs tabular-nums", done ? "font-semibold text-navy" : "text-ink-300")}>
+              {done ? fmtDate(actualDate) : "—"}
+            </span>
+          )}
+        </TableCell>
+
+        <TableCell className="text-right">
+          {variance == null ? (
+            <span className="text-xs text-ink-300">—</span>
+          ) : (
+            <span
+              className={cn(
+                "inline-block rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.09em]",
+                variance > 0 ? "bg-alert/10 text-alert" : "bg-positive/10 text-positive",
+              )}
+            >
+              {variance === 0 ? "on plan" : variance > 0 ? `+${variance}d` : `${variance}d`}
+            </span>
+          )}
+        </TableCell>
+
+        <TableCell className="max-w-md whitespace-normal">
           {editing ? (
             <Input
               className="h-8 text-xs"
-              value={label}
-              placeholder="Milestone name"
-              onChange={(e) => setLabel(e.target.value)}
-              onBlur={() => commit({ label })}
+              value={note}
+              placeholder="Add note"
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => commit({ note })}
             />
           ) : (
-            <span className="font-medium text-navy">{label}</span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className={cn(
+                "cursor-pointer text-left text-xs leading-relaxed",
+                note ? "text-ink-700" : "text-ink-300 hover:text-link",
+              )}
+            >
+              {note || "Add note"}
+            </button>
           )}
-        </div>
-      </TableCell>
-      <TableCell className="text-right">
-        {editing ? (
-          <Input
-            className="h-8 w-36 text-right text-xs"
-            type="date"
-            value={plannedDate}
-            onChange={(e) => setPlannedDate(e.target.value)}
-            onBlur={() => commit({ plannedDate })}
-          />
-        ) : (
-          <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(plannedDate || null)}</span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        {editing ? (
-          <Input
-            className="h-8 w-36 text-right text-xs"
-            type="date"
-            value={actualDate}
-            onChange={(e) => setActualDate(e.target.value)}
-            onBlur={() => commit({ actualDate })}
-          />
-        ) : (
-          <span className={cn("tabular-nums text-xs", done ? "font-semibold text-navy" : "text-ink-300")}>
-            {fmtDate(actualDate || null)}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        {variance == null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span
-            className={cn(
-              "inline-block rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.09em]",
-              variance > 0 ? "bg-alert/10 text-alert" : "bg-positive/10 text-positive",
-            )}
-          >
-            {variance === 0 ? "on plan" : variance > 0 ? `+${variance}d` : `${variance}d`}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="max-w-md whitespace-normal">
-        {editing ? (
-          <Input
-            className="h-8 text-xs"
-            value={note}
-            placeholder="What happened at this milestone"
-            onChange={(e) => setNote(e.target.value)}
-            onBlur={() => commit({ note })}
-          />
-        ) : (
-          <span className="text-xs leading-relaxed text-muted-foreground">{note || "—"}</span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          {id != null && (
+        </TableCell>
+
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1">
             <Button size="sm" variant="ghost" disabled={pending} onClick={() => setEditing((v) => !v)}>
               {editing ? "Done" : "Edit dates"}
             </Button>
-          )}
-          {!done && id != null && (
-            <Button size="sm" variant="ghost" disabled={pending} onClick={handleMarkComplete}>
-              Mark complete
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger disabled={pending} render={<Button variant="ghost" size="icon-sm" />}>
-              <EllipsisIcon />
-              <span className="sr-only">Actions</span>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem variant="destructive" disabled={pending} onClick={handleDelete}>
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </TableCell>
-    </TableRow>
+            {id != null && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={pending}
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <EllipsisIcon />
+                <span className="sr-only">Actions</span>
+              </Button>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+
+      {menuOpen && id != null && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={6} className="bg-muted/40 py-2">
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="ghost" disabled={pending} onClick={toggleComplete}>
+                {done ? "Clear actual date" : "Mark complete"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setEditing(true);
+                }}
+              >
+                Edit dates
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-alert hover:text-alert"
+                disabled={pending}
+                onClick={handleDelete}
+              >
+                Delete milestone
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </Fragment>
   );
 }

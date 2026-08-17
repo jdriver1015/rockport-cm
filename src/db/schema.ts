@@ -518,6 +518,13 @@ export const scopeItems = pgTable("scope_items", {
   /** This line's own window within the project schedule. */
   startDate: date("start_date"),
   endDate: date("end_date"),
+  /**
+   * Product specification grid for this line — `{ cols, rows }`, where rows is
+   * an array of cell arrays parallel to cols. Held as jsonb rather than its own
+   * table because the columns themselves vary per line (flooring specs and
+   * fence specs share no headers), so there is no stable relational shape.
+   */
+  specs: jsonb("specs").$type<{ cols: string[]; rows: string[][] }>(),
   // --- Estimate pricing (set for template-generated interior scope; null for
   // legacy/manual spec-only items) ---
   /** 4000-series code this line reconciles to, for budget-vs-actual per code */

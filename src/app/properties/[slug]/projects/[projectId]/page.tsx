@@ -33,16 +33,25 @@ export const dynamic = "force-dynamic";
 function HeaderKpi({
   label,
   value,
+  note,
   valueClassName,
+  noteClassName,
 }: {
   label: string;
   value: string;
+  note?: string;
   valueClassName?: string;
+  noteClassName?: string;
 }) {
   return (
     <div>
       <div className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">{label}</div>
-      <div className={cn("mt-1 truncate tabular-nums text-sm font-semibold text-navy", valueClassName)}>{value}</div>
+      <div className={cn("mt-1 truncate tabular-nums text-sm font-semibold text-navy", valueClassName)}>
+        {value}
+      </div>
+      {note && (
+        <div className={cn("mt-1 truncate text-[10.5px] text-muted-foreground", noteClassName)}>{note}</div>
+      )}
     </div>
   );
 }
@@ -194,7 +203,7 @@ export default async function ProjectDetailPage({
       .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
       .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
     db()
-      .select({ id: schema.vendors.id, name: schema.vendors.name })
+      .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
       .from(schema.vendors)
       .orderBy(asc(schema.vendors.name)),
   ]);
@@ -245,6 +254,7 @@ export default async function ProjectDetailPage({
     vendorId: s.vendorId,
     startDate: s.startDate,
     endDate: s.endDate,
+    specs: s.specs,
   }));
 
   const scopeVendors: ScopeVendorOption[] = vendorOptions;
@@ -334,12 +344,43 @@ export default async function ProjectDetailPage({
       return Math.round((a.getTime() - p.getTime()) / 86_400_000);
     })
     .filter((d): d is number => d !== null);
+  const worstSlipEntry = milestones.reduce<{ days: number; label: string } | null>((worst, m) => {
+    if (!m.plannedDate || !m.actualDate) return worst;
+    const p = new Date(m.plannedDate + "T00:00:00");
+    const a = new Date(m.actualDate + "T00:00:00");
+    const d = Math.round((a.getTime() - p.getTime()) / 86_400_000);
+    return worst == null || d > worst.days ? { days: d, label: m.label } : worst;
+  }, null);
   const worstSlip = slips.length ? Math.max(...slips) : null;
   const scheduleLabel =
     worstSlip == null ? "No dates yet" : worstSlip > 0 ? `+${worstSlip}d late` : worstSlip < 0 ? `${worstSlip}d early` : "On plan";
   const scheduleColor = worstSlip == null ? "text-muted-foreground" : worstSlip > 0 ? "text-alert" : "text-positive";
 
   const nextMilestone = milestones.find((m) => !m.actualDate) ?? null;
+
+  // Spend against the approved budget — drives the "Over budget" pill and the
+  // red sub-line under Actual to date.
+  const overBy = budgetAmt > 0 ? spentAmt - budgetAmt : 0;
+  const isOverBudget = overBy > 0;
+  const pctOfApproved = budgetAmt > 0 ? Math.round((spentAmt / budgetAmt) * 100) : null;
+  const actualNote =
+    budgetAmt <= 0
+      ? undefined
+      : isOverBudget
+        ? `+${money(overBy)} · ${pctOfApproved}% of approved`
+        : `${pctOfApproved}% of approved`;
+
+  const scheduleNote =
+    worstSlipEntry && worstSlipEntry.days > 0
+      ? `Worst slip: ${worstSlipEntry.label}`
+      : milestones.length > 0
+        ? "No slippage recorded"
+        : undefined;
+
+  const doneCount = completedMilestones.length;
+  const stageNote = milestones.length
+    ? `${doneCount} of ${milestones.length}${nextMilestone ? ` · next ${nextMilestone.label}` : " · all met"}`
+    : undefined;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
   const audits = (
@@ -392,6 +433,9 @@ export default async function ProjectDetailPage({
                 </Badge>
                 <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
                 {tierName && <TierBadge label={tierName} index={tierIndex} />}
+                {isOverBudget && (
+                  <Badge className="bg-alert/10 text-alert">Over budget</Badge>
+                )}
                 {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
               </div>
               <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
@@ -446,10 +490,30 @@ export default async function ProjectDetailPage({
 
           <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-5">
             <HeaderKpi label="Approved budget" value={money(budgetAmt)} />
-            <HeaderKpi label="Committed" value={money(committedAmt)} />
-            <HeaderKpi label="Actual to date" value={money(spentAmt)} />
-            <HeaderKpi label="Schedule" value={scheduleLabel} valueClassName={scheduleColor} />
-            <HeaderKpi label="Current stage" value={activeMilestone ? activeMilestone.label : "Not started"} />
+            <HeaderKpi
+              label="Committed"
+              value={committedAmt > 0 ? money(committedAmt) : "Not set"}
+              valueClassName={committedAmt > 0 ? undefined : "font-normal text-ink-300"}
+              note={committedAmt > 0 ? undefined : "Set by approving a bid"}
+            />
+            <HeaderKpi
+              label="Actual to date"
+              value={money(spentAmt)}
+              valueClassName={isOverBudget ? "text-alert" : undefined}
+              note={actualNote}
+              noteClassName={isOverBudget ? "text-alert" : undefined}
+            />
+            <HeaderKpi
+              label="Schedule"
+              value={scheduleLabel}
+              valueClassName={scheduleColor}
+              note={scheduleNote}
+            />
+            <HeaderKpi
+              label="Current stage"
+              value={activeMilestone ? activeMilestone.label : "Not started"}
+              note={stageNote}
+            />
           </div>
         </CardContent>
       </Card>
@@ -483,6 +547,7 @@ export default async function ProjectDetailPage({
         vendors={scopeVendors}
         actualByCode={actualByCode}
         budgetByCode={budgetByCode}
+        approvedBudget={budgetAmt}
       />
 
       {audits}
