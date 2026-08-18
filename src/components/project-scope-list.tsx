@@ -3,10 +3,16 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComboboxSelect } from "@/components/ui/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,7 +46,7 @@ export type CostCodeBudget = { budget: number; allocated: number };
 const DEFAULT_SPEC_COLS = ["Item", "Product", "Notes"];
 
 /** Shared grid template so the header, every row, and the total line stay aligned. */
-const GRID = "grid grid-cols-[1.5fr_1.2fr_auto_0.9fr_130px_68px] items-center gap-4";
+const GRID = "grid grid-cols-[1.5fr_1.2fr_auto_0.9fr_130px] items-center gap-4";
 
 const STATUS_PILL: Record<ScopeStatusKey, string> = {
   not_started: "bg-muted text-muted-foreground",
@@ -99,13 +105,11 @@ export function ProjectScopeList({
   const vendorOptions = useMemo(() => vendors.map((v) => ({ value: v.id, label: v.name })), [vendors]);
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
 
-  const [drafts, setDrafts] = useState<{ key: string; createdId: number | null }[]>([]);
-  const visibleDrafts = drafts.filter(
-    (d) => d.createdId == null || !items.some((i) => i.id === d.createdId),
-  );
-
-  const [openIds, setOpenIds] = useState<Set<number>>(new Set());
-  const allOpen = items.length > 0 && items.every((i) => openIds.has(i.id));
+  // Editing happens in a dialog rather than an inline panel, so one line is open
+  // at a time. `null` = closed, a number = that row, "new" = a line being
+  // created, which has no row in the table until it is saved.
+  const [editing, setEditing] = useState<number | "new" | null>(null);
+  const editingRow = typeof editing === "number" ? items.find((i) => i.id === editing) ?? null : null;
 
   const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
   const pricedCount = items.filter((i) => lineTotal(i) != null).length;
@@ -127,26 +131,13 @@ export function ProjectScopeList({
           <CardTitle className="text-base text-navy">Scope items</CardTitle>
           <span className="text-sm text-muted-foreground">{summary}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={items.length === 0}
-            onClick={() => setOpenIds(allOpen ? new Set() : new Set(items.map((i) => i.id)))}
-          >
-            {allOpen ? "Collapse all" : "Expand all"}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setDrafts((ds) => [...ds, { key: crypto.randomUUID(), createdId: null }])}
-          >
-            Add scope item
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setEditing("new")}>
+          Add scope item
+        </Button>
       </CardHeader>
 
       <CardContent className="px-0">
-        {items.length === 0 && visibleDrafts.length === 0 ? (
+        {items.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             No scope items yet — add the first with “Add scope item”.
           </p>
@@ -158,50 +149,65 @@ export function ProjectScopeList({
               <div>Status</div>
               <div className="text-right">Planned</div>
               <div className="text-right">Cost</div>
-              <div />
             </div>
 
-            {items.map((row) => (
-              <ScopeRowItem
-                key={row.id}
-                row={row}
-                propertyId={propertyId}
-                projectId={projectId}
-                costCodeOptions={costCodeOptions}
-                vendorOptions={vendorOptions}
-                vendor={row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null}
-                budgetByCode={budgetByCode}
-                actualByCode={actualByCode}
-                open={openIds.has(row.id)}
-                onToggle={() =>
-                  setOpenIds((s) => {
-                    const next = new Set(s);
-                    if (next.has(row.id)) next.delete(row.id);
-                    else next.add(row.id);
-                    return next;
-                  })
-                }
-              />
-            ))}
-            {visibleDrafts.map((d) => (
-              <ScopeRowItem
-                key={d.key}
-                row={null}
-                propertyId={propertyId}
-                projectId={projectId}
-                costCodeOptions={costCodeOptions}
-                vendorOptions={vendorOptions}
-                vendor={null}
-                budgetByCode={budgetByCode}
-                actualByCode={actualByCode}
-                open
-                onToggle={() => {}}
-                onDraftCreated={(id) =>
-                  setDrafts((ds) => ds.map((x) => (x.key === d.key ? { ...x, createdId: id } : x)))
-                }
-                onDraftRemoved={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}
-              />
-            ))}
+            {items.map((row) => {
+              const t = lineTotal(row);
+              const vendor = row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null;
+              const dateRange =
+                row.startDate || row.endDate ? `${fmtDate(row.startDate)} – ${fmtDate(row.endDate)}` : null;
+              return (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => setEditing(row.id)}
+                  className={cn(
+                    GRID,
+                    "w-full cursor-pointer border-b border-border px-5 py-3 text-left last:border-b-0 hover:bg-track",
+                  )}
+                >
+                  <span className="truncate text-sm font-semibold text-navy">
+                    {row.item || "Untitled item"}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    {vendor ? (
+                      <>
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-[#c3d3ec] bg-[#dde6f5] text-[10.5px] font-bold text-[#1b3a6b]">
+                          {initials(vendor.name)}
+                        </span>
+                        <span className="truncate text-sm text-ink-700">{vendor.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Assign vendor</span>
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                      STATUS_PILL[row.status as ScopeStatusKey] ?? STATUS_PILL.not_started,
+                    )}
+                  >
+                    {statusLabel(row.status)}
+                  </span>
+                  <span
+                    className={cn(
+                      "truncate text-right text-xs",
+                      dateRange ? "tabular-nums text-muted-foreground" : "text-ink-300",
+                    )}
+                  >
+                    {dateRange ?? "Set dates"}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-right text-sm tabular-nums",
+                      t != null ? "font-semibold text-navy" : "text-ink-300",
+                    )}
+                  >
+                    {t != null ? money(t) : "Add cost"}
+                  </span>
+                </button>
+              );
+            })}
 
             <div className={cn(GRID, "border-t border-border bg-muted/40 px-5 py-2.5")}>
               <div className={LABEL}>Total</div>
@@ -218,41 +224,50 @@ export function ProjectScopeList({
               >
                 {money(total)}
               </div>
-              <div />
             </div>
           </>
         )}
       </CardContent>
+
+      {editing !== null && (
+        <ScopeEditorDialog
+          // Remount per line so the form always initializes from that row.
+          key={typeof editing === "number" ? editing : "new"}
+          row={editingRow}
+          propertyId={propertyId}
+          projectId={projectId}
+          costCodeOptions={costCodeOptions}
+          vendorOptions={vendorOptions}
+          vendorById={vendorById}
+          budgetByCode={budgetByCode}
+          actualByCode={actualByCode}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </Card>
   );
 }
 
-function ScopeRowItem({
+function ScopeEditorDialog({
   row,
   propertyId,
   projectId,
   costCodeOptions,
   vendorOptions,
-  vendor,
+  vendorById,
   budgetByCode,
   actualByCode,
-  open,
-  onToggle,
-  onDraftCreated,
-  onDraftRemoved,
+  onClose,
 }: {
   row: ScopeRow | null;
   propertyId: number;
   projectId: number;
   costCodeOptions: { value: number; label: string }[];
   vendorOptions: { value: number; label: string }[];
-  vendor: ScopeVendorOption | null;
+  vendorById: Map<number, ScopeVendorOption>;
   budgetByCode: Record<number, CostCodeBudget>;
   actualByCode: Record<number, number>;
-  open: boolean;
-  onToggle: () => void;
-  onDraftCreated?: (id: number) => void;
-  onDraftRemoved?: () => void;
+  onClose: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -322,7 +337,6 @@ function ScopeRowItem({
           return;
         }
         setId(res.id);
-        onDraftCreated?.(res.id);
         router.refresh();
         return;
       }
@@ -337,7 +351,7 @@ function ScopeRowItem({
 
   function handleDelete() {
     if (id == null) {
-      onDraftRemoved?.();
+      onClose();
       return;
     }
     startTransition(async () => {
@@ -353,23 +367,25 @@ function ScopeRowItem({
             startTransition(async () => {
               const undo = await restoreScopeItem({ id, propertyId, projectId });
               if (!undo.ok) toast.error(undo.error);
+              router.refresh();
             });
           },
         },
       });
+      onClose();
       router.refresh();
     });
   }
 
   function setSpecCell(ri: number, ci: number, value: string) {
-    const next = { cols: specs.cols, rows: specs.rows.map((r) => r.slice()) };
-    next.rows[ri][ci] = value;
-    setSpecs(next);
+    setSpecs({
+      cols: specs.cols,
+      rows: specs.rows.map((r, i) => (i === ri ? r.map((c, j) => (j === ci ? value : c)) : r)),
+    });
   }
 
   function addSpecRow() {
-    const next = { cols: specs.cols, rows: [...specs.rows.map((r) => r.slice()), specs.cols.map(() => "")] };
-    setSpecs(next);
+    setSpecs({ cols: specs.cols, rows: [...specs.rows.map((r) => r.slice()), specs.cols.map(() => "")] });
   }
 
   const total = quantity && unitPrice ? Number(quantity) * Number(unitPrice) : null;
@@ -379,57 +395,21 @@ function ScopeRowItem({
   const ownOriginal = originalCostCodeId === costCodeId ? originalTotal : 0;
   const remaining = budget ? budget.budget - (budget.allocated - ownOriginal) - (total ?? 0) : null;
   const overBudget = remaining != null && remaining < 0;
-
-  const dateRange =
-    startDate || endDate ? `${fmtDate(startDate || null)} – ${fmtDate(endDate || null)}` : null;
+  const vendor = vendorId != null ? vendorById.get(vendorId) ?? null : null;
 
   return (
-    <div className={cn("border-b border-border last:border-b-0", open && "bg-muted/20", pending && "opacity-60")}>
-      <div className={cn(GRID, "cursor-pointer px-5 py-3 hover:bg-muted/30")} onClick={onToggle}>
-        <div className="truncate text-sm font-semibold text-navy">{item || "Untitled item"}</div>
-        <div className="flex min-w-0 items-center gap-2">
-          {vendor ? (
-            <>
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-[#c3d3ec] bg-[#dde6f5] text-[10.5px] font-bold text-[#1b3a6b]">
-                {initials(vendor.name)}
-              </span>
-              <span className="truncate text-sm text-ink-700">{vendor.name}</span>
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">Assign vendor</span>
-          )}
-        </div>
-        <span
-          className={cn(
-            "inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            STATUS_PILL[status as ScopeStatusKey] ?? STATUS_PILL.not_started,
-          )}
-        >
-          {statusLabel(status)}
-        </span>
-        <span
-          className={cn(
-            "truncate text-right text-xs",
-            dateRange ? "tabular-nums text-muted-foreground" : "text-ink-300",
-          )}
-        >
-          {dateRange ?? "Set dates"}
-        </span>
-        <span
-          className={cn(
-            "text-right text-sm tabular-nums",
-            total != null ? "font-semibold text-navy" : "text-ink-300",
-          )}
-        >
-          {total != null ? money(total) : "Add cost"}
-        </span>
-        <span className="flex justify-end text-muted-foreground">
-          {open ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
-        </span>
-      </div>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{item || "New scope item"}</DialogTitle>
+          <DialogDescription>
+            {id == null
+              ? "Give the line a name to create it — changes save as you go."
+              : "Changes save as you go."}
+          </DialogDescription>
+        </DialogHeader>
 
-      {open && (
-        <div className="grid gap-6 border-t border-border px-5 py-4 lg:grid-cols-[1fr_300px]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
           {/* Left column — narrative, fields, product specs */}
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -578,7 +558,7 @@ function ScopeRowItem({
                   disabled={pending}
                   onClick={handleDelete}
                 >
-                  Delete scope item
+                  {id == null ? "Discard" : "Delete scope item"}
                 </Button>
               </div>
             </div>
@@ -609,7 +589,12 @@ function ScopeRowItem({
                 )}
               >
                 <div className={cn(LABEL, overBudget && "text-alert")}>Budget check</div>
-                <p className={cn("mt-1.5 text-xs leading-relaxed", overBudget ? "text-alert" : "text-muted-foreground")}>
+                <p
+                  className={cn(
+                    "mt-1.5 text-xs leading-relaxed",
+                    overBudget ? "text-alert" : "text-muted-foreground",
+                  )}
+                >
                   {overBudget
                     ? `This line puts the budget code ${money(Math.abs(remaining!))} over its ${money(budget.budget)} allowance. Confirm the approval before releasing a contract.`
                     : `${money(remaining ?? 0)} left of the ${money(budget.budget)} allowance on this code.`}
@@ -664,8 +649,8 @@ function ScopeRowItem({
             )}
           </div>
         </div>
-      )}
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
