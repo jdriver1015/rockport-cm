@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { PRICING_METHODS, roundMoney } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
+import { defaultMilestoneRows } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 
 // ---------------------------------------------------------------------------
@@ -145,6 +146,10 @@ export async function createInteriorProject(
       toPhase: "precon",
       note: `Created from budget group "${group.name}"`,
     });
+
+    // Unit turns run the same four phases as common-area work, so they get the
+    // same seeded milestones.
+    await tx.insert(schema.projectMilestones).values(defaultMilestoneRows(project.id));
 
     return { projectId: project.id, projectName };
   });

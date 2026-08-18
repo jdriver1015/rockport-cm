@@ -442,6 +442,13 @@ export const projectMilestones = pgTable("project_milestones", {
   actualDate: date("actual_date"),
   /** What happened at this milestone — shown inline on the project timeline. */
   note: text("note"),
+  /**
+   * One of the four seeded phase milestones (see src/lib/milestones.ts). These
+   * carry the phase auto-stamp that records when a project actually entered a
+   * phase, so deleting one silently stops that phase being recorded — they are
+   * protected from deletion and rename in src/lib/actions/milestones.ts.
+   */
+  isDefault: boolean("is_default").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the timeline but restorable. Null = active. */

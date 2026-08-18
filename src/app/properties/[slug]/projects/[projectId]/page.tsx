@@ -218,6 +218,7 @@ export default async function ProjectDetailPage({
         plannedDate: schema.projectMilestones.plannedDate,
         actualDate: schema.projectMilestones.actualDate,
         note: schema.projectMilestones.note,
+        isDefault: schema.projectMilestones.isDefault,
       })
       .from(schema.projectMilestones)
       .where(
@@ -359,6 +360,7 @@ export default async function ProjectDetailPage({
     plannedDate: m.plannedDate,
     actualDate: m.actualDate,
     note: m.note,
+    isDefault: m.isDefault,
   }));
 
   // Current stage = the most recently completed milestone.

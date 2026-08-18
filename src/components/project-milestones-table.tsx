@@ -17,6 +17,8 @@ export type MilestoneRow = {
   plannedDate: string | null;
   actualDate: string | null;
   note: string | null;
+  /** One of the four seeded phase milestones — fixed label, cannot be deleted. */
+  isDefault: boolean;
 };
 
 function daysBetween(planned: string | null, actual: string | null): number | null {
@@ -196,6 +198,8 @@ function MilestoneRowItem({
   const variance = daysBetween(plannedDate || null, actualDate || null);
   const done = !!actualDate;
   const rowBg = isActive ? "bg-gold/5" : undefined;
+  // Drafts are always custom; a saved row carries the flag from the server.
+  const isDefault = milestone?.isDefault ?? false;
 
   return (
     <Fragment>
@@ -210,7 +214,7 @@ function MilestoneRowItem({
                 !done ? "border-2 border-ink-300" : isActive ? "bg-gold" : "bg-navy",
               )}
             />
-            {editing ? (
+            {editing && !isDefault ? (
               <Input
                 className="h-8 text-xs"
                 value={label}
@@ -340,15 +344,17 @@ function MilestoneRowItem({
               >
                 Edit dates
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-alert hover:text-alert"
-                disabled={pending}
-                onClick={handleDelete}
-              >
-                Delete milestone
-              </Button>
+              {!isDefault && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-alert hover:text-alert"
+                  disabled={pending}
+                  onClick={handleDelete}
+                >
+                  Delete milestone
+                </Button>
+              )}
             </div>
           </TableCell>
         </TableRow>

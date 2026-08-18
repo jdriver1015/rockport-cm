@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
+import { FIRST_CUSTOM_SORT_ORDER } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 
 const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
@@ -48,6 +49,20 @@ export async function createMilestone(
   const project = await db().query.projects.findFirst({ where: eq(schema.projects.id, d.projectId) });
   if (!project) return { ok: false, error: "Project not found" };
 
+  // Customs land after the four defaults instead of colliding with Pre-Con at
+  // sortOrder 0, which left their position among the defaults arbitrary.
+  const [{ maxOrder }] = await db()
+    .select({
+      maxOrder: sql<number>`coalesce(max(${schema.projectMilestones.sortOrder}), ${FIRST_CUSTOM_SORT_ORDER - 1})::int`,
+    })
+    .from(schema.projectMilestones)
+    .where(
+      and(
+        eq(schema.projectMilestones.projectId, d.projectId),
+        isNull(schema.projectMilestones.archivedAt),
+      ),
+    );
+
   const [ms] = await db()
     .insert(schema.projectMilestones)
     .values({
@@ -57,7 +72,7 @@ export async function createMilestone(
       plannedDate: d.plannedDate,
       actualDate: d.actualDate,
       note: d.note,
-      sortOrder: d.sortOrder,
+      sortOrder: maxOrder + 1,
     })
     .returning({ id: schema.projectMilestones.id });
 
@@ -87,7 +102,14 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
   if (!project) return { ok: false, error: "Project not found" };
 
   const set: Partial<typeof schema.projectMilestones.$inferInsert> = {};
-  if (d.label !== undefined) set.label = d.label;
+  if (d.label !== undefined) {
+    // The four defaults are fixed wording so every project reads the same; only
+    // their dates and notes are editable.
+    if (milestone.isDefault && d.label !== milestone.label) {
+      return { ok: false, error: `"${milestone.label}" is a default milestone and cannot be renamed` };
+    }
+    set.label = d.label;
+  }
   if (input.plannedDate !== undefined) set.plannedDate = d.plannedDate;
   if (input.actualDate !== undefined) set.actualDate = d.actualDate;
   if (input.note !== undefined) set.note = d.note;
@@ -107,6 +129,12 @@ export async function archiveMilestone(input: { id: number }): Promise<ActionRes
 
   const project = await db().query.projects.findFirst({ where: eq(schema.projects.id, milestone.projectId) });
   if (!project) return { ok: false, error: "Project not found" };
+
+  // Enforced here, not just hidden in the UI — the action is directly callable,
+  // and losing a default silently stops its phase being recorded.
+  if (milestone.isDefault) {
+    return { ok: false, error: `"${milestone.label}" is a default milestone and cannot be deleted` };
+  }
 
   await db()
     .update(schema.projectMilestones)
