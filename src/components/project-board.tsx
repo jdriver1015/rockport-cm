@@ -10,6 +10,7 @@ import { AmountCell } from "@/components/ui/amount-cell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { StageDot } from "@/components/ui/stage-dot";
 import { TableCard } from "@/components/ui/table-card";
+import { isInteractiveTarget } from "@/components/ui/clickable-table-row";
 import {
   Table,
   TableBody,
@@ -415,8 +416,11 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                 return (
                   <TableRow
                     key={p.id}
-                    onClick={() => router.push(`/properties/${propertySlug}/projects/${projectSlug(p)}`)}
-                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={(e) => {
+                      if (isInteractiveTarget(e.target)) return;
+                      router.push(`/properties/${propertySlug}/projects/${projectSlug(p)}`);
+                    }}
+                    className="cursor-pointer"
                   >
                     <TableCell className="truncate">
                       <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
