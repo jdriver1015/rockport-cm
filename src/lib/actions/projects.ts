@@ -5,8 +5,6 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
-import { requireUser } from "@/lib/auth";
-import { canWriteProperty } from "@/lib/auth-rules";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
 import { projectSlug } from "@/lib/slug";
@@ -248,12 +246,6 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
 const projectIdSchema = z.object({ projectId: z.coerce.number().int().positive() });
 
 export async function archiveProject(formData: FormData): Promise<ActionResult> {
-  const auth = await requireUser();
-  if (!auth.ok) return auth;
-  if (!canWriteProperty(auth.profile.role)) {
-    return { ok: false, error: "You don't have permission to archive projects" };
-  }
-
   const parsed = projectIdSchema.safeParse({ projectId: formData.get("projectId") });
   if (!parsed.success) return { ok: false, error: "Invalid project" };
 
