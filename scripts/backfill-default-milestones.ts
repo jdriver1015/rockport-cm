@@ -87,19 +87,22 @@ async function main() {
     for (const m of missing) {
       const plannedDate =
         m.phase === "precon"
-          ? p.preWalkDate
+          ? null
           : m.phase === "in_process"
             ? p.startDate
             : m.phase === "complete"
               ? p.targetCompletionDate ?? p.completeDate
               : null;
+      // Entering precon is just the project being created, which says nothing
+      // about when a contract was signed — that one is recorded by hand.
+      const derivable = m.phase !== "precon";
       const reached = PHASE_ORDER.indexOf(m.phase) <= reachedIdx;
       rows.push({
         projectId: p.id,
         label: m.label,
         phase: m.phase,
         plannedDate,
-        actualDate: reached ? firstEvent.get(`${p.id}:${m.phase}`) ?? null : null,
+        actualDate: derivable && reached ? firstEvent.get(`${p.id}:${m.phase}`) ?? null : null,
         sortOrder: m.sortOrder,
         isDefault: true,
       });
