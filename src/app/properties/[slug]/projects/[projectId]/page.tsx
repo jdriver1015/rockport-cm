@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,22 @@ import { parseProjectId, projectSlug } from "@/lib/slug";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Peripheral list loader. This page fans out ~10 queries; the project, its
+ * scope, milestones, and GL are load-bearing, but the audit/document/log lists
+ * are not. Without this a single flaky query — a pooled-connection timeout, say
+ * — throws out of the Promise.all and the whole page renders as "This page
+ * couldn't load" instead of the project. Degrade that section and keep the page.
+ */
+async function optional<T>(query: PromiseLike<T[]>, label: string): Promise<T[]> {
+  try {
+    return await query;
+  } catch (err) {
+    console.error(`project detail: ${label} failed to load`, err);
+    return [];
+  }
+}
 
 function HeaderKpi({
   label,
@@ -98,9 +114,8 @@ export default async function ProjectDetailPage({
     docs,
     projectAudits,
     otherProjects,
-    findingCounts,
     glRows,
-    openFindings,
+    findings,
     milestones,
     budgetGroups,
     vendorOptions,
@@ -112,38 +127,45 @@ export default async function ProjectDetailPage({
         and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)),
       )
       .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id)),
-    db()
-      .select()
-      .from(schema.projectStageEvents)
-      .where(eq(schema.projectStageEvents.projectId, projectId))
-      .orderBy(desc(schema.projectStageEvents.createdAt))
-      .limit(100),
-    db()
-      .select()
-      .from(schema.attachments)
-      .where(
-        and(
-          eq(schema.attachments.projectId, projectId),
-          eq(schema.attachments.kind, "document"),
-          isNull(schema.attachments.archivedAt),
-        ),
-      )
-      .orderBy(desc(schema.attachments.createdAt)),
-    db()
-      .select()
-      .from(schema.siteAudits)
-      .where(and(eq(schema.siteAudits.projectId, projectId), isNull(schema.siteAudits.archivedAt)))
-      .orderBy(desc(schema.siteAudits.auditDate), desc(schema.siteAudits.id)),
-    db()
-      .select({ id: schema.projects.id, name: schema.projects.name })
-      .from(schema.projects)
-      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
-      .orderBy(asc(schema.projects.name)),
-    db()
-      .select({ auditId: schema.auditFindings.auditId, count: sql<number>`count(*)::int` })
-      .from(schema.auditFindings)
-      .where(isNull(schema.auditFindings.archivedAt))
-      .groupBy(schema.auditFindings.auditId),
+    optional(
+      db()
+        .select()
+        .from(schema.projectStageEvents)
+        .where(eq(schema.projectStageEvents.projectId, projectId))
+        .orderBy(desc(schema.projectStageEvents.createdAt))
+        .limit(100),
+      "activity log",
+    ),
+    optional(
+      db()
+        .select()
+        .from(schema.attachments)
+        .where(
+          and(
+            eq(schema.attachments.projectId, projectId),
+            eq(schema.attachments.kind, "document"),
+            isNull(schema.attachments.archivedAt),
+          ),
+        )
+        .orderBy(desc(schema.attachments.createdAt)),
+      "documents",
+    ),
+    optional(
+      db()
+        .select()
+        .from(schema.siteAudits)
+        .where(and(eq(schema.siteAudits.projectId, projectId), isNull(schema.siteAudits.archivedAt)))
+        .orderBy(desc(schema.siteAudits.auditDate), desc(schema.siteAudits.id)),
+      "site audits",
+    ),
+    optional(
+      db()
+        .select({ id: schema.projects.id, name: schema.projects.name })
+        .from(schema.projects)
+        .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
+        .orderBy(asc(schema.projects.name)),
+      "sibling projects",
+    ),
     // Posted GL transactions for cost detail
     db()
       .select({
@@ -167,22 +189,28 @@ export default async function ProjectDetailPage({
         ),
       )
       .orderBy(asc(schema.glTransactions.txnDate), asc(schema.glTransactions.id)),
-    // Open audit findings for this project (via siteAudits)
-    db()
-      .select({
-        id: schema.auditFindings.id,
-        dueDate: schema.auditFindings.dueDate,
-      })
-      .from(schema.auditFindings)
-      .innerJoin(schema.siteAudits, eq(schema.auditFindings.auditId, schema.siteAudits.id))
-      .where(
-        and(
-          eq(schema.siteAudits.projectId, projectId),
-          isNull(schema.siteAudits.archivedAt),
-          isNull(schema.auditFindings.archivedAt),
-          eq(schema.auditFindings.status, "open"),
+    // This project's audit findings. One scoped query serves both the per-audit
+    // counts and the open-items split — the counts used to aggregate every
+    // finding in the database with no project filter.
+    optional(
+      db()
+        .select({
+          id: schema.auditFindings.id,
+          auditId: schema.auditFindings.auditId,
+          status: schema.auditFindings.status,
+          dueDate: schema.auditFindings.dueDate,
+        })
+        .from(schema.auditFindings)
+        .innerJoin(schema.siteAudits, eq(schema.auditFindings.auditId, schema.siteAudits.id))
+        .where(
+          and(
+            eq(schema.siteAudits.projectId, projectId),
+            isNull(schema.siteAudits.archivedAt),
+            isNull(schema.auditFindings.archivedAt),
+          ),
         ),
-      ),
+      "audit findings",
+    ),
     db()
       .select({
         id: schema.projectMilestones.id,
@@ -208,7 +236,11 @@ export default async function ProjectDetailPage({
       .orderBy(asc(schema.vendors.name)),
   ]);
 
-  const findingsByAudit = new Map(findingCounts.map((r) => [r.auditId, r.count]));
+  const findingsByAudit = findings.reduce((m, f) => {
+    m.set(f.auditId, (m.get(f.auditId) ?? 0) + 1);
+    return m;
+  }, new Map<number, number>());
+  const openFindings = findings.filter((f) => f.status === "open");
 
   const supabase = await createClient();
   const {

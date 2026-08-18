@@ -41,7 +41,7 @@ export function ClickableTableRow({
         if (isInteractiveTarget(e.target)) return;
         router.push(href);
       }}
-      className={cn("cursor-pointer", className)}
+      className={cn("cursor-pointer hover:bg-track", className)}
     >
       {children}
     </TableRow>

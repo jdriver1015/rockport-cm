@@ -420,7 +420,7 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                       if (isInteractiveTarget(e.target)) return;
                       router.push(`/properties/${propertySlug}/projects/${projectSlug(p)}`);
                     }}
-                    className="cursor-pointer"
+                    className="cursor-pointer hover:bg-track"
                   >
                     <TableCell className="truncate">
                       <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
