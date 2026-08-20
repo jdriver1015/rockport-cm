@@ -846,6 +846,25 @@ export const interiorDefaultSettings = pgTable("interior_default_settings", {
   contingencyEnabled: boolean("contingency_enabled").notNull().default(true),
   cmCostCodeRef: text("cm_cost_code_ref"),
   contingencyCostCodeRef: text("contingency_cost_code_ref"),
+  /**
+   * Suggested schedule for a new unit turn. False leaves the wizard's dates
+   * blank rather than suggesting any.
+   */
+  scheduleEnabled: boolean("schedule_enabled").notNull().default(true),
+  /**
+   * Days from the day a project is created to each suggested date, keyed by
+   * project PHASE rather than milestone label — the four defaults were renamed
+   * once already and a phase key survives that. "pre_walk" is the exception: it
+   * is not a milestone but the walk that produces the scope.
+   *
+   * All offsets share the one origin instead of chaining off each other, so
+   * each suggested date is independently explainable. See
+   * src/lib/schedule-defaults.ts.
+   */
+  scheduleOffsets: jsonb("schedule_offsets")
+    .$type<Record<string, number>>()
+    .notNull()
+    .default({ pre_walk: 2, precon: 7, in_process: 10, punch: 24, complete: 28 }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { readScheduleDefaults } from "@/lib/interior-defaults";
 import {
   InteriorWizard,
   type WizardAllocation,
@@ -125,6 +126,7 @@ export default async function NewInteriorProjectPage({
   // this unit's group carries (so a created project's budget matches its pivot
   // cell), and how much of each tier is still unstarted.
   const interior = await computeInteriorBudgetFor(propertyId);
+  const schedule = await readScheduleDefaults();
   const unitGroups: WizardUnitGroup[] = interior.unitGroups.map((g) => ({
     id: g.id,
     name: g.name,
@@ -196,6 +198,7 @@ export default async function NewInteriorProjectPage({
         unitGroups={unitGroups}
         pins={pins}
         allocations={allocations}
+        schedule={schedule}
       />
     </div>
   );

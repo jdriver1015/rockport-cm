@@ -7,7 +7,8 @@ import { ChevronRight } from "lucide-react";
 import { AddTemplateDialog, TemplateRowActions } from "@/components/budget-template-list";
 import { InteriorDefaultsPanel } from "@/components/interior-defaults-panel";
 import { TemplateSeedToggle } from "@/components/template-seed-toggle";
-import { readInteriorDefaults } from "@/lib/interior-defaults";
+import { readInteriorDefaults, readScheduleDefaults } from "@/lib/interior-defaults";
+import { ScheduleDefaultsPanel } from "@/components/schedule-defaults-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,10 @@ export default async function BudgetTemplatesPage() {
     .where(isNull(schema.budgetTemplates.archivedAt))
     .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name));
 
-  const defaults = await readInteriorDefaults();
+  const [defaults, schedule] = await Promise.all([
+    readInteriorDefaults(),
+    readScheduleDefaults(),
+  ]);
 
   const lineCounts = await db()
     .select({
@@ -86,6 +90,8 @@ export default async function BudgetTemplatesPage() {
       </Card>
 
       <InteriorDefaultsPanel defaults={defaults} />
+
+      <ScheduleDefaultsPanel schedule={schedule} />
     </div>
   );
 }

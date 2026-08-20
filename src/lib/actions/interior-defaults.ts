@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { DEFAULTS_ID } from "@/lib/interior-defaults";
+import { normalizeOffsets } from "@/lib/schedule-defaults";
 
 // ---------------------------------------------------------------------------
 // Portfolio interior defaults — what a NEW property starts with: which
@@ -107,3 +108,37 @@ export async function setTemplateSeedDefault(
   return { ok: true };
 }
 
+
+const scheduleSchema = z.object({
+  enabled: z.coerce.boolean(),
+  offsets: z.record(z.string(), z.coerce.number().int().min(-365).max(365)),
+});
+
+/**
+ * Set the suggested schedule for new unit turns.
+ *
+ * Offsets are stored as given, including out-of-order ones: a portfolio where
+ * the pre-walk happens after the contract is signed is unusual but not wrong,
+ * and the wizard flags an out-of-order set where the person can see it rather
+ * than refusing it here.
+ */
+export async function updateScheduleDefaults(
+  input: z.input<typeof scheduleSchema>,
+): Promise<ActionResult> {
+  const parsed = scheduleSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const d = parsed.data;
+
+  const offsets = normalizeOffsets(d.offsets);
+
+  await db()
+    .insert(schema.interiorDefaultSettings)
+    .values({ id: DEFAULTS_ID, scheduleEnabled: d.enabled, scheduleOffsets: offsets })
+    .onConflictDoUpdate({
+      target: schema.interiorDefaultSettings.id,
+      set: { scheduleEnabled: d.enabled, scheduleOffsets: offsets, updatedAt: new Date() },
+    });
+
+  revalidatePath("/settings/renovation-types");
+  return { ok: true };
+}

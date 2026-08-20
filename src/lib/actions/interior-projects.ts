@@ -46,6 +46,14 @@ const createSchema = z.object({
   preWalkDate: optDate,
   startDate: optDate,
   targetCompletionDate: optDate,
+  /**
+   * Planned dates for the four seeded milestones, keyed by phase. Optional so
+   * an older caller still creates a project with undated milestones rather than
+   * none.
+   */
+  milestones: z
+    .array(z.object({ phase: z.string().trim().min(1), plannedDate: optDate }))
+    .optional(),
   lines: z.array(lineSchema).min(1, "Add at least one budget line"),
 });
 
@@ -149,7 +157,18 @@ export async function createInteriorProject(
 
     // Unit turns run the same four phases as common-area work, so they get the
     // same seeded milestones.
-    await tx.insert(schema.projectMilestones).values(defaultMilestoneRows(project.id));
+    // Planned dates come from the wizard's schedule step; a phase the caller
+    // didn't send stays undated rather than guessing here, so the suggestion
+    // lives in exactly one place.
+    const plannedByPhase = new Map(
+      (d.milestones ?? []).map((m) => [m.phase, m.plannedDate]),
+    );
+    await tx.insert(schema.projectMilestones).values(
+      defaultMilestoneRows(project.id).map((row) => ({
+        ...row,
+        plannedDate: plannedByPhase.get(row.phase) ?? null,
+      })),
+    );
 
     return { projectId: project.id, projectName };
   });

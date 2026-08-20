@@ -1,5 +1,10 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import {
+  DEFAULT_SCHEDULE,
+  normalizeOffsets,
+  type ScheduleSettings,
+} from "@/lib/schedule-defaults";
 
 // ---------------------------------------------------------------------------
 // Reads over the portfolio interior defaults, and the one write that belongs to
@@ -20,6 +25,25 @@ export type InteriorDefaults = {
   cmCostCodeRef: string | null;
   contingencyCostCodeRef: string | null;
 };
+/**
+ * Read the suggested schedule for a new unit turn.
+ *
+ * Separate from readInteriorDefaults because it answers a different question —
+ * that one is what a new PROPERTY starts with, this is what a new PROJECT's
+ * dates default to — and the wizard needs only this half.
+ */
+export async function readScheduleDefaults(): Promise<ScheduleSettings> {
+  const row = await db().query.interiorDefaultSettings.findFirst({
+    where: eq(schema.interiorDefaultSettings.id, DEFAULTS_ID),
+    columns: { scheduleEnabled: true, scheduleOffsets: true },
+  });
+  if (!row) return DEFAULT_SCHEDULE;
+  return {
+    enabled: row.scheduleEnabled,
+    offsets: normalizeOffsets(row.scheduleOffsets),
+  };
+}
+
 /**
  * Read the portfolio defaults, creating nothing. Absent row reads as the
  * column defaults, so a fresh database behaves like an untouched one rather

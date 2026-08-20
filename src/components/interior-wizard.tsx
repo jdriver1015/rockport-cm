@@ -17,6 +17,18 @@ import {
   type UnitMeta,
 } from "@/lib/pricing";
 import { createInteriorProject } from "@/lib/actions/interior-projects";
+import {
+  DEFAULT_SCHEDULE,
+  PRE_WALK_KEY,
+  SCHEDULE_KEYS,
+  SCHEDULE_LABELS,
+  describeSchedule,
+  scheduleWarnings,
+  suggestSchedule,
+  type ScheduleKey,
+  type ScheduleSettings,
+} from "@/lib/schedule-defaults";
+import { DEFAULT_MILESTONES } from "@/lib/milestones";
 
 export type WizardUnit = {
   unitNumber: string;
@@ -131,6 +143,7 @@ export function InteriorWizard({
   unitGroups = [],
   pins = [],
   allocations = [],
+  schedule,
 }: {
   propertyId: number;
   propertySlug: string;
@@ -140,6 +153,8 @@ export function InteriorWizard({
   unitGroups?: WizardUnitGroup[];
   pins?: WizardPin[];
   allocations?: WizardAllocation[];
+  /** Portfolio suggested schedule. Omitted in tests and older callers. */
+  schedule?: ScheduleSettings;
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -150,9 +165,23 @@ export function InteriorWizard({
   const [groupId, setGroupId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [vendorId, setVendorId] = useState<number | null>(null);
-  const [preWalkDate, setPreWalkDate] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [targetCompletionDate, setTargetCompletionDate] = useState("");
+
+  // One map keyed by schedule key rather than three loose date fields. The old
+  // shape let target completion sit before the pre-walk with nothing noticing,
+  // and had no place to put the two milestones between them.
+  const scheduleSettings = schedule ?? DEFAULT_SCHEDULE;
+  // Suggested once, on mount: recomputing would overwrite a typed date whenever
+  // the component re-rendered, and a project created either side of midnight
+  // does not want its dates to shift underneath it.
+  const [suggested] = useState(() => suggestSchedule(scheduleSettings, new Date()));
+  const [dates, setDates] = useState<Record<ScheduleKey, string>>(suggested);
+
+  const dateWarnings = scheduleWarnings(dates);
+  const touched = SCHEDULE_KEYS.some((k) => dates[k] !== suggested[k]);
+
+  function setDate(key: ScheduleKey, value: string) {
+    setDates((prev) => ({ ...prev, [key]: value }));
+  }
 
   const group = groups.find((g) => g.id === groupId) ?? null;
   const total = useMemo(() => scopeTotal(lines.map((l) => ({ total: l.quantity * l.unitPrice }))), [lines]);
@@ -220,9 +249,16 @@ export function InteriorWizard({
         baths: unit.baths,
         sqft: unit.sqft,
         vendorId: vendorId ?? undefined,
-        preWalkDate,
-        startDate,
-        targetCompletionDate,
+        preWalkDate: dates[PRE_WALK_KEY],
+        // The project's own start and target are DERIVED from the milestones
+        // rather than entered separately, so the header and the timeline cannot
+        // disagree about when the work runs.
+        startDate: dates.in_process,
+        targetCompletionDate: dates.complete,
+        milestones: DEFAULT_MILESTONES.map((m) => ({
+          phase: m.phase,
+          plannedDate: dates[m.phase] || undefined,
+        })),
         lines: lines.map((l) => ({
           item: l.item,
           category: l.category,
@@ -426,24 +462,62 @@ export function InteriorWizard({
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="wz-prewalk">Pre-walk</Label>
-                <Input id="wz-prewalk" type="date" value={preWalkDate} onChange={(e) => setPreWalkDate(e.target.value)} />
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <Label>Schedule</Label>
+                {scheduleSettings.enabled && (
+                  <span className="text-[11px] text-muted-foreground">
+                    Suggested from the portfolio default —{" "}
+                    {describeSchedule(scheduleSettings.offsets)}
+                    {touched && (
+                      <>
+                        {" · "}
+                        <button
+                          type="button"
+                          className="underline hover:text-foreground"
+                          onClick={() => setDates(suggested)}
+                        >
+                          reset
+                        </button>
+                      </>
+                    )}
+                  </span>
+                )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wz-start">Start</Label>
-                <Input id="wz-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+
+              <div className="divide-y divide-hairline rounded-card border border-border">
+                {SCHEDULE_KEYS.map((key) => (
+                  <div key={key} className="flex items-center gap-3 px-3 py-2">
+                    <Label htmlFor={`wz-date-${key}`} className="flex-1 text-[13px] font-normal">
+                      {SCHEDULE_LABELS[key]}
+                      {key === PRE_WALK_KEY && (
+                        <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
+                          not a milestone
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      id={`wz-date-${key}`}
+                      type="date"
+                      className="w-44"
+                      value={dates[key]}
+                      onChange={(e) => setDate(key, e.target.value)}
+                    />
+                  </div>
+                ))}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wz-target">Target completion</Label>
-                <Input
-                  id="wz-target"
-                  type="date"
-                  value={targetCompletionDate}
-                  onChange={(e) => setTargetCompletionDate(e.target.value)}
-                />
-              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                The four milestones are created with the project and stamp their actual dates as it
+                moves through each phase. Leave a date blank to fill it in later.
+              </p>
+
+              {dateWarnings.length > 0 && (
+                <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
+                  {dateWarnings.join(" · ")}. Saving is still allowed — dates get resequenced often
+                  — but check this is what you meant.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -455,9 +529,9 @@ export function InteriorWizard({
             <Summary label="Renovation type" value={group?.name ?? "—"} />
             <Summary label="Budget lines" value={String(lines.length)} />
             <Summary label="Vendor" value={vendors.find((v) => v.id === vendorId)?.name ?? "Unassigned"} />
-            <Summary label="Pre-walk" value={preWalkDate || "—"} />
-            <Summary label="Start" value={startDate || "—"} />
-            <Summary label="Target completion" value={targetCompletionDate || "—"} />
+            {SCHEDULE_KEYS.map((key) => (
+              <Summary key={key} label={SCHEDULE_LABELS[key]} value={dates[key] || "—"} />
+            ))}
             <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
               <span>Estimated budget</span>
               <span className="tabular-nums">{money(total)}</span>
