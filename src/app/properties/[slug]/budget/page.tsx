@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
@@ -173,8 +173,8 @@ export default async function BudgetPage({
 
   // Wave 2: queries that depend on Wave 1 results. The interior budget gets
   // pre-fetched cost codes and categories so it skips 2 internal DB queries.
-  // avgTradeOut and tierLines depend on availableTiers from Wave 1.
-  const [interior, avgTradeOutRows, tierLineRows] = await Promise.all([
+  // avgTradeOut depends on availableTiers from Wave 1.
+  const [interior, avgTradeOutRows] = await Promise.all([
     computeInteriorBudgetFor(propertyId, { costCodes: codes, categories }),
     availableTiers.length
       ? db()
@@ -192,33 +192,6 @@ export default async function BudgetPage({
           )
           .groupBy(schema.projects.budgetGroupId)
       : Promise.resolve([]),
-    availableTiers.length
-      ? db()
-          .select({
-            budgetGroupId: schema.budgetGroupLines.budgetGroupId,
-            costCodeId: schema.budgetGroupLines.costCodeId,
-            pricingMethod: schema.budgetGroupLines.pricingMethod,
-            unitPrice: schema.budgetGroupLines.unitPrice,
-            description: schema.budgetGroupLines.description,
-            sortOrder: schema.budgetGroupLines.sortOrder,
-            code: schema.costCodes.code,
-            codeName: schema.costCodes.name,
-            categoryName: schema.costCategories.name,
-          })
-          .from(schema.budgetGroupLines)
-          .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetGroupLines.costCodeId))
-          .innerJoin(
-            schema.costCategories,
-            eq(schema.costCategories.id, schema.costCodes.categoryId),
-          )
-          .where(
-            inArray(
-              schema.budgetGroupLines.budgetGroupId,
-              availableTiers.map((t) => t.id),
-            ),
-          )
-          .orderBy(asc(schema.costCategories.sortOrder), asc(schema.budgetGroupLines.sortOrder))
-      : Promise.resolve([]),
   ]);
 
   const derivedInteriors = interior.hasPlan;
@@ -229,23 +202,6 @@ export default async function BudgetPage({
     ).length,
   };
   const avgTradeOutByTier = new Map(avgTradeOutRows.map((r) => [r.budgetGroupId!, num(r.avgTradeOut)]));
-
-  const editorTiers = availableTiers.map((t) => ({
-    id: t.id,
-    name: t.name,
-    lines: tierLineRows
-      .filter((l) => l.budgetGroupId === t.id)
-      .map((l) => ({
-        costCodeId: l.costCodeId,
-        code: l.code,
-        // The line's own description wins: cost-code names are chart-global, so a
-        // per-property pricing basis ("Quartz 2cm $35/sf") only lives here.
-        label: l.description ?? l.codeName,
-        categoryName: l.categoryName,
-        pricingMethod: l.pricingMethod,
-        unitPrice: num(l.unitPrice),
-      })),
-  }));
 
   // Floorplans the wizard can still draw units from, with how much of each is
   // already committed. Groups are 1:1 with floorplan codes.
@@ -359,12 +315,8 @@ export default async function BudgetPage({
     view === "exterior" ? budgetDivisions.filter((d) => d.key !== "interiors") : budgetDivisions;
 
   const interiorNote = derivedInteriors
-    ? `Interiors are computed from the interior plan — ${interior.unitGroups.length} unit group${interior.unitGroups.length === 1 ? "" : "s"} × ${interior.tiers.length} tier${interior.tiers.length === 1 ? "" : "s"}, ${money(interior.total)}. Edit them in the Interior view.`
+    ? `Interiors are computed from the interior plan — ${interior.unitGroups.length} unit group${interior.unitGroups.length === 1 ? "" : "s"} × ${interior.tiers.length} tier${interior.tiers.length === 1 ? "" : "s"}, ${money(interior.total)}. Set what each type costs under Unit Upgrades → Renovation types.`
     : null;
-
-  const interiorCodeChoices = codes
-    .filter((c) => c.isInterior)
-    .map((c) => ({ id: c.id, code: c.code, name: c.name }));
 
   const categoryOptions = categories.map((c) => ({ id: c.id, code: c.code, name: c.name }));
   const costCodeOptions = codes.map((c) => ({
@@ -388,15 +340,10 @@ export default async function BudgetPage({
           {view === "interior" ? (
             <InteriorBudgetToolbar
               propertyId={property.id}
+              propertySlug={property.slug}
               floorplans={availableFloorplans}
               tiers={availableTiers}
               existingColumns={existingColumns}
-              editorTiers={editorTiers}
-              cmPct={interior.settings.cmPct}
-              contingencyPct={interior.settings.contingencyPct}
-              cmCostCodeId={interior.settings.cmCostCodeId}
-              contingencyCostCodeId={interior.settings.contingencyCostCodeId}
-              interiorCodes={interiorCodeChoices}
             />
           ) : (
             <AddBudgetLineDialog
