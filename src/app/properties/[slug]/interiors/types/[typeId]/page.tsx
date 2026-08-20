@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { InteriorNav } from "@/components/interior-nav";
 import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
 import {
   AddGroupLineDialog,
@@ -65,13 +66,15 @@ export default async function BudgetGroupEditorPage({
 
   return (
     <div className="space-y-4">
+      <InteriorNav slug={slug} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <Link
-            href={`/properties/${slug}/interiors`}
+            href={`/properties/${slug}/interiors/types`}
             className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            <ChevronLeft className="size-3.5" /> Interiors
+            <ChevronLeft className="size-3.5" /> Renovation types
           </Link>
           <h2 className="truncate text-lg font-semibold text-navy">{group.name}</h2>
           <p className="text-sm text-muted-foreground">

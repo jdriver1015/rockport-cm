@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { ManageBudgetGroupsButton } from "@/components/interior-budget-groups";
+import { InteriorNav } from "@/components/interior-nav";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { TableCard } from "@/components/ui/table-card";
@@ -62,24 +62,12 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [groups, groupLineCounts, templates, interiorProjects, jtdRows] = await Promise.all([
+  const [groups, interiorProjects, jtdRows] = await Promise.all([
     db()
       .select()
       .from(schema.budgetGroups)
       .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
       .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
-    db()
-      .select({
-        budgetGroupId: schema.budgetGroupLines.budgetGroupId,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.budgetGroupLines)
-      .groupBy(schema.budgetGroupLines.budgetGroupId),
-    db()
-      .select({ id: schema.budgetTemplates.id, name: schema.budgetTemplates.name })
-      .from(schema.budgetTemplates)
-      .where(isNull(schema.budgetTemplates.archivedAt))
-      .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name)),
     db()
       .select({
         id: schema.projects.id,
@@ -129,35 +117,20 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
     }))
     .filter((g) => g.projects.length > 0);
 
-  const linesByGroup = new Map(groupLineCounts.map((c) => [c.budgetGroupId, c.count]));
-  const groupsForPanel = groups.map((g) => ({
-    id: g.id,
-    name: g.name,
-    description: g.description,
-    sourceTemplateId: g.sourceTemplateId,
-    lineCount: linesByGroup.get(g.id) ?? 0,
-  }));
-
   return (
     <div className="space-y-6">
       <PropertyHeader
         property={property}
         action={
-          <div className="flex items-center gap-2">
-            <ManageBudgetGroupsButton
-              propertyId={propertyId}
-              propertySlug={slug}
-              groups={groupsForPanel}
-              templates={templates}
-            />
-            <Button render={<Link href={`/properties/${slug}/interiors/new`} />} nativeButton={false}>
-              New Interior Project
-            </Button>
-          </div>
+          <Button render={<Link href={`/properties/${slug}/interiors/new`} />} nativeButton={false}>
+            New Interior Project
+          </Button>
         }
       />
 
       <PropertyNav slug={property.slug} />
+
+      <InteriorNav slug={property.slug} />
 
       {interiorProjects.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
