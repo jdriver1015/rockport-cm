@@ -875,6 +875,34 @@ export const tradeScopes = pgTable("trade_scopes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Finish specs and the fixture kit — the tables a GC orders from.
+ *
+ * Trade scope is prose about responsibility; this is the exact colour, product,
+ * model and vendor. Separate grids rather than one wide table because the
+ * columns genuinely differ: paint needs colour / product / SW number / sheen,
+ * flooring needs area and spec, appliances need model numbers.
+ *
+ * `grid` is {cols, rows} — the same shape scopeItems.specs already uses. A grid
+ * rather than typed columns because each table's columns are its own, and a spec
+ * sheet is read as a table, never queried by column.
+ *
+ * Same dual-owner shape as tradeScopes, with the same CHECK: the portfolio
+ * template holds the standard, a property's type holds its departures.
+ */
+export const specTables = pgTable("spec_tables", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").references(() => budgetTemplates.id, { onDelete: "cascade" }),
+  budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id, { onDelete: "cascade" }),
+  /** Which bid-sheet section this grid belongs under: "finish" or "fixture". */
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  grid: jsonb("grid").$type<{ cols: string[]; rows: string[][] }>().notNull().default({ cols: [], rows: [] }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
 // ---------------------------------------------------------------------------

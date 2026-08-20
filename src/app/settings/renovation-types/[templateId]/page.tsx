@@ -22,6 +22,9 @@ import {
 import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
 import { mergeTradeScopes } from "@/lib/trade-scope";
 import { listTradeScopeRows } from "@/lib/trade-scope-store";
+import { listSpecTables } from "@/lib/spec-tables-store";
+import { SpecTablesSection, type SpecCopySource } from "@/components/spec-tables-section";
+import { SPEC_KIND_LABELS, SPEC_KINDS, specRowCount } from "@/lib/spec-tables";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +47,9 @@ export default async function BudgetTemplateEditorPage({
 
   // This template's written scopes, plus per-template counts so the copy
   // buttons can offer only sources that actually have wording.
-  const [scopeRows, scopeCounts, otherTemplates] = await Promise.all([
+  const [scopeRows, specTables, scopeCounts, otherTemplates] = await Promise.all([
     listTradeScopeRows({ level: "template", templateId }),
+    listSpecTables({ level: "template", templateId }),
     db()
       .select({
         templateId: schema.tradeScopes.templateId,
@@ -71,6 +75,12 @@ export default async function BudgetTemplateEditorPage({
       writtenCount: writtenByTemplate.get(t.id) ?? 0,
     }))
     .filter((t) => t.writtenCount > 0);
+  const specSources: SpecCopySource[] = otherTemplates.map((t) => ({
+    owner: { level: "template" as const, templateId: t.id },
+    label: t.name,
+    tableCount: 0,
+  }));
+  const specsByKind = new Map(SPEC_KINDS.map((k) => [k, specTables.filter((t) => t.kind === k)]));
 
   const lines = await db()
     .select()
@@ -188,6 +198,27 @@ export default async function BudgetTemplateEditorPage({
           />
         </CardContent>
       </Card>
+
+      {SPEC_KINDS.map((k) => (
+        <Card key={k}>
+          <CardHeader className="flex flex-row items-baseline justify-between gap-3">
+            <CardTitle className="text-base text-navy">
+              Standard {SPEC_KIND_LABELS[k].toLowerCase()}
+            </CardTitle>
+            <span className="text-sm text-muted-foreground">
+              {specRowCount(specsByKind.get(k) ?? [])} specified line(s).
+            </span>
+          </CardHeader>
+          <CardContent className="px-0">
+            <SpecTablesSection
+              owner={{ level: "template", templateId }}
+              kind={k}
+              tables={specsByKind.get(k) ?? []}
+              copySources={specSources}
+            />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }

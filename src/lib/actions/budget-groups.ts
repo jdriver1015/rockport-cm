@@ -135,6 +135,31 @@ export async function createGroupFromTemplate(input: {
       );
   }
 
+  // Finish specs and the fixture kit travel with the wording. A type that
+  // arrived priced and scoped but with no specs would still be unbiddable.
+  const specs = await db()
+    .select({
+      kind: schema.specTables.kind,
+      title: schema.specTables.title,
+      grid: schema.specTables.grid,
+      sortOrder: schema.specTables.sortOrder,
+    })
+    .from(schema.specTables)
+    .where(eq(schema.specTables.templateId, template.id));
+  if (specs.length > 0) {
+    await db()
+      .insert(schema.specTables)
+      .values(
+        specs.map((sp) => ({
+          budgetGroupId: group.id,
+          kind: sp.kind,
+          title: sp.title,
+          grid: sp.grid,
+          sortOrder: sp.sortOrder,
+        })),
+      );
+  }
+
   await revalidateGroups(propertyId);
   return { ok: true, groupId: group.id, unresolved };
 }
@@ -214,6 +239,31 @@ export async function duplicateGroup(input: {
         sortOrder: ln.sortOrder,
       })),
     );
+  }
+
+  // Specs likewise — a duplicate is meant to be a starting point, not a
+  // stripped shell.
+  const specs = await db()
+    .select({
+      kind: schema.specTables.kind,
+      title: schema.specTables.title,
+      grid: schema.specTables.grid,
+      sortOrder: schema.specTables.sortOrder,
+    })
+    .from(schema.specTables)
+    .where(eq(schema.specTables.budgetGroupId, input.id));
+  if (specs.length > 0) {
+    await db()
+      .insert(schema.specTables)
+      .values(
+        specs.map((sp) => ({
+          budgetGroupId: group.id,
+          kind: sp.kind,
+          title: sp.title,
+          grid: sp.grid,
+          sortOrder: sp.sortOrder,
+        })),
+      );
   }
 
   // Trade wording is part of what a type IS, so a duplicate that lost it would

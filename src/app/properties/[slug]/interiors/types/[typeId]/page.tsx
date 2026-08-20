@@ -17,6 +17,9 @@ import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
 import { mergeTradeScopes, writtenCount } from "@/lib/trade-scope";
 import { listTradeScopeRows } from "@/lib/trade-scope-store";
+import { listSpecTables } from "@/lib/spec-tables-store";
+import { SpecTablesSection, type SpecCopySource } from "@/components/spec-tables-section";
+import { SPEC_KIND_LABELS, SPEC_KINDS, specRowCount } from "@/lib/spec-tables";
 import { money, num } from "@/lib/format";
 import type { PricingMethod } from "@/lib/pricing";
 
@@ -52,7 +55,7 @@ export default async function RenovationTypePage({
   });
   if (!group || group.propertyId !== propertyId) notFound();
 
-  const [lines, interiorCodes, siblings, template, budget, scopeRows, scopeCounts] =
+  const [lines, interiorCodes, siblings, template, budget, scopeRows, specTables, scopeCounts] =
     await Promise.all([
     db()
       .select()
@@ -86,6 +89,7 @@ export default async function RenovationTypePage({
       : Promise.resolve(undefined),
     computeInteriorBudgetFor(propertyId),
     listTradeScopeRows({ level: "group", budgetGroupId: groupId, propertyId }),
+    listSpecTables({ level: "group", budgetGroupId: groupId, propertyId }),
     // Counts for the copy buttons, so a source with nothing written is offered
     // as disabled rather than failing on click.
     db()
@@ -158,6 +162,29 @@ export default async function RenovationTypePage({
         ]
       : []),
   ].filter((s) => s.writtenCount > 0);
+
+  // Spec copy sources are offered unconditionally: unlike trade scope there is no
+  // cheap per-owner count to gate on here, and the action reports an empty source
+  // rather than failing silently.
+  const specSources: SpecCopySource[] = [
+    ...siblings
+      .filter((sib) => sib.id !== groupId)
+      .map((sib) => ({
+        owner: { level: "group" as const, budgetGroupId: sib.id, propertyId },
+        label: sib.name,
+        tableCount: 0,
+      })),
+    ...(template
+      ? [
+          {
+            owner: { level: "template" as const, templateId: template.id },
+            label: `${template.name} (standard)`,
+            tableCount: 0,
+          },
+        ]
+      : []),
+  ];
+  const specsByKind = new Map(SPEC_KINDS.map((k) => [k, specTables.filter((t) => t.kind === k)]));
 
   return (
     <div className="space-y-6">
@@ -278,6 +305,25 @@ export default async function RenovationTypePage({
           />
         </CardContent>
       </Card>
+
+      {SPEC_KINDS.map((k) => (
+        <Card key={k}>
+          <CardHeader className="flex flex-row items-baseline justify-between gap-3">
+            <CardTitle className="text-base text-navy">{SPEC_KIND_LABELS[k]}</CardTitle>
+            <span className="text-sm text-muted-foreground">
+              {specRowCount(specsByKind.get(k) ?? [])} specified line(s).
+            </span>
+          </CardHeader>
+          <CardContent className="px-0">
+            <SpecTablesSection
+              owner={{ level: "group", budgetGroupId: groupId, propertyId }}
+              kind={k}
+              tables={specsByKind.get(k) ?? []}
+              copySources={specSources}
+            />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
