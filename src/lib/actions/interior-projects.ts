@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
@@ -96,6 +96,30 @@ export async function createInteriorProject(
     const existing = await tx.query.units.findFirst({
       where: and(eq(schema.units.propertyId, d.propertyId), eq(schema.units.unitNumber, d.unitNumber)),
     });
+    // A unit can only be turned once. The wizard already shows claimed units as
+    // unavailable, but that is an affordance, not a guarantee: a stale tab or a
+    // double submit would otherwise create a second project and double-count the
+    // unit in the interior budget.
+    if (existing) {
+      const clash = await tx
+        .select({ id: schema.projects.id, name: schema.projects.name })
+        .from(schema.projects)
+        .where(
+          and(
+            eq(schema.projects.unitId, existing.id),
+            eq(schema.projects.kind, "unit"),
+            isNull(schema.projects.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (clash.length > 0) {
+        return {
+          ok: false as const,
+          error: `Unit ${d.unitNumber} already has an interior project ("${clash[0].name}"). Archive it first, or pick another unit.`,
+        };
+      }
+    }
+
     const meta = {
       floorplan: d.floorplan ?? undefined,
       bedrooms: d.bedrooms ?? undefined,
@@ -170,8 +194,12 @@ export async function createInteriorProject(
       })),
     );
 
-    return { projectId: project.id, projectName };
+    return { ok: true as const, projectId: project.id, projectName };
   });
+
+  // Refused inside the transaction, so nothing was written. Returned as a value
+  // rather than thrown — a taken unit is an expected answer, not a fault.
+  if (!result.ok) return result;
 
   const base = await propertyPath(d.propertyId);
   if (base) {

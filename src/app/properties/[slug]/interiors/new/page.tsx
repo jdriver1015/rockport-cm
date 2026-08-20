@@ -5,11 +5,14 @@ import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { readScheduleDefaults } from "@/lib/interior-defaults";
+import { projectSlug } from "@/lib/slug";
+import { phaseLabel } from "@/lib/stages";
 import {
   InteriorWizard,
   type WizardAllocation,
   type WizardBudgetGroup,
   type WizardPin,
+  type WizardTakenUnit,
   type WizardUnit,
   type WizardUnitGroup,
   type WizardVendor,
@@ -127,6 +130,33 @@ export default async function NewInteriorProjectPage({
   // cell), and how much of each tier is still unstarted.
   const interior = await computeInteriorBudgetFor(propertyId);
   const schedule = await readScheduleDefaults();
+
+  // Units that already have an interior project. A unit cannot be turned twice
+  // in one cycle, and the budget would double-count it — so these are offered
+  // as unavailable, with a link to the project that claimed them, rather than
+  // hidden. Hiding them raises "where is 006?" and gives no answer.
+  const takenRows = await db()
+    .select({
+      unitNumber: schema.units.unitNumber,
+      projectId: schema.projects.id,
+      projectName: schema.projects.name,
+      phase: schema.projects.phase,
+    })
+    .from(schema.projects)
+    .innerJoin(schema.units, eq(schema.units.id, schema.projects.unitId))
+    .where(
+      and(
+        eq(schema.projects.propertyId, propertyId),
+        eq(schema.projects.kind, "unit"),
+        isNull(schema.projects.archivedAt),
+      ),
+    );
+
+  const takenUnits: WizardTakenUnit[] = takenRows.map((r) => ({
+    unitNumber: r.unitNumber,
+    phaseLabel: phaseLabel(r.phase),
+    href: `/properties/${slug}/projects/${projectSlug({ id: r.projectId, name: r.projectName })}`,
+  }));
   const unitGroups: WizardUnitGroup[] = interior.unitGroups.map((g) => ({
     id: g.id,
     name: g.name,
@@ -199,6 +229,7 @@ export default async function NewInteriorProjectPage({
         pins={pins}
         allocations={allocations}
         schedule={schedule}
+        takenUnits={takenUnits}
       />
     </div>
   );

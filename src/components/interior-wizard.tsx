@@ -1,11 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -49,6 +57,14 @@ export type WizardBudgetLine = {
 };
 export type WizardBudgetGroup = { id: number; name: string; lines: WizardBudgetLine[] };
 export type WizardVendor = { id: number; name: string; trade: string | null };
+
+/** A unit that already has an interior project, so it cannot be turned again. */
+export type WizardTakenUnit = {
+  unitNumber: string;
+  /** Where that project has got to, so the row says why it is unavailable. */
+  phaseLabel: string;
+  href: string;
+};
 
 /** A pivot column group, so a unit can inherit its group's override amounts. */
 export type WizardUnitGroup = {
@@ -144,6 +160,7 @@ export function InteriorWizard({
   pins = [],
   allocations = [],
   schedule,
+  takenUnits = [],
 }: {
   propertyId: number;
   propertySlug: string;
@@ -155,10 +172,13 @@ export function InteriorWizard({
   allocations?: WizardAllocation[];
   /** Portfolio suggested schedule. Omitted in tests and older callers. */
   schedule?: ScheduleSettings;
+  /** Units already claimed by an interior project. */
+  takenUnits?: WizardTakenUnit[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const [unitQuery, setUnitQuery] = useState("");
   const [unit, setUnit] = useState<WizardUnit | null>(null);
@@ -182,6 +202,16 @@ export function InteriorWizard({
   function setDate(key: ScheduleKey, value: string) {
     setDates((prev) => ({ ...prev, [key]: value }));
   }
+
+  const takenByUnit = useMemo(
+    () => new Map(takenUnits.map((t) => [t.unitNumber, t])),
+    [takenUnits],
+  );
+
+  const availableCount = useMemo(
+    () => units.filter((u) => !takenByUnit.has(u.unitNumber)).length,
+    [units, takenByUnit],
+  );
 
   const group = groups.find((g) => g.id === groupId) ?? null;
   const total = useMemo(() => scopeTotal(lines.map((l) => ({ total: l.quantity * l.unitPrice }))), [lines]);
@@ -235,6 +265,22 @@ export function InteriorWizard({
     step === 2 ||
     step === 3 ||
     step === 4;
+
+  // Anything past picking a unit is work that would be lost, so leaving asks
+  // first. Step 0 with nothing chosen has nothing to discard, so it just leaves.
+  const hasProgress = unit !== null || groupId !== null || step > 0;
+
+  function leave() {
+    router.push(`/properties/${propertySlug}/interiors`);
+  }
+
+  function requestCancel() {
+    if (hasProgress) {
+      setConfirmCancel(true);
+      return;
+    }
+    leave();
+  }
 
   async function handleCreate() {
     if (!unit || !group) return;
@@ -294,25 +340,69 @@ export function InteriorWizard({
               value={unitQuery}
               onChange={(e) => setUnitQuery(e.target.value)}
             />
+            {availableCount === 0 ? (
+              <p className="rounded-card border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+                Every unit on the current rent roll already has an interior project. Finish or
+                archive one before starting another.
+              </p>
+            ) : (
+              takenUnits.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {availableCount.toLocaleString()} of {units.length.toLocaleString()} units
+                  available — {takenUnits.length.toLocaleString()} already being renovated.
+                </p>
+              )
+            )}
             <div className="max-h-72 divide-y overflow-y-auto rounded-md border">
-              {filteredUnits.map((u) => (
-                <button
-                  key={u.unitNumber}
-                  type="button"
-                  onClick={() => setUnit(u)}
-                  className={cn(
-                    "flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50",
-                    unit?.unitNumber === u.unitNumber && "bg-muted",
-                  )}
-                >
-                  <span className="font-medium text-navy">Unit {u.unitNumber}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {[u.floorplan, u.bedrooms != null ? `${u.bedrooms} bd` : null, u.baths != null ? `${u.baths} ba` : null, u.sqft != null ? `${u.sqft} sf` : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </button>
-              ))}
+              {filteredUnits.map((u) => {
+                const meta = [
+                  u.floorplan,
+                  u.bedrooms != null ? `${u.bedrooms} bd` : null,
+                  u.baths != null ? `${u.baths} ba` : null,
+                  u.sqft != null ? `${u.sqft} sf` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                const taken = takenByUnit.get(u.unitNumber);
+
+                // A claimed unit is a row, not a disabled button: it carries a
+                // link to the project holding it, and a disabled button would
+                // swallow the click.
+                if (taken) {
+                  return (
+                    <div
+                      key={u.unitNumber}
+                      className="flex items-center justify-between gap-3 bg-hairline/60 px-3 py-2 text-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium text-ink-300">Unit {u.unitNumber}</span>
+                        <span className="ml-2 text-xs text-ink-300">already being renovated</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">{taken.phaseLabel}</span>
+                        <Link href={taken.href} className="text-link hover:underline">
+                          Open
+                        </Link>
+                      </span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={u.unitNumber}
+                    type="button"
+                    onClick={() => setUnit(u)}
+                    className={cn(
+                      "flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50",
+                      unit?.unitNumber === u.unitNumber && "bg-muted",
+                    )}
+                  >
+                    <span className="font-medium text-navy">Unit {u.unitNumber}</span>
+                    <span className="text-xs text-muted-foreground">{meta}</span>
+                  </button>
+                );
+              })}
               {filteredUnits.length === 0 && (
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">No matching units.</p>
               )}
@@ -540,9 +630,20 @@ export function InteriorWizard({
         )}
 
         <div className="flex items-center justify-between border-t pt-3">
-          <Button variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || busy}>
-            Back
-          </Button>
+          <div className="flex items-center gap-1">
+            {/* Step 0 has nowhere to go back to, so Cancel is the way out —
+                previously the only exit was the browser's own back button. */}
+            <Button
+              variant="ghost"
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              disabled={step === 0 || busy}
+            >
+              Back
+            </Button>
+            <Button variant="ghost" onClick={requestCancel} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
           {step < STEPS.length - 1 ? (
             <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
               Next
@@ -554,6 +655,28 @@ export function InteriorWizard({
           )}
         </div>
       </CardContent>
+
+      <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Discard this project?</DialogTitle>
+            <DialogDescription>
+              {unit
+                ? `Unit ${unit.unitNumber} hasn't been created yet. The scope and dates entered here
+                   will be lost.`
+                : "Nothing has been created yet, but what you have entered here will be lost."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmCancel(false)}>
+              Keep editing
+            </Button>
+            <Button variant="destructive" onClick={leave}>
+              Discard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
