@@ -3,7 +3,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { InteriorNav } from "@/components/interior-nav";
+import { BackLink } from "@/components/ui/back-link";
 import {
   RenovationTypeList,
   type RenovationTypeRow,
@@ -88,7 +88,10 @@ export default async function RenovationTypesPage({
     <div className="space-y-6">
       <PropertyHeader property={property} />
       <PropertyNav slug={property.slug} />
-      <InteriorNav slug={property.slug} />
+      <BackLink href={`/properties/${slug}/interiors`} label="Unit Upgrades" />
+      <div>
+        <h1 className="font-serif text-2xl font-semibold text-navy">Renovation types</h1>
+      </div>
       <RenovationTypeList
         propertyId={propertyId}
         propertySlug={slug}

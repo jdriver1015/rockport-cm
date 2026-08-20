@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { InteriorNav } from "@/components/interior-nav";
+import { BackLink } from "@/components/ui/back-link";
 import { TriggerRuleEditor, type TypeOption } from "@/components/trigger-rule-editor";
 import { listTriggerSteps } from "@/lib/renovation-triggers-store";
 
@@ -43,19 +42,7 @@ export default async function TriggersPage({
     <div className="space-y-6">
       <PropertyHeader property={property} />
       <PropertyNav slug={property.slug} />
-      <InteriorNav slug={property.slug} />
-
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">
-          Portfolio
-        </Link>
-        <span className="text-ink-100">/</span>
-        <Link href={`/properties/${slug}`} className="hover:text-foreground">
-          {property.name}
-        </Link>
-        <span className="text-ink-100">/</span>
-        <span className="font-semibold text-navy">Reno type triggers</span>
-      </div>
+      <BackLink href={`/properties/${slug}/interiors`} label="Unit Upgrades" />
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between gap-3">

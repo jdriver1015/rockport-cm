@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { InteriorNav } from "@/components/interior-nav";
+import { BackLink } from "@/components/ui/back-link";
 import { TierBadge } from "@/components/ui/tier-badge";
 import {
   RenovationTypePricing,
@@ -190,24 +190,7 @@ export default async function RenovationTypePage({
     <div className="space-y-6">
       <PropertyHeader property={property} />
       <PropertyNav slug={property.slug} />
-      <InteriorNav slug={property.slug} />
-
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground">
-          Portfolio
-        </Link>
-        <span className="text-ink-100">/</span>
-        <Link href={`/properties/${slug}`} className="hover:text-foreground">
-          {property.name}
-        </Link>
-        <span className="text-ink-100">/</span>
-        <Link href={`/properties/${slug}/interiors/types`} className="hover:text-foreground">
-          Renovation types
-        </Link>
-        <span className="text-ink-100">/</span>
-        <span className="font-semibold text-navy">{group.name}</span>
-      </div>
+      <BackLink href={`/properties/${slug}/interiors/types`} label="Renovation types" />
 
       <Card>
         <CardContent className="flex flex-col gap-4">

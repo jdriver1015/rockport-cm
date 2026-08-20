@@ -187,7 +187,7 @@ export default async function NewInteriorProjectPage({
       <div className="mx-auto max-w-xl">
         <Card>
           <CardHeader>
-            <CardTitle className="text-navy">New interior project — {property.name}</CardTitle>
+            <CardTitle className="text-navy">New unit upgrade — {property.name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             {missingRentRoll && (

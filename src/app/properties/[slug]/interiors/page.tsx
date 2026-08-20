@@ -6,11 +6,12 @@ import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
-import { InteriorNav } from "@/components/interior-nav";
+import { InteriorManageMenu } from "@/components/interior-manage-menu";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { TableCard } from "@/components/ui/table-card";
 import { TierBadge } from "@/components/ui/tier-badge";
+import { KpiStrip } from "@/components/ui/kpi-strip";
 import {
   Table,
   TableBody,
@@ -22,6 +23,8 @@ import {
 } from "@/components/ui/table";
 import { fmtDate, money, num } from "@/lib/format";
 import { PROJECT_PHASES } from "@/lib/stages";
+import { buildInteriorKpis } from "@/lib/interior-kpis";
+import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 import { projectSlug } from "@/lib/slug";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +65,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [groups, interiorProjects, jtdRows] = await Promise.all([
+  const [groups, interiorProjects, jtdRows, budget] = await Promise.all([
     db()
       .select()
       .from(schema.budgetGroups)
@@ -100,9 +103,23 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
         sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
       )
       .groupBy(schema.glTransactions.projectId),
+    // Planned units come from the same compute the Budget pivot uses, so the
+    // strip and the pivot cannot disagree about the size of the plan.
+    computeInteriorBudgetFor(propertyId),
   ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+
+  const kpis = buildInteriorKpis({
+    plannedUnits: budget.columns.reduce((n, c) => n + c.plannedUnits, 0),
+    projects: interiorProjects.map((p) => ({
+      phase: p.phase,
+      budgetAmount: num(p.budgetAmount),
+      startDate: p.startDate,
+      completeDate: p.completeDate,
+      reconciled: jtdByProject.get(p.id) ?? 0,
+    })),
+  });
 
   // Same tier ordering/coloring as the budget pivot — index is the group's
   // position among the property's budget groups, not tied to its name.
@@ -122,15 +139,18 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
       <PropertyHeader
         property={property}
         action={
-          <Button render={<Link href={`/properties/${slug}/interiors/new`} />} nativeButton={false}>
-            New Interior Project
-          </Button>
+          <div className="flex items-center gap-2">
+            <InteriorManageMenu slug={slug} />
+            <Button render={<Link href={`/properties/${slug}/interiors/new`} />} nativeButton={false}>
+              New Unit Upgrade
+            </Button>
+          </div>
         }
       />
 
       <PropertyNav slug={property.slug} />
 
-      <InteriorNav slug={property.slug} />
+      <KpiStrip items={kpis} />
 
       {interiorProjects.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">

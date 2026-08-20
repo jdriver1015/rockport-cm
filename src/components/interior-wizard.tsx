@@ -317,7 +317,7 @@ export function InteriorWizard({
         })),
       });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Interior project created");
+      toast.success("Unit upgrade created");
       router.push(`/properties/${propertySlug}/interiors`);
       router.refresh();
     } finally {
@@ -328,7 +328,7 @@ export function InteriorWizard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-navy">New interior project</CardTitle>
+        <CardTitle className="text-navy">New unit upgrade</CardTitle>
         <Stepper step={step} />
       </CardHeader>
       <CardContent className="space-y-4">
@@ -342,7 +342,7 @@ export function InteriorWizard({
             />
             {availableCount === 0 ? (
               <p className="rounded-card border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
-                Every unit on the current rent roll already has an interior project. Finish or
+                Every unit on the current rent roll already has a unit upgrade. Finish or
                 archive one before starting another.
               </p>
             ) : (
