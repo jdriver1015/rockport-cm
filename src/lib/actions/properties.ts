@@ -6,6 +6,8 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { dedupeSlug, slugify } from "@/lib/slug";
+import { seedInteriorSettingsFromDefaults } from "@/lib/interior-defaults";
+import { createGroupFromTemplate } from "@/lib/actions/budget-groups";
 
 /** A unique property slug for `name`, excluding `excludeId` (used on rename). */
 async function uniquePropertySlug(name: string, excludeId?: number): Promise<string> {
@@ -24,11 +26,26 @@ const createPropertySchema = z.object({
   state: z.string().trim().optional(),
   unitCount: z.coerce.number().int().positive().optional(),
   pmSystem: z.string().trim().optional(),
+  /**
+   * Renovation types to seed, chosen from a checklist at creation. Deliberately
+   * a choice rather than "seed everything active": the portfolio has seven
+   * types and no property uses all of them, so seeding all would leave every
+   * new property with types to archive before it could be read.
+   */
+  seedTemplateIds: z.array(z.coerce.number().int().positive()).default([]),
 });
 
 export async function createProperty(
   formData: FormData,
-): Promise<ActionResult<{ propertyId: number; slug: string }>> {
+): Promise<
+  ActionResult<{
+    propertyId: number;
+    slug: string;
+    seededTypes: number;
+    /** Non-fatal shortfalls worth telling the user about. */
+    notes: string[];
+  }>
+> {
   const parsed = createPropertySchema.safeParse({
     name: formData.get("name"),
     chartOfAccountsId: formData.get("chartOfAccountsId"),
@@ -37,6 +54,7 @@ export async function createProperty(
     state: formData.get("state") || undefined,
     unitCount: formData.get("unitCount") || undefined,
     pmSystem: formData.get("pmSystem") || undefined,
+    seedTemplateIds: formData.getAll("seedTemplateIds"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
@@ -46,14 +64,47 @@ export async function createProperty(
   });
   if (!chart) return { ok: false, error: "Selected chart of accounts no longer exists" };
 
-  const slug = await uniquePropertySlug(parsed.data.name);
+  const { seedTemplateIds, ...fields } = parsed.data;
+  const slug = await uniquePropertySlug(fields.name);
   const [property] = await db()
     .insert(schema.properties)
-    .values({ ...parsed.data, slug })
+    .values({ ...fields, slug })
     .returning();
 
+  // Seeding happens after the property exists and is deliberately not fatal:
+  // the property is real either way, and failing the whole creation because one
+  // renovation type's cost code is missing would be worse than saying so. Each
+  // shortfall is reported instead, because both are silent otherwise — an
+  // unattributed uplift stops the pivot reconciling to the Interiors division,
+  // and a partially-copied type looks like a type that simply costs less.
+  const notes: string[] = [];
+  const { unresolvedRefs } = await seedInteriorSettingsFromDefaults(
+    property.id,
+    fields.chartOfAccountsId,
+  );
+  if (unresolvedRefs.length > 0) {
+    notes.push(
+      `uplift cost code${unresolvedRefs.length === 1 ? "" : "s"} ${unresolvedRefs.join(", ")} not in this chart`,
+    );
+  }
+
+  let seededTypes = 0;
+  let unresolvedLines = 0;
+  for (const templateId of seedTemplateIds) {
+    const res = await createGroupFromTemplate({ propertyId: property.id, templateId });
+    if (!res.ok) {
+      notes.push(res.error);
+      continue;
+    }
+    seededTypes++;
+    unresolvedLines += res.unresolved;
+  }
+  if (unresolvedLines > 0) {
+    notes.push(`${unresolvedLines} priced line(s) had no matching cost code in this chart`);
+  }
+
   revalidatePath("/");
-  return { ok: true, propertyId: property.id, slug: property.slug };
+  return { ok: true, propertyId: property.id, slug: property.slug, seededTypes, notes };
 }
 
 const updatePropertySchema = z.object({

@@ -570,6 +570,13 @@ export const budgetTemplates = pgTable("budget_templates", {
   name: text("name").notNull(),
   description: text("description"),
   active: boolean("active").notNull().default(true),
+  /**
+   * Whether a new property inherits this type. Separate from `active`: a type
+   * can be current and still be property-specific rather than portfolio
+   * standard. The create form offers every active type either way — this only
+   * decides what arrives pre-checked.
+   */
+  seedByDefault: boolean("seed_by_default").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -814,6 +821,31 @@ export const interiorBudgetSettings = pgTable("interior_budget_settings", {
    */
   cmCostCodeId: integer("cm_cost_code_id").references(() => costCodes.id),
   contingencyCostCodeId: integer("contingency_cost_code_id").references(() => costCodes.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Portfolio-wide interior defaults a new property starts from — the same four
+ * uplift fields as interiorBudgetSettings, one row for the whole portfolio.
+ *
+ * A singleton enforced by a CHECK rather than by convention: a second row would
+ * quietly become a second answer to "what does a new property start with".
+ *
+ * Cost codes are stored as CODE STRINGS, not ids, because a default has to
+ * outlive any one chart of accounts and each property picks its chart at
+ * creation — the same reasoning as budgetTemplateLines.costCodeRef. A ref with
+ * no match in the chosen chart has to surface at creation, or the property
+ * starts with unattributed uplifts and its pivot silently stops reconciling to
+ * the Budget tab's Interiors division.
+ */
+export const interiorDefaultSettings = pgTable("interior_default_settings", {
+  id: integer("id").primaryKey().default(1),
+  cmSupervisionPct: numeric("cm_supervision_pct", { precision: 6, scale: 3 }).notNull().default("0"),
+  contingencyPct: numeric("contingency_pct", { precision: 6, scale: 3 }).notNull().default("0"),
+  cmEnabled: boolean("cm_enabled").notNull().default(true),
+  contingencyEnabled: boolean("contingency_enabled").notNull().default(true),
+  cmCostCodeRef: text("cm_cost_code_ref"),
+  contingencyCostCodeRef: text("contingency_cost_code_ref"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

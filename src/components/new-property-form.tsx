@@ -10,10 +10,29 @@ import { Label } from "@/components/ui/label";
 
 type ChartOption = { id: number; name: string; isDefault: boolean };
 
-export function NewPropertyForm({ charts }: { charts: ChartOption[] }) {
+export type SeedTemplateOption = {
+  id: number;
+  name: string;
+  description: string | null;
+  seedByDefault: boolean;
+  lineCount: number;
+};
+
+export function NewPropertyForm({
+  charts,
+  seedTemplates,
+}: {
+  charts: ChartOption[];
+  seedTemplates: SeedTemplateOption[];
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const defaultChartId = charts.find((c) => c.isDefault)?.id ?? charts[0]?.id;
+  // Pre-checked from the portfolio defaults, but every active type is offered:
+  // the standard set is a starting point, not a restriction.
+  const [checked, setChecked] = useState<Set<number>>(
+    () => new Set(seedTemplates.filter((t) => t.seedByDefault).map((t) => t.id)),
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -23,6 +42,16 @@ export function NewPropertyForm({ charts }: { charts: ChartOption[] }) {
       if (!result.ok) {
         toast.error(result.error);
         return;
+      }
+      // Seeding is best-effort, so say what actually landed rather than
+      // letting a half-copied set of types read as the whole standard scope.
+      const seeded = result.seededTypes > 0
+        ? `${result.seededTypes} renovation type${result.seededTypes === 1 ? "" : "s"} seeded`
+        : "Property created";
+      if (result.notes.length > 0) {
+        toast.warning(seeded, { description: result.notes.join(" · "), duration: 12000 });
+      } else {
+        toast.success(seeded);
       }
       router.push(`/properties/${result.slug}/budget`);
     } catch (err) {
@@ -87,6 +116,57 @@ export function NewPropertyForm({ charts }: { charts: ChartOption[] }) {
           Budget lines and GL codes use this chart. It locks once GL activity is imported.
         </p>
       </div>
+      <div className="space-y-2 border-t border-border pt-4">
+        <div>
+          <Label>Renovation types to start with</Label>
+          <p className="text-xs text-muted-foreground">
+            Copies each type&apos;s priced scope into this property. Pricing can be edited per
+            property afterwards, and more types can be added at any time.
+          </p>
+        </div>
+        {seedTemplates.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No portfolio renovation types yet — add them in Settings and future properties will
+            start from them.
+          </p>
+        ) : (
+          <div className="divide-y divide-hairline rounded-card border border-border">
+            {seedTemplates.map((t) => (
+              <label key={t.id} className="flex cursor-pointer items-start gap-2.5 px-3 py-2">
+                <input
+                  type="checkbox"
+                  name="seedTemplateIds"
+                  value={t.id}
+                  checked={checked.has(t.id)}
+                  onChange={(e) =>
+                    setChecked((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(t.id);
+                      else next.delete(t.id);
+                      return next;
+                    })
+                  }
+                  className="mt-0.5 size-3.5 accent-navy"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-[13px] font-medium text-navy">{t.name}</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {t.lineCount} line{t.lineCount === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  {t.description && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {t.description}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex justify-end gap-2 pt-2">
         <Button type="submit" disabled={busy}>
           {busy ? "Creating…" : "Create property"}

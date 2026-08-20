@@ -5,6 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight } from "lucide-react";
 import { AddTemplateDialog, TemplateRowActions } from "@/components/budget-template-list";
+import { InteriorDefaultsPanel } from "@/components/interior-defaults-panel";
+import { TemplateSeedToggle } from "@/components/template-seed-toggle";
+import { readInteriorDefaults } from "@/lib/interior-defaults";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +17,8 @@ export default async function BudgetTemplatesPage() {
     .from(schema.budgetTemplates)
     .where(isNull(schema.budgetTemplates.archivedAt))
     .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name));
+
+  const defaults = await readInteriorDefaults();
 
   const lineCounts = await db()
     .select({
@@ -28,8 +33,9 @@ export default async function BudgetTemplatesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {templates.length} renovation type{templates.length === 1 ? "" : "s"} · the portfolio defaults a new
-          property starts from
+          {templates.length} renovation type{templates.length === 1 ? "" : "s"} · the ones marked{" "}
+          <span className="font-medium text-navy">Default</span> arrive pre-checked when a property
+          is created
         </p>
         <AddTemplateDialog />
       </div>
@@ -59,6 +65,11 @@ export default async function BudgetTemplatesPage() {
                 <span className="hidden shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:inline">
                   {lines} line{lines === 1 ? "" : "s"}
                 </span>
+                <TemplateSeedToggle
+                  templateId={t.id}
+                  name={t.name}
+                  seedByDefault={t.seedByDefault}
+                />
                 <TemplateRowActions id={t.id} name={t.name} description={t.description} />
                 <Link href={`/settings/renovation-types/${t.id}`}>
                   <ChevronRight className="size-4 text-muted-foreground" />
@@ -73,6 +84,8 @@ export default async function BudgetTemplatesPage() {
           )}
         </CardContent>
       </Card>
+
+      <InteriorDefaultsPanel defaults={defaults} />
     </div>
   );
 }
