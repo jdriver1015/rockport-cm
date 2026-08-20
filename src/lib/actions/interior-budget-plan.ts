@@ -485,60 +485,28 @@ export async function clearOverride(input: {
   return { ok: true };
 }
 
-const ratesSchema = z.object({
-  propertyId: z.coerce.number().int().positive(),
-  cmSupervisionPct: z.coerce.number().min(0).max(100),
-  contingencyPct: z.coerce.number().min(0).max(100),
-});
-
-/**
- * Edit just the two uplift percentages, for inline editing on the pivot's footer
- * rows. Deliberately does not touch the cost-code pointers — `updateInteriorSettings`
- * would null them if they were omitted, which would silently break the pivot's
- * reconciliation to the Interiors division.
- */
-export async function updateUpliftRates(
-  input: z.input<typeof ratesSchema>,
-): Promise<ActionResult> {
-  const parsed = ratesSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const d = parsed.data;
-
-  await db()
-    .insert(schema.interiorBudgetSettings)
-    .values({
-      propertyId: d.propertyId,
-      cmSupervisionPct: d.cmSupervisionPct.toFixed(3),
-      contingencyPct: d.contingencyPct.toFixed(3),
-    })
-    .onConflictDoUpdate({
-      target: schema.interiorBudgetSettings.propertyId,
-      set: {
-        cmSupervisionPct: d.cmSupervisionPct.toFixed(3),
-        contingencyPct: d.contingencyPct.toFixed(3),
-        updatedAt: new Date(),
-      },
-    });
-
-  await revalidateBudget(d.propertyId);
-  return { ok: true };
-}
-
 const settingsSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   cmSupervisionPct: z.coerce.number().min(0).max(100),
   contingencyPct: z.coerce.number().min(0).max(100),
+  cmEnabled: z.coerce.boolean(),
+  contingencyEnabled: z.coerce.boolean(),
   cmCostCodeId: z.coerce.number().int().positive().optional().nullable(),
   contingencyCostCodeId: z.coerce.number().int().positive().optional().nullable(),
 });
 
 /**
- * Set the uplift rates and the cost codes they're attributed to.
+ * Set both uplifts: whether each applies, its rate, and the cost code it posts
+ * to. One action rather than several, because a partial write here is what
+ * breaks reconciliation — an earlier rates-only action existed precisely to
+ * avoid nulling the cost codes, and having two writers for one row is what let
+ * the two get out of step.
  *
  * The cost-code pointers matter: without them the uplift dollars sit outside the
  * cost-code tree and the pivot's grand total stops reconciling to the Budget
  * tab's Interiors division. Both codes must be interior codes in this property's
- * chart.
+ * chart, and an uplift that is switched on with a rate must name one — which is
+ * only checkable now that "off" is a flag rather than a 0% rate.
  */
 export async function updateInteriorSettings(
   input: z.input<typeof settingsSchema>,
@@ -553,11 +521,19 @@ export async function updateInteriorSettings(
   });
   if (!property) return { ok: false, error: "Property not found" };
 
-  for (const [label, codeId] of [
-    ["CM / supervision", d.cmCostCodeId],
-    ["Contingency", d.contingencyCostCodeId],
+  for (const [label, codeId, enabled, pct] of [
+    ["CM / supervision", d.cmCostCodeId, d.cmEnabled, d.cmSupervisionPct],
+    ["Contingency", d.contingencyCostCodeId, d.contingencyEnabled, d.contingencyPct],
   ] as const) {
-    if (codeId == null) continue;
+    if (codeId == null) {
+      if (enabled && pct > 0) {
+        return {
+          ok: false,
+          error: `${label} needs a cost code, or its dollars won't reconcile to the Interiors division`,
+        };
+      }
+      continue;
+    }
     const code = await db().query.costCodes.findFirst({
       where: eq(schema.costCodes.id, codeId),
       columns: { chartId: true, isInterior: true },
@@ -579,6 +555,8 @@ export async function updateInteriorSettings(
       propertyId: d.propertyId,
       cmSupervisionPct: d.cmSupervisionPct.toFixed(3),
       contingencyPct: d.contingencyPct.toFixed(3),
+      cmEnabled: d.cmEnabled,
+      contingencyEnabled: d.contingencyEnabled,
       cmCostCodeId: d.cmCostCodeId ?? null,
       contingencyCostCodeId: d.contingencyCostCodeId ?? null,
     })
@@ -587,6 +565,8 @@ export async function updateInteriorSettings(
       set: {
         cmSupervisionPct: d.cmSupervisionPct.toFixed(3),
         contingencyPct: d.contingencyPct.toFixed(3),
+        cmEnabled: d.cmEnabled,
+        contingencyEnabled: d.contingencyEnabled,
         cmCostCodeId: d.cmCostCodeId ?? null,
         contingencyCostCodeId: d.contingencyCostCodeId ?? null,
         updatedAt: new Date(),

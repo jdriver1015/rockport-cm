@@ -800,6 +800,14 @@ export const interiorBudgetSettings = pgTable("interior_budget_settings", {
   cmSupervisionPct: numeric("cm_supervision_pct", { precision: 6, scale: 3 }).notNull().default("0"),
   contingencyPct: numeric("contingency_pct", { precision: 6, scale: 3 }).notNull().default("0"),
   /**
+   * Whether each uplift applies at all, kept separate from its rate so turning
+   * one off for a budget cycle doesn't discard the figure. Zeroing the
+   * percentage was previously the only way to switch one off, which made "off"
+   * and "0%" indistinguishable.
+   */
+  cmEnabled: boolean("cm_enabled").notNull().default(true),
+  contingencyEnabled: boolean("contingency_enabled").notNull().default(true),
+  /**
    * Which cost codes the uplift dollars are attributed to. Without these the
    * uplifts would float outside the cost-code tree and the pivot's grand total
    * would stop reconciling to the Budget tab's Interiors division.

@@ -109,6 +109,9 @@ export type PivotColumn = {
 export type InteriorBudgetSettings = {
   cmPct: number;
   contingencyPct: number;
+  /** False keeps the rate on file but drops the uplift from every column. */
+  cmEnabled: boolean;
+  contingencyEnabled: boolean;
   cmCostCodeId: number | null;
   contingencyCostCodeId: number | null;
 };
@@ -388,6 +391,8 @@ export async function loadInteriorInputs(propertyIds: number[], opts?: {
 const DEFAULT_SETTINGS: InteriorBudgetSettings = {
   cmPct: 0,
   contingencyPct: 0,
+  cmEnabled: true,
+  contingencyEnabled: true,
   cmCostCodeId: null,
   contingencyCostCodeId: null,
 };
@@ -400,6 +405,8 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
     ? {
         cmPct: num(settingsRow.cmSupervisionPct),
         contingencyPct: num(settingsRow.contingencyPct),
+        cmEnabled: settingsRow.cmEnabled,
+        contingencyEnabled: settingsRow.contingencyEnabled,
         cmCostCodeId: settingsRow.cmCostCodeId,
         contingencyCostCodeId: settingsRow.contingencyCostCodeId,
       }
@@ -570,8 +577,15 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
 
       // Uplifts apply to the tier's full per-unit scope cost and are attributed
       // to their own cost codes so the pivot reconciles to the Interiors band.
-      const cm = roundMoney((settings.cmPct / 100) * priced.grandTotal);
-      const contingency = roundMoney((settings.contingencyPct / 100) * priced.grandTotal);
+      // A disabled uplift contributes nothing but keeps its rate on file, so
+      // this is the one place the flag is read — everything downstream sees a
+      // zero and needs no knowledge of the toggle.
+      const cm = settings.cmEnabled
+        ? roundMoney((settings.cmPct / 100) * priced.grandTotal)
+        : 0;
+      const contingency = settings.contingencyEnabled
+        ? roundMoney((settings.contingencyPct / 100) * priced.grandTotal)
+        : 0;
       const perUnitTotal = roundMoney(priced.grandTotal + cm + contingency);
       addCode(settings.cmCostCodeId, roundMoney(cm * plannedUnits));
       addCode(settings.contingencyCostCodeId, roundMoney(contingency * plannedUnits));

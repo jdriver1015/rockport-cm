@@ -404,8 +404,10 @@ export default async function BudgetPage({
                 actualUnits: c.actualUnits,
               }))}
               total={interior.total}
-              cmPct={interior.settings.cmPct}
-              contingencyPct={interior.settings.contingencyPct}
+              uplift={interior.settings}
+              interiorCodes={codes
+                .filter((c) => c.isInterior)
+                .map((c) => ({ id: c.id, code: c.code, name: c.name }))}
               unmappedFloorplans={interior.unmappedFloorplans}
               unattributedProjects={interior.unattributedProjects}
               propertySlug={property.slug}

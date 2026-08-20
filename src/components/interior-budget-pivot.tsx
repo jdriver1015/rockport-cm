@@ -30,7 +30,7 @@ import {
   removePlanCell,
   upsertOverride,
   upsertPlanCell,
-  updateUpliftRates,
+  updateInteriorSettings,
 } from "@/lib/actions/interior-budget-plan";
 import { updateTargetTradeOut, updateTierDefaults } from "@/lib/actions/budget-groups";
 import { updateUnitGroup } from "@/lib/actions/interior-unit-groups";
@@ -77,6 +77,17 @@ export type PivotColumnData = {
   actualUnits: number;
 };
 
+export type UpliftSettings = {
+  cmPct: number;
+  contingencyPct: number;
+  cmEnabled: boolean;
+  contingencyEnabled: boolean;
+  cmCostCodeId: number | null;
+  contingencyCostCodeId: number | null;
+};
+
+export type UpliftCodeChoice = { id: number; code: string; name: string };
+
 export type InteriorPivotProps = {
   propertyId: number;
   unitGroups: PivotUnitGroup[];
@@ -86,8 +97,9 @@ export type InteriorPivotProps = {
   cells: PivotCellData[];
   columns: PivotColumnData[];
   total: number;
-  cmPct: number;
-  contingencyPct: number;
+  uplift: UpliftSettings;
+  /** Interior codes in this property's chart — the uplift dialog's pickers. */
+  interiorCodes: UpliftCodeChoice[];
   unmappedFloorplans: { floorPlanCode: string; unitCount: number }[];
   unattributedProjects: number;
   propertySlug: string;
@@ -103,7 +115,7 @@ const colKey = (unitGroupId: number, tierId: number) => `${unitGroupId}:${tierId
 export function InteriorBudgetPivot(props: InteriorPivotProps) {
   const {
     propertyId, unitGroups, tiers, availableTiers, rows, cells, columns,
-    cmPct, contingencyPct, unmappedFloorplans, unattributedProjects,
+    uplift, interiorCodes, unmappedFloorplans, unattributedProjects,
     propertySlug, rentRoll, availableFloorplans, avgTradeOutByTier,
   } = props;
 
@@ -526,11 +538,16 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
 
               {/* Subtotal rows */}
               {valueRow("total", "Total", (c) => money(c.scopeTotal), { weight: "total" })}
+              {/* A switched-off uplift keeps its row at $0 rather than vanishing:
+                  the badge is where you turn it back on, and a missing row
+                  reads as "this property has no contingency" instead. */}
               {valueRow("cm", "CM / Supervision", (c) => money(c.cm), {
-                badge: `${cmPct}%`, onBadgeClick: () => setRatesOpen(true),
+                badge: uplift.cmEnabled ? `${uplift.cmPct}%` : "Off",
+                onBadgeClick: () => setRatesOpen(true),
               })}
               {valueRow("contingency", "Contingency", (c) => money(c.contingency), {
-                badge: `${contingencyPct}%`, onBadgeClick: () => setRatesOpen(true),
+                badge: uplift.contingencyEnabled ? `${uplift.contingencyPct}%` : "Off",
+                onBadgeClick: () => setRatesOpen(true),
               })}
               {valueRow("grand", "Grand total / unit", (c) => money(c.perUnitTotal), { weight: "grand" })}
 
@@ -590,11 +607,11 @@ export function InteriorBudgetPivot(props: InteriorPivotProps) {
       </div>
 
       <CellDialog propertyId={propertyId} target={cellTarget} onClose={() => setCellTarget(null)} />
-      <RatesDialog
+      <UpliftDialog
         propertyId={propertyId}
         open={ratesOpen}
-        cmPct={cmPct}
-        contingencyPct={contingencyPct}
+        uplift={uplift}
+        interiorCodes={interiorCodes}
         onClose={() => setRatesOpen(false)}
       />
       <PlanDialog propertyId={propertyId} target={planTarget} onClose={() => setPlanTarget(null)} />
@@ -1008,20 +1025,50 @@ function CellDialog({
   );
 }
 
-function RatesDialog({ propertyId, open, cmPct, contingencyPct, onClose }: {
-  propertyId: number; open: boolean; cmPct: number; contingencyPct: number; onClose: () => void;
+function UpliftDialog({ propertyId, open, uplift, interiorCodes, onClose }: {
+  propertyId: number;
+  open: boolean;
+  uplift: UpliftSettings;
+  interiorCodes: UpliftCodeChoice[];
+  onClose: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  // Held in state, not read off the form, because each toggle enables and
+  // disables its own two fields as you switch it.
+  const [cmOn, setCmOn] = useState(uplift.cmEnabled);
+  const [contOn, setContOn] = useState(uplift.contingencyEnabled);
+
+  // Reopening after a cancel must not show the abandoned toggle positions.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setCmOn(uplift.cmEnabled);
+      setContOn(uplift.contingencyEnabled);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const codeOf = (name: string) => {
+      const raw = String(fd.get(name) ?? "");
+      return raw ? Number(raw) : null;
+    };
     setBusy(true);
     try {
-      const result = await updateUpliftRates({ propertyId, cmSupervisionPct: Number(fd.get("cmPct")), contingencyPct: Number(fd.get("contingencyPct")) });
+      const result = await updateInteriorSettings({
+        propertyId,
+        cmEnabled: cmOn,
+        contingencyEnabled: contOn,
+        cmSupervisionPct: Number(fd.get("cmPct")),
+        contingencyPct: Number(fd.get("contingencyPct")),
+        cmCostCodeId: codeOf("cmCostCodeId"),
+        contingencyCostCodeId: codeOf("contingencyCostCodeId"),
+      });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Uplift rates updated");
+      toast.success("Uplifts updated");
       onClose();
       router.refresh();
     } finally {
@@ -1031,31 +1078,107 @@ function RatesDialog({ propertyId, open, cmPct, contingencyPct, onClose }: {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Uplift rates</DialogTitle>
+          <DialogTitle>Uplifts</DialogTitle>
           <DialogDescription>
             Both apply to the scope subtotal, not to each other — they don&apos;t compound. They inflate
             the budget but never become scope lines on a project.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="rates-cm">CM / supervision (%)</Label>
-              <Input id="rates-cm" name="cmPct" type="number" min="0" max="100" step="0.001" defaultValue={cmPct} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="rates-cont">Contingency (%)</Label>
-              <Input id="rates-cont" name="contingencyPct" type="number" min="0" max="100" step="0.001" defaultValue={contingencyPct} />
-            </div>
-          </div>
+          <UpliftFields
+            idPrefix="cm"
+            label="CM / supervision"
+            enabled={cmOn}
+            onEnabledChange={setCmOn}
+            pct={uplift.cmPct}
+            pctName="cmPct"
+            codeName="cmCostCodeId"
+            codeId={uplift.cmCostCodeId}
+            interiorCodes={interiorCodes}
+          />
+          <UpliftFields
+            idPrefix="cont"
+            label="Contingency"
+            enabled={contOn}
+            onEnabledChange={setContOn}
+            pct={uplift.contingencyPct}
+            pctName="contingencyPct"
+            codeName="contingencyCostCodeId"
+            codeId={uplift.contingencyCostCodeId}
+            interiorCodes={interiorCodes}
+          />
+          <p className="text-[11px] text-ink-500">
+            Switching one off keeps its rate on file, so resuming it later doesn&apos;t mean
+            re-deriving the figure.
+          </p>
           <div className="flex justify-end">
-            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save rates"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save uplifts"}</Button>
           </div>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function UpliftFields({
+  idPrefix, label, enabled, onEnabledChange, pct, pctName, codeName, codeId, interiorCodes,
+}: {
+  idPrefix: string;
+  label: string;
+  enabled: boolean;
+  onEnabledChange: (on: boolean) => void;
+  pct: number;
+  pctName: string;
+  codeName: string;
+  codeId: number | null;
+  interiorCodes: UpliftCodeChoice[];
+}) {
+  return (
+    <div className="space-y-2.5 rounded-card border border-border p-3">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onEnabledChange(e.target.checked)}
+          className="size-3.5 accent-navy"
+        />
+        <span className="text-[13px] font-medium text-navy">{label}</span>
+      </label>
+      <div className="grid grid-cols-[5.5rem_1fr] gap-2.5">
+        <div className="space-y-1.5">
+          <Label htmlFor={`uplift-${idPrefix}-pct`} className="text-[11px]">Rate (%)</Label>
+          <Input
+            id={`uplift-${idPrefix}-pct`}
+            name={pctName}
+            type="number"
+            min="0"
+            max="100"
+            step="0.001"
+            defaultValue={pct}
+            disabled={!enabled}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`uplift-${idPrefix}-code`} className="text-[11px]">Posts to</Label>
+          <select
+            id={`uplift-${idPrefix}-code`}
+            name={codeName}
+            defaultValue={codeId != null ? String(codeId) : ""}
+            disabled={!enabled}
+            className="h-9 w-full rounded-control border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            <option value="">Not attributed</option>
+            {interiorCodes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code} — {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
   );
 }
 
