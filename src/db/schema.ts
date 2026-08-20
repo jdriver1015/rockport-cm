@@ -903,6 +903,64 @@ export const specTables = pgTable("spec_tables", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * How a unit gets assigned a renovation type at pre-walk, and the record of why
+ * it did.
+ *
+ * Property-level, deliberately NOT hung off a renovation type: this is the rule
+ * that decides BETWEEN types, so it cannot belong to one of them. Ordered steps,
+ * and the first step whose condition is met assigns its type.
+ */
+export const renovationTriggerSteps = pgTable("renovation_trigger_steps", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id")
+    .notNull()
+    .references(() => properties.id, { onDelete: "cascade" }),
+  /** The type this step assigns. Cascades — a step pointing at a type that no
+   *  longer exists would assign nothing while still reading as a working rule. */
+  budgetGroupId: integer("budget_group_id")
+    .notNull()
+    .references(() => budgetGroups.id, { onDelete: "cascade" }),
+  /** "any" — one checked condition fires the step. "all" — every one must be. */
+  mode: text("mode").notNull().default("any"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("renovation_trigger_steps_property_idx").on(t.propertyId, t.sortOrder)]);
+
+export const renovationTriggerConditions = pgTable("renovation_trigger_conditions", {
+  id: serial("id").primaryKey(),
+  stepId: integer("step_id")
+    .notNull()
+    .references(() => renovationTriggerSteps.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("renovation_trigger_conditions_step_idx").on(t.stepId, t.sortOrder)]);
+
+/**
+ * What the walker answered on one unit — the "Why Signature?" record.
+ *
+ * `conditionText` is the wording AS ANSWERED, snapshotted on purpose: the rule
+ * gets edited over time, so without it rewording a condition would silently
+ * rewrite the recorded justification for every unit already walked, and deleting
+ * one would erase it. `conditionId` is SET NULL on delete for the same reason —
+ * removing a condition from the rule must not remove the history.
+ */
+export const projectTriggerAnswers = pgTable("project_trigger_answers", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  conditionId: integer("condition_id").references(() => renovationTriggerConditions.id, {
+    onDelete: "set null",
+  }),
+  conditionText: text("condition_text").notNull(),
+  checked: boolean("checked").notNull().default(false),
+  recordedBy: uuid("recorded_by").references(() => profiles.id),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("project_trigger_answers_project_idx").on(t.projectId)]);
+
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
 // ---------------------------------------------------------------------------

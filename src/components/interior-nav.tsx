@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * Second-level nav inside Unit Upgrades. The section now holds two different
- * kinds of thing — the units being turned, and the renovation types that define
- * what a turn IS — so a single page can't carry both.
+ * Second-level nav inside Unit Upgrades. The section holds three different kinds
+ * of thing — the units being turned, the renovation types that define what a
+ * turn IS, and the rule that decides which type a unit gets — so a single page
+ * can't carry them.
  *
  * Deliberately styled a step quieter than PropertyNav so the two levels don't
  * compete: pill-shaped rather than underlined.
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { href: "", label: "Units" },
   { href: "/types", label: "Renovation types" },
+  { href: "/triggers", label: "Triggers" },
 ];
 
 export function InteriorNav({ slug }: { slug: string }) {

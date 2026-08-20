@@ -22,7 +22,9 @@ import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log
 import { AddAuditDialog } from "@/components/add-audit-dialog";
 import { SiteAuditsTable } from "@/components/site-audits-table";
 import { TierBadge } from "@/components/ui/tier-badge";
+import { TriggerAnswersPanel } from "@/components/trigger-answers-panel";
 import { fmtDate, money, num } from "@/lib/format";
+import { listTriggerAnswers, listTriggerSteps } from "@/lib/renovation-triggers-store";
 import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
@@ -119,6 +121,8 @@ export default async function ProjectDetailPage({
     milestones,
     budgetGroups,
     vendorOptions,
+    triggerSteps,
+    triggerAnswers,
   ] = await Promise.all([
     db()
       .select()
@@ -235,6 +239,10 @@ export default async function ProjectDetailPage({
       .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
       .from(schema.vendors)
       .orderBy(asc(schema.vendors.name)),
+    // Wrapped: the trigger rule is a nicety on this page, and a unit should
+    // still open if it fails to load.
+    optional(listTriggerSteps(propertyId), "trigger steps"),
+    optional(listTriggerAnswers(projectId), "trigger answers"),
   ]);
 
   const findingsByAudit = findings.reduce((m, f) => {
@@ -551,6 +559,28 @@ export default async function ProjectDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {project.kind === "unit" && (
+        <Card>
+          <CardHeader className="flex flex-row items-baseline justify-between gap-3">
+            <CardTitle className="text-base text-navy">
+              {tierName ? `Why ${tierName}?` : "Renovation type triggers"}
+            </CardTitle>
+            <span className="text-sm text-muted-foreground">
+              What the walker found at pre-walk.
+            </span>
+          </CardHeader>
+          <CardContent>
+            <TriggerAnswersPanel
+              projectId={projectId}
+              propertyId={propertyId}
+              steps={triggerSteps}
+              answers={triggerAnswers}
+              assignedTypeName={tierName ?? null}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Dates & milestones */}
       <Card>
