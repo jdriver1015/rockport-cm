@@ -71,7 +71,7 @@ export default async function RootLayout({
       className={`${newsreader.variable} ${inter.variable} ${geistMono.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <header className="bg-navy text-white">
+        <header className="bg-navy text-white print:hidden">
           <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-8 px-6">
             <Link href="/" className="flex items-baseline gap-3">
               <span className="font-serif text-[22px] font-semibold leading-none">Rockport</span>
@@ -107,7 +107,11 @@ export default async function RootLayout({
             </nav>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
+        {/* Print drops the app chrome and the reading gutter: a printed page is
+            the document, not a screenshot of the app. */}
+        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8 print:max-w-none print:p-0">
+          {children}
+        </main>
         <Toaster />
       </body>
     </html>

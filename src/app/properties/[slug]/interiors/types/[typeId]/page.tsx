@@ -227,6 +227,14 @@ export default async function RenovationTypePage({
                 {group.description ?? "What a unit gets when it is planned into this type."}
               </p>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/properties/${slug}/interiors/types/${groupId}/bid-sheet`}
+                className="rounded-control border border-border px-2.5 py-1 text-xs font-medium text-ink-500 hover:bg-track"
+              >
+                Bid sheet
+              </Link>
+            </div>
             {siblings.length > 1 && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">Type</span>
