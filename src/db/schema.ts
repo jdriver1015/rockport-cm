@@ -849,6 +849,32 @@ export const interiorDefaultSettings = pgTable("interior_default_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Written trade scope — the narrative a GC bids from. Pricing says what a turn
+ * costs; this says what the work is.
+ *
+ * One table, two levels: a row belongs to EITHER a portfolio template (the
+ * standard wording) or a property's renovation type (that property's departures
+ * from it), enforced by a CHECK that exactly one is set. Two tables would mean
+ * two of every query, action and component for text identical in shape, and the
+ * copy path between levels would have to translate between them.
+ *
+ * `heading` is text, not a foreign key: the canonical thirteen live in
+ * src/lib/trade-scope.ts and a property may add one the standard never
+ * anticipated, so there is no closed set to point at. Unique per owner, so a
+ * re-save replaces a trade's paragraph rather than appending a second one.
+ */
+export const tradeScopes = pgTable("trade_scopes", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").references(() => budgetTemplates.id, { onDelete: "cascade" }),
+  budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id, { onDelete: "cascade" }),
+  heading: text("heading").notNull(),
+  body: text("body"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ---------------------------------------------------------------------------
 // GL intake: import batches, transactions, mapping rules
 // ---------------------------------------------------------------------------

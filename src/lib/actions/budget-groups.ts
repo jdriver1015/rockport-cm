@@ -114,6 +114,27 @@ export async function createGroupFromTemplate(input: {
     await db().insert(schema.budgetGroupLines).values(resolved);
   }
 
+  // The standard trade wording comes across with the pricing. A type copied from
+  // a portfolio default but arriving with no scope would read as unscoped work,
+  // and whoever created it would have to know to go and pull the wording in.
+  // Unlike the priced lines this needs no chart resolution — it is prose.
+  const scopes = await db()
+    .select({ heading: schema.tradeScopes.heading, body: schema.tradeScopes.body, sortOrder: schema.tradeScopes.sortOrder })
+    .from(schema.tradeScopes)
+    .where(eq(schema.tradeScopes.templateId, template.id));
+  if (scopes.length > 0) {
+    await db()
+      .insert(schema.tradeScopes)
+      .values(
+        scopes.map((sc) => ({
+          budgetGroupId: group.id,
+          heading: sc.heading,
+          body: sc.body,
+          sortOrder: sc.sortOrder,
+        })),
+      );
+  }
+
   await revalidateGroups(propertyId);
   return { ok: true, groupId: group.id, unresolved };
 }
@@ -193,6 +214,25 @@ export async function duplicateGroup(input: {
         sortOrder: ln.sortOrder,
       })),
     );
+  }
+
+  // Trade wording is part of what a type IS, so a duplicate that lost it would
+  // look like a type nobody had scoped yet.
+  const scopes = await db()
+    .select({ heading: schema.tradeScopes.heading, body: schema.tradeScopes.body, sortOrder: schema.tradeScopes.sortOrder })
+    .from(schema.tradeScopes)
+    .where(eq(schema.tradeScopes.budgetGroupId, input.id));
+  if (scopes.length > 0) {
+    await db()
+      .insert(schema.tradeScopes)
+      .values(
+        scopes.map((sc) => ({
+          budgetGroupId: group.id,
+          heading: sc.heading,
+          body: sc.body,
+          sortOrder: sc.sortOrder,
+        })),
+      );
   }
 
   // Carry custom overrides across too — losing negotiated prices silently would

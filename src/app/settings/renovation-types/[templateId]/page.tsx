@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,9 @@ import {
   EditTemplateLineDialog,
   type InteriorCodeOption,
 } from "@/components/budget-template-line-editor";
+import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
+import { mergeTradeScopes } from "@/lib/trade-scope";
+import { listTradeScopeRows } from "@/lib/trade-scope-store";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +41,36 @@ export default async function BudgetTemplateEditorPage({
     where: eq(schema.budgetTemplates.id, templateId),
   });
   if (!template) notFound();
+
+  // This template's written scopes, plus per-template counts so the copy
+  // buttons can offer only sources that actually have wording.
+  const [scopeRows, scopeCounts, otherTemplates] = await Promise.all([
+    listTradeScopeRows({ level: "template", templateId }),
+    db()
+      .select({
+        templateId: schema.tradeScopes.templateId,
+        count: sql<number>`count(*) filter (where btrim(coalesce(${schema.tradeScopes.body}, '')) <> '')::int`,
+      })
+      .from(schema.tradeScopes)
+      .groupBy(schema.tradeScopes.templateId),
+    db()
+      .select({ id: schema.budgetTemplates.id, name: schema.budgetTemplates.name })
+      .from(schema.budgetTemplates)
+      .where(and(isNull(schema.budgetTemplates.archivedAt), ne(schema.budgetTemplates.id, templateId)))
+      .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name)),
+  ]);
+
+  const scopeEntries = mergeTradeScopes(scopeRows);
+  const writtenByTemplate = new Map(
+    scopeCounts.filter((c) => c.templateId != null).map((c) => [c.templateId!, c.count]),
+  );
+  const copySources: CopySource[] = otherTemplates
+    .map((t) => ({
+      owner: { level: "template" as const, templateId: t.id },
+      label: t.name,
+      writtenCount: writtenByTemplate.get(t.id) ?? 0,
+    }))
+    .filter((t) => t.writtenCount > 0);
 
   const lines = await db()
     .select()
@@ -136,6 +169,23 @@ export default async function BudgetTemplateEditorPage({
               </TableBody>
             </Table>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-baseline justify-between gap-3">
+          <CardTitle className="text-base text-navy">Standard trade scope</CardTitle>
+          <span className="text-sm text-muted-foreground">
+            The portfolio wording. A property&apos;s renovation type can pull this in and then
+            depart from it.
+          </span>
+        </CardHeader>
+        <CardContent className="px-0">
+          <TradeScopeSection
+            owner={{ level: "template", templateId }}
+            entries={scopeEntries}
+            copySources={copySources}
+          />
         </CardContent>
       </Card>
     </div>

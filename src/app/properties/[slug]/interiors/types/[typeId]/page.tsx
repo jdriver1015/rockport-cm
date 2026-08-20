@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,9 @@ import {
   type PricingLine,
 } from "@/components/renovation-type-pricing";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
+import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
+import { mergeTradeScopes, writtenCount } from "@/lib/trade-scope";
+import { listTradeScopeRows } from "@/lib/trade-scope-store";
 import { money, num } from "@/lib/format";
 import type { PricingMethod } from "@/lib/pricing";
 
@@ -49,7 +52,8 @@ export default async function RenovationTypePage({
   });
   if (!group || group.propertyId !== propertyId) notFound();
 
-  const [lines, interiorCodes, siblings, template, budget] = await Promise.all([
+  const [lines, interiorCodes, siblings, template, budget, scopeRows, scopeCounts] =
+    await Promise.all([
     db()
       .select()
       .from(schema.budgetGroupLines)
@@ -81,6 +85,17 @@ export default async function RenovationTypePage({
         })
       : Promise.resolve(undefined),
     computeInteriorBudgetFor(propertyId),
+    listTradeScopeRows({ level: "group", budgetGroupId: groupId, propertyId }),
+    // Counts for the copy buttons, so a source with nothing written is offered
+    // as disabled rather than failing on click.
+    db()
+      .select({
+        budgetGroupId: schema.tradeScopes.budgetGroupId,
+        templateId: schema.tradeScopes.templateId,
+        count: sql<number>`count(*) filter (where btrim(coalesce(${schema.tradeScopes.body}, '')) <> '')::int`,
+      })
+      .from(schema.tradeScopes)
+      .groupBy(schema.tradeScopes.budgetGroupId, schema.tradeScopes.templateId),
   ]);
 
   const codeById = new Map(interiorCodes.map((c) => [c.id, c]));
@@ -114,6 +129,35 @@ export default async function RenovationTypePage({
   );
 
   const codeChoices: InteriorCodeChoice[] = interiorCodes;
+
+  const scopeEntries = mergeTradeScopes(scopeRows);
+  const scopeSummary = writtenCount(scopeEntries);
+  const writtenByGroup = new Map(
+    scopeCounts.filter((c) => c.budgetGroupId != null).map((c) => [c.budgetGroupId!, c.count]),
+  );
+  const writtenByTemplate = new Map(
+    scopeCounts.filter((c) => c.templateId != null).map((c) => [c.templateId!, c.count]),
+  );
+  // Sibling types first, then the portfolio standard this type came from: the
+  // nearest wording is usually another type on the same property.
+  const copySources: CopySource[] = [
+    ...siblings
+      .filter((sib) => sib.id !== groupId)
+      .map((sib) => ({
+        owner: { level: "group" as const, budgetGroupId: sib.id, propertyId },
+        label: sib.name,
+        writtenCount: writtenByGroup.get(sib.id) ?? 0,
+      })),
+    ...(template
+      ? [
+          {
+            owner: { level: "template" as const, templateId: template.id },
+            label: `${template.name} (standard)`,
+            writtenCount: writtenByTemplate.get(template.id) ?? 0,
+          },
+        ]
+      : []),
+  ].filter((s) => s.writtenCount > 0);
 
   return (
     <div className="space-y-6">
@@ -189,8 +233,13 @@ export default async function RenovationTypePage({
               note={planned.units > 0 ? "Weighted across floorplans" : undefined}
             />
             <Stat
-              label="Target trade-out"
-              value={group.targetTradeOut != null ? `${money(num(group.targetTradeOut))}/mo` : "—"}
+              label="Trade scope"
+              value={`${scopeSummary.written} of ${scopeSummary.total}`}
+              note={
+                group.targetTradeOut != null
+                  ? `Target trade-out ${money(num(group.targetTradeOut))}/mo`
+                  : "trades written"
+              }
             />
           </div>
         </CardContent>
@@ -210,6 +259,22 @@ export default async function RenovationTypePage({
             budgetGroupId={groupId}
             lines={pricingLines}
             interiorCodes={codeChoices}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-baseline justify-between gap-3">
+          <CardTitle className="text-base text-navy">Trade scope</CardTitle>
+          <span className="text-sm text-muted-foreground">
+            What the contractor is responsible for, trade by trade — the narrative a GC bids from.
+          </span>
+        </CardHeader>
+        <CardContent className="px-0">
+          <TradeScopeSection
+            owner={{ level: "group", budgetGroupId: groupId, propertyId }}
+            entries={scopeEntries}
+            copySources={copySources}
           />
         </CardContent>
       </Card>
