@@ -148,7 +148,7 @@ export function AddUnitRenovationWizard({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Unit Renovation Groups</DialogTitle>
+          <DialogTitle>Plan units into renovation types</DialogTitle>
           <DialogDescription>
             {step === 1
               ? "Add a new floorplan or manage existing groups."

@@ -50,7 +50,7 @@ export function InteriorBudgetToolbar(props: InteriorToolbarProps) {
       </Button>
       <Button size="sm" onClick={() => setWizardOpen(true)}>
         <Pencil className="size-3.5" />
-        Edit renovation groups
+        Plan units
       </Button>
 
       <RenovationTypeEditor

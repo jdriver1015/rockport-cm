@@ -74,7 +74,7 @@ type Line = {
 const money = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const STEPS = ["Unit", "Budget group", "Review budget", "Vendor & dates", "Create"];
+const STEPS = ["Unit", "Renovation type", "Review budget", "Vendor & dates", "Create"];
 
 /**
  * Price a tier's lines against the chosen unit. All the arithmetic — including
@@ -284,7 +284,7 @@ export function InteriorWizard({
           </div>
         )}
 
-        {/* Step 2 — budget group */}
+        {/* Step 2 — renovation type */}
         {step === 1 && (
           <div className="space-y-2">
             {unitGroup ? (
@@ -388,7 +388,7 @@ export function InteriorWizard({
                   {lines.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-2 py-6 text-center text-muted-foreground">
-                        This budget group has no lines.
+                        This renovation type has no lines.
                       </td>
                     </tr>
                   )}
@@ -452,7 +452,7 @@ export function InteriorWizard({
         {step === 4 && (
           <div className="space-y-2 text-sm">
             <Summary label="Unit" value={unit ? `Unit ${unit.unitNumber}` : "—"} />
-            <Summary label="Budget group" value={group?.name ?? "—"} />
+            <Summary label="Renovation type" value={group?.name ?? "—"} />
             <Summary label="Budget lines" value={String(lines.length)} />
             <Summary label="Vendor" value={vendors.find((v) => v.id === vendorId)?.name ?? "Unassigned"} />
             <Summary label="Pre-walk" value={preWalkDate || "—"} />

@@ -170,7 +170,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
               <TableRow>
                 <TableHead className="w-[15%]">Project</TableHead>
                 <TableHead className="w-[8%]">Floorplan</TableHead>
-                <TableHead className="w-[11%]">Upgrade Type</TableHead>
+                <TableHead className="w-[11%]">Renovation type</TableHead>
                 <TableHead className="w-[10%]">Est. Start</TableHead>
                 <TableHead className="w-[10%]">Date Complete</TableHead>
                 <TableHead className="w-[6%] text-right">Days</TableHead>

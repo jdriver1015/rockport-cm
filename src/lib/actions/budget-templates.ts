@@ -12,8 +12,8 @@ import type { ActionResult } from "@/lib/action-result";
 // ---------------------------------------------------------------------------
 
 function revalidateTemplates(templateId?: number) {
-  revalidatePath("/settings/budget-templates");
-  if (templateId != null) revalidatePath(`/settings/budget-templates/${templateId}`);
+  revalidatePath("/settings/renovation-types");
+  if (templateId != null) revalidatePath(`/settings/renovation-types/${templateId}`);
 }
 
 const templateSchema = z.object({

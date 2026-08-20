@@ -63,7 +63,7 @@ export default async function BudgetTemplateEditorPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <Link
-            href="/settings/budget-templates"
+            href="/settings/renovation-types"
             className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ChevronLeft className="size-3.5" /> All budget templates

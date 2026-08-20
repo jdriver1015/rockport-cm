@@ -169,9 +169,9 @@ export default async function NewInteriorProjectPage({
             )}
             {missingGroups && (
               <p>
-                No budget groups yet. Open{" "}
+                No renovation types yet. Open{" "}
                 <Link href={`/properties/${slug}/interiors`} className="text-link hover:underline">
-                  Interiors → Manage Budget Groups
+                  Unit Upgrades → Manage renovation types
                 </Link>{" "}
                 to create one.
               </p>

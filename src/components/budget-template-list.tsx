@@ -47,7 +47,7 @@ export function AddTemplateDialog() {
       if (!result.ok) return toast.error(result.error);
       toast.success("Template created");
       setOpen(false);
-      router.push(`/settings/budget-templates/${result.templateId}`);
+      router.push(`/settings/renovation-types/${result.templateId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -62,7 +62,7 @@ export function AddTemplateDialog() {
           <DialogTitle>Add budget template</DialogTitle>
           <DialogDescription>
             A standard renovation budget (e.g. Enhanced, Signature) offered as a base when creating
-            property budget groups.
+            a property&rsquo;s renovation types.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
@@ -135,7 +135,7 @@ export function TemplateRowActions({
       const result = await duplicateBudgetTemplate(id);
       if (!result.ok) return toast.error(result.error);
       toast.success("Template duplicated");
-      router.push(`/settings/budget-templates/${result.templateId}`);
+      router.push(`/settings/renovation-types/${result.templateId}`);
       router.refresh();
     } finally {
       setBusy(false);

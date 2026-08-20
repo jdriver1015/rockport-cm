@@ -75,10 +75,10 @@ export function ManageBudgetGroupsButton({
       if (!result.ok) return toast.error(result.error);
       toast.success(
         result.unresolved > 0
-          ? `Budget group created — ${result.unresolved} line(s) had no matching code in this chart`
-          : "Budget group created",
+          ? `Renovation type created — ${result.unresolved} line(s) had no matching code in this chart`
+          : "Renovation type created",
       );
-      router.push(`/properties/${propertySlug}/interiors/budget-groups/${result.groupId}`);
+      router.push(`/properties/${propertySlug}/interiors/types/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -96,8 +96,8 @@ export function ManageBudgetGroupsButton({
         description: String(fd.get("description") ?? "") || undefined,
       });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Budget group created");
-      router.push(`/properties/${propertySlug}/interiors/budget-groups/${result.groupId}`);
+      toast.success("Renovation type created");
+      router.push(`/properties/${propertySlug}/interiors/types/${result.groupId}`);
       router.refresh();
     } finally {
       setBusy(false);
@@ -106,10 +106,10 @@ export function ManageBudgetGroupsButton({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>Manage Budget Groups</DialogTrigger>
+      <DialogTrigger render={<Button size="sm" variant="outline" />}>Manage renovation types</DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Budget groups</DialogTitle>
+          <DialogTitle>Renovation types</DialogTitle>
           <DialogDescription>
             Renovation budget packages for this property. Create from a portfolio template or blank.
           </DialogDescription>
@@ -169,12 +169,12 @@ export function ManageBudgetGroupsButton({
 
         <div className="mt-2 divide-y border-t">
           {groups.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">No budget groups yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No renovation types yet.</p>
           )}
           {groups.map((g) => (
             <div key={g.id} className="flex items-center gap-2 py-2">
               <Link
-                href={`/properties/${propertySlug}/interiors/budget-groups/${g.id}`}
+                href={`/properties/${propertySlug}/interiors/types/${g.id}`}
                 className="min-w-0 flex-1 hover:underline"
               >
                 <span className="font-medium text-navy">{g.name}</span>
@@ -228,7 +228,7 @@ function GroupRowActions({
         description: String(fd.get("description") ?? "") || undefined,
       });
       if (!result.ok) return toast.error(result.error);
-      toast.success("Budget group updated");
+      toast.success("Renovation type updated");
       setEditOpen(false);
       router.refresh();
     } finally {
@@ -238,7 +238,7 @@ function GroupRowActions({
 
   return (
     <>
-      <Button render={<Link href={`/properties/${propertySlug}/interiors/budget-groups/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
+      <Button render={<Link href={`/properties/${propertySlug}/interiors/types/${group.id}`} />} variant="ghost" size="sm" nativeButton={false}>
         Edit lines
       </Button>
       <DropdownMenu>
@@ -263,7 +263,7 @@ function GroupRowActions({
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit budget group</DialogTitle>
+            <DialogTitle>Edit renovation type</DialogTitle>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleEdit}>
             <div className="space-y-1.5">
