@@ -14,11 +14,13 @@ import {
   type ScopeVendorOption,
   type CostCodeBudget,
 } from "@/components/project-scope-list";
-import { ProjectMilestonesTable, type MilestoneRow } from "@/components/project-milestones-table";
+import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
+import { evaluateGates } from "@/lib/phase-gates";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { fmtDate, money, num } from "@/lib/format";
+import { nextPhase } from "@/lib/stages";
 import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
@@ -211,6 +213,9 @@ export default async function ProjectDetailPage({
       .select({
         id: schema.projectMilestones.id,
         label: schema.projectMilestones.label,
+        // Needed by the phase gate: "start milestone recorded" is the
+        // in_process milestone's actual date, and labels have been renamed once.
+        phase: schema.projectMilestones.phase,
         plannedDate: schema.projectMilestones.plannedDate,
         actualDate: schema.projectMilestones.actualDate,
         note: schema.projectMilestones.note,
@@ -350,7 +355,7 @@ export default async function ProjectDetailPage({
       : undefined;
   const tierIndex = project.budgetGroupId != null ? tierIndexById.get(project.budgetGroupId) ?? 0 : 0;
 
-  const milestoneRows: MilestoneRow[] = milestones.map((m) => ({
+  const phaseRows: PhaseRow[] = milestones.map((m) => ({
     id: m.id,
     label: m.label,
     plannedDate: m.plannedDate,
@@ -413,6 +418,27 @@ export default async function ProjectDetailPage({
     : undefined;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
+
+  // Gate checks for leaving the phase the project is in. Every input is state
+  // the page already loaded, so the checks cannot disagree with what the rest of
+  // the screen shows. src/lib/phase-gates.ts held these but nothing rendered
+  // them — they were only reachable from a dialog no page mounted.
+  const upcoming = nextPhase(project.phase);
+  const startMilestone = milestones.find((m) => m.phase === "in_process");
+  const gate = upcoming
+    ? evaluateGates(project.phase, upcoming.key, {
+        scopeLineCount: scopeRows.length,
+        budgetAmount: budgetAmt,
+        committedCost: committedAmt,
+        vendorAssigned: project.vendorId != null,
+        scopeNotStartedCount: scopeRows.filter((r) => r.status === "not_started").length,
+        scopeCompleteCount: scopeRows.filter((r) => r.status === "complete").length,
+        scopeTotalCount: scopeRows.length,
+        hasStartMilestoneActual: !!startMilestone?.actualDate,
+        openFindingCount: openFindings.length,
+        postedGlTotal: spentAmt,
+      })
+    : null;
   // Phase labels resolve here so the log dialog stays a presentational client component.
   const logEntries: LogEntry[] = auditLog.map((e) => ({
     id: e.id,
@@ -521,7 +547,7 @@ export default async function ProjectDetailPage({
       {/* Dates & milestones */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-navy">Dates &amp; milestones</CardTitle>
+          <CardTitle className="text-base text-navy">Project phases</CardTitle>
           <span className="text-sm text-muted-foreground">
             {nextMilestone
               ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
@@ -529,10 +555,11 @@ export default async function ProjectDetailPage({
           </span>
         </CardHeader>
         <CardContent>
-          <ProjectMilestonesTable
+          <ProjectPhases
             projectId={projectId}
-            milestones={milestoneRows}
-            activeId={activeMilestone?.id ?? null}
+            phases={phaseRows}
+            gate={gate}
+            nextPhaseLabel={upcoming?.label ?? null}
           />
         </CardContent>
       </Card>
