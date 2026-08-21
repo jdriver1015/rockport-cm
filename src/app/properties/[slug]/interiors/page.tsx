@@ -105,13 +105,20 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
       .groupBy(schema.glTransactions.projectId),
     // Planned units come from the same compute the Budget pivot uses, so the
     // strip and the pivot cannot disagree about the size of the plan.
-    computeInteriorBudgetFor(propertyId),
+    //
+    // Guarded: this is many queries behind one KPI figure, and a statement
+    // timeout under pooler contention has taken a page down in this app before.
+    // The list of turns is the point of the screen — it must render without it.
+    computeInteriorBudgetFor(propertyId).catch((err) => {
+      console.error("unit upgrades: interior plan failed to load", err);
+      return null;
+    }),
   ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
 
   const kpis = buildInteriorKpis({
-    plannedUnits: budget.columns.reduce((n, c) => n + c.plannedUnits, 0),
+    plannedUnits: budget ? budget.columns.reduce((n, c) => n + c.plannedUnits, 0) : null,
     projects: interiorProjects.map((p) => ({
       phase: p.phase,
       budgetAmount: num(p.budgetAmount),

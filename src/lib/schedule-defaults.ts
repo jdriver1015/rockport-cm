@@ -81,6 +81,39 @@ export function normalizeOffsets(raw: unknown): Record<ScheduleKey, number> {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * The timezone "today" means for scheduling purposes.
+ *
+ * Named explicitly because neither end of the wire knows it otherwise: the
+ * server runs UTC in production and the browser runs whatever the viewer's
+ * machine says. Deriving a date from either produced a schedule that shifted by
+ * a day after ~7pm Central and disagreed between the server-rendered HTML and
+ * the hydrated page. Anchoring on one zone makes the suggestion deterministic
+ * and matches what the team means by today.
+ *
+ * Eastern-timezone properties are an hour ahead of this, which only changes the
+ * answer between 11pm and midnight Central — a window nobody schedules in.
+ */
+export const BUSINESS_TIME_ZONE = "America/Chicago";
+
+/** Midnight today in the business timezone, whatever the host clock says. */
+export function todayInBusinessZone(now: Date = new Date()): Date {
+  // en-CA formats as yyyy-mm-dd, which is the one locale that needs no reordering.
+  const iso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  return dateFromIso(iso);
+}
+
+/** An ISO yyyy-mm-dd as a local-midnight Date, safe to do day arithmetic on. */
+export function dateFromIso(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
 /** Local-calendar ISO date (yyyy-mm-dd) — never a UTC shift of the day. */
 export function toIsoDate(date: Date): string {
   const y = date.getFullYear();
@@ -127,6 +160,11 @@ export function suggestSchedule(
     out[key] = settings.enabled ? toIsoDate(weekdayAfter(today, settings.offsets[key])) : "";
   }
   return out;
+}
+
+/** Every key blank — the shape callers need when suggestions are switched off. */
+export function blankSchedule(): Record<ScheduleKey, string> {
+  return Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, ""])) as Record<ScheduleKey, string>;
 }
 
 /**

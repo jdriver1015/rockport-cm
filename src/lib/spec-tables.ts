@@ -19,6 +19,13 @@ export type SpecTable = {
   title: string;
   grid: SpecGrid;
   sortOrder: number;
+  /**
+   * Version token for the save. Sent back on write so a grid edited by someone
+   * else in the meantime is refused rather than silently overwritten — the
+   * editor keeps a local draft, so without this the second writer's stale copy
+   * simply replaced the first's work.
+   */
+  version: number;
 };
 
 /**

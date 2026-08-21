@@ -9,6 +9,7 @@ import { InteriorDefaultsPanel } from "@/components/interior-defaults-panel";
 import { TemplateSeedToggle } from "@/components/template-seed-toggle";
 import { readInteriorDefaults, readScheduleDefaults } from "@/lib/interior-defaults";
 import { ScheduleDefaultsPanel } from "@/components/schedule-defaults-panel";
+import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,7 @@ export default async function BudgetTemplatesPage() {
 
       <InteriorDefaultsPanel defaults={defaults} />
 
-      <ScheduleDefaultsPanel schedule={schedule} />
+      <ScheduleDefaultsPanel schedule={schedule} todayIso={toIsoDate(todayInBusinessZone())} />
     </div>
   );
 }

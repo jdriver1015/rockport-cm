@@ -30,9 +30,9 @@ import {
   PRE_WALK_KEY,
   SCHEDULE_KEYS,
   SCHEDULE_LABELS,
+  blankSchedule,
   describeSchedule,
   scheduleWarnings,
-  suggestSchedule,
   type ScheduleKey,
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
@@ -160,6 +160,7 @@ export function InteriorWizard({
   pins = [],
   allocations = [],
   schedule,
+  suggestedDates,
   takenUnits = [],
 }: {
   propertyId: number;
@@ -172,6 +173,12 @@ export function InteriorWizard({
   allocations?: WizardAllocation[];
   /** Portfolio suggested schedule. Omitted in tests and older callers. */
   schedule?: ScheduleSettings;
+  /**
+   * The dates to prefill, computed on the server against one fixed timezone.
+   * Not derived here from `new Date()`: this component is server-rendered too,
+   * so that produced a different answer on each side of hydration.
+   */
+  suggestedDates?: Record<ScheduleKey, string>;
   /** Units already claimed by an interior project. */
   takenUnits?: WizardTakenUnit[];
 }) {
@@ -190,10 +197,11 @@ export function InteriorWizard({
   // shape let target completion sit before the pre-walk with nothing noticing,
   // and had no place to put the two milestones between them.
   const scheduleSettings = schedule ?? DEFAULT_SCHEDULE;
-  // Suggested once, on mount: recomputing would overwrite a typed date whenever
-  // the component re-rendered, and a project created either side of midnight
-  // does not want its dates to shift underneath it.
-  const [suggested] = useState(() => suggestSchedule(scheduleSettings, new Date()));
+  // Held, not recomputed: a re-render must not overwrite a date already typed,
+  // and the server already decided what "today" means.
+  const [suggested] = useState<Record<ScheduleKey, string>>(
+    () => suggestedDates ?? blankSchedule(),
+  );
   const [dates, setDates] = useState<Record<ScheduleKey, string>>(suggested);
 
   const dateWarnings = scheduleWarnings(dates);

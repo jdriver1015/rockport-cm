@@ -243,7 +243,12 @@ function SpecTableEditor({ owner, table }: { owner: ScopeOwner; table: SpecTable
 
   function save() {
     startTransition(async () => {
-      const res = await saveSpecTableGrid({ owner, id: table.id, grid: draft });
+      const res = await saveSpecTableGrid({
+        owner,
+        id: table.id,
+        grid: draft,
+        expectedVersion: table.version,
+      });
       if (!res.ok) {
         toast.error(res.error);
         return;

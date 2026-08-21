@@ -5,6 +5,7 @@ import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { readScheduleDefaults } from "@/lib/interior-defaults";
+import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
 import { projectSlug } from "@/lib/slug";
 import { phaseLabel } from "@/lib/stages";
 import {
@@ -130,6 +131,11 @@ export default async function NewInteriorProjectPage({
   // cell), and how much of each tier is still unstarted.
   const interior = await computeInteriorBudgetFor(propertyId);
   const schedule = await readScheduleDefaults();
+  // Computed here, not in the wizard: `new Date()` inside a client component's
+  // state initializer runs once on the server (UTC) and again in the browser
+  // (local), which shifted every suggested date by a day after ~7pm Central and
+  // mismatched on hydration. One anchored answer, rendered once.
+  const suggestedDates = suggestSchedule(schedule, todayInBusinessZone());
 
   // Units that already have an interior project. A unit cannot be turned twice
   // in one cycle, and the budget would double-count it — so these are offered
@@ -229,6 +235,7 @@ export default async function NewInteriorProjectPage({
         pins={pins}
         allocations={allocations}
         schedule={schedule}
+        suggestedDates={suggestedDates}
         takenUnits={takenUnits}
       />
     </div>

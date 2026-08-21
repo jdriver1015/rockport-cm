@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import {
   normalizeGrid,
@@ -59,6 +59,7 @@ export async function listSpecTables(owner: ScopeOwnerRef): Promise<SpecTable[]>
       title: schema.specTables.title,
       grid: schema.specTables.grid,
       sortOrder: schema.specTables.sortOrder,
+      version: schema.specTables.version,
     })
     .from(schema.specTables)
     .where(ownerWhere(owner))
@@ -70,6 +71,7 @@ export async function listSpecTables(owner: ScopeOwnerRef): Promise<SpecTable[]>
     title: r.title,
     grid: normalizeGrid(r.grid),
     sortOrder: r.sortOrder,
+    version: r.version,
   }));
 }
 
@@ -115,18 +117,43 @@ async function nextOrder(owner: ScopeOwnerRef): Promise<number> {
  * Blank rows are dropped on the way in, so an abandoned "+ Row" leaves nothing
  * behind and the row count means what it says. Scoped by owner as well as id so
  * a stale id from one type can't rewrite another's specs.
+ *
+ * `expectedVersion` makes this a compare-and-set. The editor holds a local
+ * draft while someone fills in a paint schedule, so without it a second writer's
+ * stale copy silently replaced whatever landed in between. Omitting it writes
+ * unconditionally, which is what the copy path wants.
  */
 export async function saveSpecGrid(
   owner: ScopeOwnerRef,
   id: number,
   grid: SpecGrid,
-): Promise<{ ok: boolean }> {
+  expectedVersion?: number,
+): Promise<{ ok: boolean; conflict?: boolean }> {
   const [row] = await db()
     .update(schema.specTables)
-    .set({ grid: trimGrid(normalizeGrid(grid)), updatedAt: new Date() })
-    .where(and(ownerWhere(owner), eq(schema.specTables.id, id)))
+    .set({
+      grid: trimGrid(normalizeGrid(grid)),
+      version: sql`${schema.specTables.version} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        ownerWhere(owner),
+        eq(schema.specTables.id, id),
+        ...(expectedVersion != null ? [eq(schema.specTables.version, expectedVersion)] : []),
+      ),
+    )
     .returning({ id: schema.specTables.id });
-  return { ok: !!row };
+  if (row) return { ok: true };
+
+  // No row matched. Distinguish "gone" from "moved on", because the two need
+  // different words: one is an error, the other is someone else's work to keep.
+  if (expectedVersion == null) return { ok: false };
+  const [still] = await db()
+    .select({ id: schema.specTables.id })
+    .from(schema.specTables)
+    .where(and(ownerWhere(owner), eq(schema.specTables.id, id)));
+  return { ok: false, conflict: !!still };
 }
 
 /** Rename a table. Returns false if the new title is already taken here. */
@@ -197,22 +224,26 @@ export async function copySpecTables(
 
   // Sequential rather than one multi-row insert: the grid has to come from the
   // incoming row per conflict, and `excluded` can't be expressed per-value in a
-  // batched upsert without hand-writing the statement.
-  for (const t of incoming) {
-    await db()
-      .insert(schema.specTables)
-      .values({
-        ...ownerColumns(to),
-        kind: t.kind,
-        title: t.title,
-        grid: t.grid,
-        sortOrder: t.sortOrder,
-      })
-      .onConflictDoUpdate({
-        ...conflictTarget(to),
-        set: { grid: t.grid, updatedAt: new Date() },
-      });
-  }
+  // batched upsert without hand-writing the statement. Wrapped in a transaction
+  // so a failure part-way cannot leave a spec sheet holding some tables and not
+  // others — a GC would bid off it with nothing indicating the gap.
+  await db().transaction(async (tx) => {
+    for (const t of incoming) {
+      await tx
+        .insert(schema.specTables)
+        .values({
+          ...ownerColumns(to),
+          kind: t.kind,
+          title: t.title,
+          grid: t.grid,
+          sortOrder: t.sortOrder,
+        })
+        .onConflictDoUpdate({
+          ...conflictTarget(to),
+          set: { grid: t.grid, updatedAt: new Date() },
+        });
+    }
+  });
 
   return { ok: true, copied: incoming.length, skipped };
 }

@@ -40,14 +40,22 @@ export function TriggerAnswersPanel({
   const [editing, setEditing] = useState(false);
 
   const allConditions = steps.flatMap((s) => s.conditions);
-  const [checked, setChecked] = useState<Set<number>>(
-    () =>
-      new Set(
-        answers
-          .filter((a) => a.checked && a.conditionId != null)
-          .map((a) => a.conditionId as number),
-      ),
-  );
+
+  const recordedChecked = () =>
+    new Set(
+      answers
+        .filter((a) => a.checked && a.conditionId != null)
+        .map((a) => a.conditionId as number),
+    );
+  const [checked, setChecked] = useState<Set<number>>(recordedChecked);
+
+  // Entering edit mode re-seeds from what is actually recorded, so Cancel
+  // discards: without this, abandoned ticks survived and read as answers on the
+  // next open, and Save would then record edits the user had cancelled.
+  function beginEditing() {
+    setChecked(recordedChecked());
+    setEditing(true);
+  }
 
   const recorded = answers.length > 0;
   const recordedAt = recorded
@@ -122,7 +130,7 @@ export function TriggerAnswersPanel({
           </p>
         )}
         {allConditions.length > 0 && (
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+          <Button size="sm" variant="outline" onClick={beginEditing}>
             {recorded ? "Re-record answers" : "Record answers"}
           </Button>
         )}

@@ -66,6 +66,8 @@ const saveSchema = z.object({
   owner: ownerSchema,
   id: z.coerce.number().int().positive(),
   grid: gridSchema,
+  /** The version the editor loaded, for the compare-and-set. */
+  expectedVersion: z.coerce.number().int().positive().optional(),
 });
 
 /** Replace one table's grid. Blank rows are dropped. */
@@ -74,10 +76,17 @@ export async function saveSpecTableGrid(
 ): Promise<ActionResult> {
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { owner, id, grid } = parsed.data;
+  const { owner, id, grid, expectedVersion } = parsed.data;
 
-  const res = await saveSpecGrid(owner, id, grid);
-  if (!res.ok) return { ok: false, error: "That spec table no longer exists" };
+  const res = await saveSpecGrid(owner, id, grid, expectedVersion);
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: res.conflict
+        ? "Someone else saved this table while you were editing — reload to see their changes before saving yours."
+        : "That spec table no longer exists",
+    };
+  }
   await revalidateOwner(owner);
   return { ok: true };
 }

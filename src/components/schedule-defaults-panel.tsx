@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { fmtDate } from "@/lib/format";
 import { updateScheduleDefaults } from "@/lib/actions/interior-defaults";
 import {
+  dateFromIso,
   PRE_WALK_KEY,
   SCHEDULE_KEYS,
   SCHEDULE_LABELS,
@@ -27,15 +28,23 @@ import {
  * "10 days" is hard to sanity-check, "Mon 31 Aug" is not — and it makes the
  * weekend roll-forward visible rather than surprising.
  */
-export function ScheduleDefaultsPanel({ schedule }: { schedule: ScheduleSettings }) {
+export function ScheduleDefaultsPanel({
+  schedule,
+  todayIso,
+}: {
+  schedule: ScheduleSettings;
+  /** Today in the business timezone, decided by the server so the preview
+   *  cannot differ between the rendered HTML and the hydrated page. */
+  todayIso: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(schedule.enabled);
   const [offsets, setOffsets] = useState<Record<ScheduleKey, number>>(schedule.offsets);
 
-  // Fixed at mount so the preview does not shift while being read.
-  const [today] = useState(() => new Date());
-  const preview = suggestSchedule({ enabled: true, offsets }, today);
+  // The anchor comes from the server, so the preview is the same date the
+  // wizard would actually use rather than whatever the viewer's clock says.
+  const preview = suggestSchedule({ enabled: true, offsets }, dateFromIso(todayIso));
   const warnings = scheduleWarnings(preview);
 
   const dirty =

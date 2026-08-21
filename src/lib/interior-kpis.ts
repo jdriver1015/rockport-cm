@@ -26,8 +26,12 @@ export type InteriorKpiInput = {
   /**
    * Units planned across all renovation types, from the same compute the Budget
    * pivot uses — so the two halves of the section cannot disagree about the plan.
+   *
+   * Null when that compute failed. Distinct from zero: "we could not read the
+   * plan" and "nothing is planned" are different facts, and claiming the latter
+   * when the former happened would misreport progress as complete.
    */
-  plannedUnits: number;
+  plannedUnits: number | null;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -72,29 +76,36 @@ export function buildInteriorKpis({ projects, plannedUnits }: InteriorKpiInput):
   // Turns started counts projects, not units: one project is one unit, and a
   // project existing at all is the commitment. Remaining can't go below zero —
   // starting more turns than planned is over-delivery, not a negative backlog.
-  const remaining = Math.max(0, plannedUnits - started);
+  const remaining = plannedUnits != null ? Math.max(0, plannedUnits - started) : null;
 
   return [
     {
       label: "Turns started",
-      value: plannedUnits > 0 ? `${started} of ${plannedUnits}` : String(started),
+      value: plannedUnits != null && plannedUnits > 0 ? `${started} of ${plannedUnits}` : String(started),
       delta:
-        plannedUnits > 0
-          ? remaining > 0
-            ? `${remaining.toLocaleString()} remaining in plan`
-            : "plan fully started"
-          : "no units planned yet",
-      deltaVariant: plannedUnits > 0 && remaining === 0 ? "positive" : "muted",
+        plannedUnits == null
+          ? "plan unavailable"
+          : plannedUnits > 0
+            ? remaining! > 0
+              ? `${remaining!.toLocaleString()} remaining in plan`
+              : "plan fully started"
+            : "no units planned yet",
+      deltaVariant: plannedUnits != null && plannedUnits > 0 && remaining === 0 ? "positive" : "muted",
     },
     {
       label: "In progress",
+      // Both counts when both are non-zero: reporting only punch left the
+      // in-process turns making up the rest of the headline unaccounted for.
       value: String(active),
       delta:
         active === 0
           ? "nothing under way"
-          : inPunch > 0
-            ? `${inPunch} in punch`
-            : `${inProcess} in process`,
+          : [
+              inProcess > 0 ? `${inProcess} in process` : null,
+              inPunch > 0 ? `${inPunch} in punch` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
       deltaVariant: active > 0 ? "pending" : "muted",
     },
     {

@@ -167,14 +167,20 @@ export async function moveTriggerStep(
 
   // Written as positions, not the stored sortOrder values, so a rule whose
   // numbering has gaps or ties still ends up in the intended order.
+  //
+  // One transaction because order IS the rule here: a half-written renumber can
+  // leave two steps sharing a sortOrder, and the first-match evaluation would
+  // then assign units a type that neither the old nor the new order called for.
   const reordered = [...steps];
   [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
-  for (const [i, s] of reordered.entries()) {
-    await db()
-      .update(schema.renovationTriggerSteps)
-      .set({ sortOrder: i, updatedAt: new Date() })
-      .where(eq(schema.renovationTriggerSteps.id, s.id));
-  }
+  await db().transaction(async (tx) => {
+    for (const [i, step] of reordered.entries()) {
+      await tx
+        .update(schema.renovationTriggerSteps)
+        .set({ sortOrder: i, updatedAt: new Date() })
+        .where(eq(schema.renovationTriggerSteps.id, step.id));
+    }
+  });
 
   await revalidateProperty(propertyId);
   return { ok: true };
@@ -314,24 +320,28 @@ export async function recordTriggerAnswers(
 
   const checked = new Set(checkedConditionIds);
 
-  // Replace this unit's answers wholesale rather than upserting each: a re-walk
-  // is a fresh answer set, and a condition removed from the rule since the last
-  // walk should not linger as an answer to a question no longer asked.
-  await db()
-    .delete(schema.projectTriggerAnswers)
-    .where(
-      and(
-        eq(schema.projectTriggerAnswers.projectId, projectId),
-        inArray(
-          schema.projectTriggerAnswers.conditionId,
-          conditions.map((c) => c.id),
+  // Replace this unit's answers for the conditions still on the rule, in ONE
+  // transaction: as two statements a failure between them left the unit with no
+  // answers at all, destroying the record this feature exists to keep.
+  //
+  // Answers whose condition has since been deleted are deliberately NOT touched.
+  // Their conditionId is null, so `inArray` never matches them anyway, and they
+  // are the history of a question that really was asked — the panel shows them
+  // as "no longer in the rule".
+  await db().transaction(async (tx) => {
+    await tx
+      .delete(schema.projectTriggerAnswers)
+      .where(
+        and(
+          eq(schema.projectTriggerAnswers.projectId, projectId),
+          inArray(
+            schema.projectTriggerAnswers.conditionId,
+            conditions.map((c) => c.id),
+          ),
         ),
-      ),
-    );
+      );
 
-  await db()
-    .insert(schema.projectTriggerAnswers)
-    .values(
+    await tx.insert(schema.projectTriggerAnswers).values(
       conditions.map((c) => ({
         projectId,
         conditionId: c.id,
@@ -340,6 +350,7 @@ export async function recordTriggerAnswers(
         recordedBy: user?.id ?? null,
       })),
     );
+  });
 
   const path = await propertyPath(propertyId, `/projects/${projectId}`);
   if (path) revalidatePath(path);

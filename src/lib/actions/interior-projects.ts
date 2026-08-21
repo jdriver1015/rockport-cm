@@ -27,6 +27,26 @@ const lineSchema = z.object({
   notes: z.string().trim().optional().nullable(),
 });
 
+/**
+ * Postgres 23505. The pre-check in createInteriorProject narrows the
+ * double-submit window; the partial unique index closes it, and the transaction
+ * that loses the race surfaces here.
+ *
+ * Walks the cause chain rather than reading `err.code`: Drizzle wraps driver
+ * errors in a DrizzleQueryError and hangs the real one off `cause`, so the
+ * top-level code is undefined and a check on it silently never matched —
+ * turning a handled conflict back into a 500.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (typeof e === "object" && "code" in e && (e as { code?: unknown }).code === "23505") {
+      return true;
+    }
+    e = typeof e === "object" && "cause" in e ? (e as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
 const optDate = z
   .string()
   .trim()
@@ -92,110 +112,124 @@ export async function createInteriorProject(
     d.lines.reduce((sum, l) => sum + roundMoney(l.quantity * l.unitPrice), 0),
   );
 
-  const result = await db().transaction(async (tx) => {
-    const existing = await tx.query.units.findFirst({
-      where: and(eq(schema.units.propertyId, d.propertyId), eq(schema.units.unitNumber, d.unitNumber)),
-    });
-    // A unit can only be turned once. The wizard already shows claimed units as
-    // unavailable, but that is an affordance, not a guarantee: a stale tab or a
-    // double submit would otherwise create a second project and double-count the
-    // unit in the interior budget.
-    if (existing) {
-      const clash = await tx
-        .select({ id: schema.projects.id, name: schema.projects.name })
-        .from(schema.projects)
-        .where(
-          and(
-            eq(schema.projects.unitId, existing.id),
-            eq(schema.projects.kind, "unit"),
-            isNull(schema.projects.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (clash.length > 0) {
-        return {
-          ok: false as const,
-          error: `Unit ${d.unitNumber} already has an interior project ("${clash[0].name}"). Archive it first, or pick another unit.`,
-        };
+  // Wrapped because the pre-check inside is check-then-insert: under READ
+  // COMMITTED two concurrent submits both see no clash, and the loser trips the
+  // partial unique index instead. Same expected answer either way.
+  let result;
+  try {
+    result = await db().transaction(async (tx) => {
+      const existing = await tx.query.units.findFirst({
+        where: and(eq(schema.units.propertyId, d.propertyId), eq(schema.units.unitNumber, d.unitNumber)),
+      });
+      // A unit can only be turned once. The wizard already shows claimed units as
+      // unavailable, but that is an affordance, not a guarantee: a stale tab or a
+      // double submit would otherwise create a second project and double-count the
+      // unit in the interior budget.
+      if (existing) {
+        const clash = await tx
+          .select({ id: schema.projects.id, name: schema.projects.name })
+          .from(schema.projects)
+          .where(
+            and(
+              eq(schema.projects.unitId, existing.id),
+              eq(schema.projects.kind, "unit"),
+              isNull(schema.projects.archivedAt),
+            ),
+          )
+          .limit(1);
+        if (clash.length > 0) {
+          return {
+            ok: false as const,
+            error: `Unit ${d.unitNumber} already has an interior project ("${clash[0].name}"). Archive it first, or pick another unit.`,
+          };
+        }
       }
-    }
 
-    const meta = {
-      floorplan: d.floorplan ?? undefined,
-      bedrooms: d.bedrooms ?? undefined,
-      baths: d.baths != null ? d.baths.toFixed(1) : undefined,
-      sqft: d.sqft ?? undefined,
-    };
-    let unitId: number;
-    if (existing) {
-      unitId = existing.id;
-      await tx.update(schema.units).set(meta).where(eq(schema.units.id, existing.id));
-    } else {
-      const [unit] = await tx
-        .insert(schema.units)
-        .values({ propertyId: d.propertyId, unitNumber: d.unitNumber, ...meta })
-        .returning({ id: schema.units.id });
-      unitId = unit.id;
-    }
+      const meta = {
+        floorplan: d.floorplan ?? undefined,
+        bedrooms: d.bedrooms ?? undefined,
+        baths: d.baths != null ? d.baths.toFixed(1) : undefined,
+        sqft: d.sqft ?? undefined,
+      };
+      let unitId: number;
+      if (existing) {
+        unitId = existing.id;
+        await tx.update(schema.units).set(meta).where(eq(schema.units.id, existing.id));
+      } else {
+        const [unit] = await tx
+          .insert(schema.units)
+          .values({ propertyId: d.propertyId, unitNumber: d.unitNumber, ...meta })
+          .returning({ id: schema.units.id });
+        unitId = unit.id;
+      }
 
-    const projectName = d.name?.trim() || `Unit ${d.unitNumber} Interior`;
-    const [project] = await tx
-      .insert(schema.projects)
-      .values({
-        propertyId: d.propertyId,
-        kind: "unit",
-        name: projectName,
-        unitId,
-        vendorId: d.vendorId ?? undefined,
-        budgetGroupId: d.budgetGroupId,
-        budgetAmount: budget.toFixed(2),
-        preWalkDate: d.preWalkDate,
-        startDate: d.startDate,
-        targetCompletionDate: d.targetCompletionDate,
-      })
-      .returning({ id: schema.projects.id });
+      const projectName = d.name?.trim() || `Unit ${d.unitNumber} Interior`;
+      const [project] = await tx
+        .insert(schema.projects)
+        .values({
+          propertyId: d.propertyId,
+          kind: "unit",
+          name: projectName,
+          unitId,
+          vendorId: d.vendorId ?? undefined,
+          budgetGroupId: d.budgetGroupId,
+          budgetAmount: budget.toFixed(2),
+          preWalkDate: d.preWalkDate,
+          startDate: d.startDate,
+          targetCompletionDate: d.targetCompletionDate,
+        })
+        .returning({ id: schema.projects.id });
 
-    if (d.lines.length > 0) {
-      await tx.insert(schema.scopeItems).values(
-        d.lines.map((l, i) => ({
-          projectId: project.id,
-          item: l.item,
-          materialQuality: l.notes ?? null,
-          category: l.category ?? null,
-          costCodeId: l.costCodeId,
-          pricingMethod: l.pricingMethod,
-          unitPrice: l.unitPrice.toFixed(2),
-          quantity: l.quantity.toFixed(2),
-          sourceBudgetLineId: l.sourceBudgetLineId ?? null,
-          sortOrder: i,
+      if (d.lines.length > 0) {
+        await tx.insert(schema.scopeItems).values(
+          d.lines.map((l, i) => ({
+            projectId: project.id,
+            item: l.item,
+            materialQuality: l.notes ?? null,
+            category: l.category ?? null,
+            costCodeId: l.costCodeId,
+            pricingMethod: l.pricingMethod,
+            unitPrice: l.unitPrice.toFixed(2),
+            quantity: l.quantity.toFixed(2),
+            sourceBudgetLineId: l.sourceBudgetLineId ?? null,
+            sortOrder: i,
+          })),
+        );
+      }
+
+      await tx.insert(schema.projectStageEvents).values({
+        projectId: project.id,
+        toStage: "planned",
+        toPhase: "precon",
+        note: `Created from budget group "${group.name}"`,
+      });
+
+      // Unit turns run the same four phases as common-area work, so they get the
+      // same seeded milestones.
+      // Planned dates come from the wizard's schedule step; a phase the caller
+      // didn't send stays undated rather than guessing here, so the suggestion
+      // lives in exactly one place.
+      const plannedByPhase = new Map(
+        (d.milestones ?? []).map((m) => [m.phase, m.plannedDate]),
+      );
+      await tx.insert(schema.projectMilestones).values(
+        defaultMilestoneRows(project.id).map((row) => ({
+          ...row,
+          plannedDate: plannedByPhase.get(row.phase) ?? null,
         })),
       );
-    }
 
-    await tx.insert(schema.projectStageEvents).values({
-      projectId: project.id,
-      toStage: "planned",
-      toPhase: "precon",
-      note: `Created from budget group "${group.name}"`,
+      return { ok: true as const, projectId: project.id, projectName };
     });
-
-    // Unit turns run the same four phases as common-area work, so they get the
-    // same seeded milestones.
-    // Planned dates come from the wizard's schedule step; a phase the caller
-    // didn't send stays undated rather than guessing here, so the suggestion
-    // lives in exactly one place.
-    const plannedByPhase = new Map(
-      (d.milestones ?? []).map((m) => [m.phase, m.plannedDate]),
-    );
-    await tx.insert(schema.projectMilestones).values(
-      defaultMilestoneRows(project.id).map((row) => ({
-        ...row,
-        plannedDate: plannedByPhase.get(row.phase) ?? null,
-      })),
-    );
-
-    return { ok: true as const, projectId: project.id, projectName };
-  });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return {
+        ok: false,
+        error: `Unit ${d.unitNumber} already has an interior project. Archive it first, or pick another unit.`,
+      };
+    }
+    throw err;
+  }
 
   // Refused inside the transaction, so nothing was written. Returned as a value
   // rather than thrown — a taken unit is an expected answer, not a fault.

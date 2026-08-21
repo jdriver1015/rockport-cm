@@ -917,6 +917,13 @@ export const specTables = pgTable("spec_tables", {
   kind: text("kind").notNull(),
   title: text("title").notNull(),
   grid: jsonb("grid").$type<{ cols: string[]; rows: string[][] }>().notNull().default({ cols: [], rows: [] }),
+  /**
+   * Optimistic-locking counter, bumped on every grid write. An integer rather
+   * than updatedAt because timestamptz keeps microseconds and JavaScript Date
+   * only milliseconds — a timestamp token read by a client never equals the
+   * stored value, so every save would be refused as a conflict.
+   */
+  version: integer("version").notNull().default(1),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
