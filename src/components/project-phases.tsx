@@ -17,6 +17,8 @@ import { fmtDate } from "@/lib/format";
 import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
 import { createMilestone, updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
+import { phaseIndex, prevPhase } from "@/lib/stages";
+import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
 import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
 
@@ -106,6 +108,12 @@ export function ProjectPhases({
   // is stamped by hand so it is usually blank, and rows get completed out of
   // order — deriving from dates put 26 of 28 live projects on the wrong row.
   const currentIndex = defaults.findIndex((p) => p.phase === currentPhase);
+  // A phase the project has not reached cannot have happened, so its actual date
+  // is read-only. Hiding Mark complete but leaving the Actual cell editable would
+  // have been the same hole by another route. Past and current stay editable —
+  // recording and correcting history is the point of the column.
+  const reached = (row: PhaseRow) =>
+    row.phase == null || phaseIndex(row.phase) <= phaseIndex(currentPhase);
   const current = currentIndex === -1 ? null : defaults[currentIndex];
   const doneCount = defaults.filter((p) => p.actualDate).length;
   const rest = phases.filter((p) => p.id !== current?.id);
@@ -149,8 +157,8 @@ export function ProjectPhases({
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">{current.note}</div>
               )}
             </div>
-            <PhaseDates phase={current} emphasise />
-            <PhaseActions phase={current} />
+            <PhaseDates phase={current} canEditActual emphasise />
+            <PhaseActions phase={current} projectId={projectId} isCurrent />
           </div>
 
           {gate && gate.checks.length > 0 && (
@@ -166,8 +174,8 @@ export function ProjectPhases({
           rest.map((p) => (
             <div key={p.id} className={cn(GRID, "px-3 py-3")}>
               <PhaseName phase={p} />
-              <PhaseDates phase={p} />
-              <PhaseActions phase={p} />
+              <PhaseDates phase={p} canEditActual={reached(p)} />
+              <PhaseActions phase={p} projectId={projectId} isCurrent={false} />
             </div>
           ))
         )}
@@ -198,7 +206,16 @@ export function ProjectPhases({
 }
 
 /** Planned, actual and the variance between them — both dates editable in place. */
-function PhaseDates({ phase, emphasise }: { phase: PhaseRow; emphasise?: boolean }) {
+function PhaseDates({
+  phase,
+  canEditActual,
+  emphasise,
+}: {
+  phase: PhaseRow;
+  /** False on a phase the project has not reached. */
+  canEditActual: boolean;
+  emphasise?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [planned, setPlanned] = useState(phase.plannedDate ?? "");
@@ -245,7 +262,11 @@ function PhaseDates({ phase, emphasise }: { phase: PhaseRow; emphasise?: boolean
       </div>
 
       <div className="text-right">
-        {editing === "actual" ? (
+        {!canEditActual ? (
+          <span className="text-[13px] text-ink-200" title="Not reached yet">
+            —
+          </span>
+        ) : editing === "actual" ? (
           <Input
             autoFocus
             type="date"
@@ -341,13 +362,32 @@ function PhaseName({ phase }: { phase: PhaseRow }) {
   );
 }
 
-/** Mark complete, plus the overflow: notes, clearing the date, deleting a custom phase. */
-function PhaseActions({ phase }: { phase: PhaseRow }) {
+/**
+ * Mark complete, plus the overflow: notes, clearing the date, reopening the
+ * previous phase, deleting a custom phase.
+ *
+ * Only the phase the project is actually in can be marked complete. Letting any
+ * row be ticked meant a project sitting in Pre-Construction could have Punch
+ * signed off, which the variance column would then report against a phase the
+ * work had not reached.
+ */
+function PhaseActions({
+  phase,
+  projectId,
+  isCurrent,
+}: {
+  phase: PhaseRow;
+  projectId: number;
+  isCurrent: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState(phase.note ?? "");
   const done = !!phase.actualDate;
+  // Only offered on the current row: going back from a row the project has not
+  // reached would mean nothing.
+  const back = isCurrent && phase.phase ? prevPhase(phase.phase) : null;
 
   function run(fn: () => Promise<{ ok: true } | { ok: false; error: string }>, success?: string) {
     startTransition(async () => {
@@ -378,6 +418,7 @@ function PhaseActions({ phase }: { phase: PhaseRow }) {
           }}
         />
       ) : (
+        isCurrent &&
         !done && (
           <Button
             size="sm"
@@ -402,6 +443,23 @@ function PhaseActions({ phase }: { phase: PhaseRow }) {
           <span className="sr-only">{phase.label} actions</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {back && (
+            <DropdownMenuItem
+              onClick={() =>
+                run(() => {
+                  // Reuses setProjectPhase so the move keeps the activity-log
+                  // entry, the stage event and the date side effects that any
+                  // other phase change gets. Backwards moves are never gated.
+                  const fd = new FormData();
+                  fd.set("projectId", String(projectId));
+                  fd.set("toPhase", back.key);
+                  return setProjectPhase(fd);
+                }, `Reopened ${back.label}`)
+              }
+            >
+              Reopen {back.label}
+            </DropdownMenuItem>
+          )}
           {done && (
             <DropdownMenuItem onClick={() => run(() => updateMilestone({ id: phase.id, actualDate: "" }))}>
               Clear actual date

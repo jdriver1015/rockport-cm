@@ -25,6 +25,12 @@ export function nextPhase(key: string) {
   return i >= 0 && i < PROJECT_PHASES.length - 1 ? PROJECT_PHASES[i + 1] : null;
 }
 
+/** The phase before this one, or null at the start. Reopening moves here. */
+export function prevPhase(key: string) {
+  const i = phaseIndex(key);
+  return i > 0 ? PROJECT_PHASES[i - 1] : null;
+}
+
 /** Map legacy 8-stage keys to the 4-phase model. */
 const STAGE_TO_PHASE: Record<string, ProjectPhaseKey> = {
   planned: "precon",
