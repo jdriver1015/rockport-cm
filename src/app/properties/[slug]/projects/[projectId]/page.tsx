@@ -18,6 +18,7 @@ import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
 import { evaluateGates } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
 import { listPreWalkFindings } from "@/lib/pre-walk-findings";
+import { readBidPackage } from "@/lib/bid-package";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { TierBadge } from "@/components/ui/tier-badge";
@@ -438,6 +439,12 @@ export default async function ProjectDetailPage({
     listPreWalkFindings(projectId).then((r) => r),
     "pre-walk findings",
   );
+  // Guarded like the findings: the Select Bid dialog is a click away from the
+  // gate, and the project has to open even if the bid read fails.
+  const bidPackage = (await readBidPackage(propertyId, projectId).catch((err) => {
+    console.error("project detail: bid package failed to load", err);
+    return { scopeItems: [], vendors: [], bids: [] };
+  }))!;
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
@@ -574,6 +581,7 @@ export default async function ProjectDetailPage({
               propertySlug: slug,
               scopeLineCount: scopeRows.length,
               preWalkFindings,
+              bidPackage,
               preWalkDate: precon.preWalkDate,
               preWalkTime: precon.preWalkTime,
               preWalkAuditId: precon.preWalkAuditId,

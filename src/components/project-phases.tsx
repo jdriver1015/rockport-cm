@@ -21,6 +21,8 @@ import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
 import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
+import { SelectBidDialog } from "@/components/select-bid-dialog";
+import type { BidPackageOption } from "@/lib/bid-package";
 
 /** What the pre-con gate dialogs need to resolve their gate. */
 export type GateContext = {
@@ -28,6 +30,7 @@ export type GateContext = {
   propertySlug: string;
   scopeLineCount: number;
   preWalkFindings: PreWalkFinding[];
+  bidPackage: BidPackageOption;
   preWalkDate: string | null;
   preWalkTime: string | null;
   preWalkAuditId: number | null;
@@ -558,6 +561,15 @@ function GateRow({
             : `all ${gate.checks.length} required to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
         </span>
       </div>
+
+      {context && (
+        <SelectBidDialog
+          open={openGate === "bid"}
+          onOpenChange={(o) => !o && setOpenGate(null)}
+          projectId={projectId}
+          data={context.bidPackage}
+        />
+      )}
 
       {context && (
         <DefineScopeDialog
