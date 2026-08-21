@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
-import { createMilestone, updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
+import { updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
@@ -104,11 +104,6 @@ export function ProjectPhases({
   gate: GateResult | null;
   nextPhaseLabel: string | null;
 }) {
-  const [drafts, setDrafts] = useState<{ key: string; createdId: number | null }[]>([]);
-  const visibleDrafts = drafts.filter(
-    (d) => d.createdId == null || !phases.some((p) => p.id === d.createdId),
-  );
-
   const defaults = phases.filter((p) => p.isDefault);
   // The current phase is the one the PROJECT says it is in, not the first row
   // without an actual date. Those disagree constantly: the Pre-Construction row
@@ -123,7 +118,16 @@ export function ProjectPhases({
     row.phase == null || phaseIndex(row.phase) <= phaseIndex(currentPhase);
   const current = currentIndex === -1 ? null : defaults[currentIndex];
   const doneCount = defaults.filter((p) => p.actualDate).length;
-  const rest = phases.filter((p) => p.id !== current?.id);
+  // Always phase order, never the order the rows came back in and never with the
+  // current one lifted to the top. A project in Complete showed Complete above
+  // Pre-Construction, which reads as the sequence rather than as emphasis.
+  // Anything custom trails the four, since it has no place in the sequence.
+  const LAST = Number.MAX_SAFE_INTEGER;
+  const ordered = [...phases].sort(
+    (a, b) =>
+      (a.phase ? phaseIndex(a.phase) : LAST) - (b.phase ? phaseIndex(b.phase) : LAST) ||
+      a.id - b.id,
+  );
 
   return (
     <div className="space-y-3">
@@ -152,75 +156,55 @@ export function ProjectPhases({
         <div className="text-right">Actions</div>
       </div>
 
-      {current && (
-        <div className="rounded-card border border-border bg-card shadow-card">
-          <div className={cn(GRID, "px-3 py-4")}>
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gold-ink">
-                Current phase
+      <div className="divide-y divide-hairline border-y border-border">
+        {ordered.map((row) => {
+          const isCurrent = row.id === current?.id;
+          return (
+            <div key={row.id} className={cn(isCurrent && "bg-muted/30")}>
+              <div className={cn(GRID, "px-3", isCurrent ? "py-4" : "py-3")}>
+                {isCurrent ? (
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gold-ink">
+                      Current phase
+                    </div>
+                    <div className="mt-1 truncate text-base font-semibold text-navy">
+                      {row.label}
+                    </div>
+                    {row.note && (
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.note}</div>
+                    )}
+                  </div>
+                ) : (
+                  <PhaseName phase={row} />
+                )}
+                <PhaseDates phase={row} canEditActual={reached(row)} emphasise={isCurrent} />
+                <PhaseActions
+                  phase={row}
+                  projectId={projectId}
+                  isCurrent={isCurrent}
+                  advance={
+                    isCurrent && gate && nextPhaseLabel
+                      ? {
+                          key: gate.toPhase,
+                          label: nextPhaseLabel,
+                          allMet: gate.allMet,
+                          outstanding: gate.checks.length - gate.metCount,
+                        }
+                      : undefined
+                  }
+                />
               </div>
-              <div className="mt-1 truncate text-base font-semibold text-navy">{current.label}</div>
-              {current.note && (
-                <div className="mt-0.5 truncate text-xs text-muted-foreground">{current.note}</div>
+              {isCurrent && gate && gate.checks.length > 0 && (
+                <GateRow
+                  gate={gate}
+                  nextPhaseLabel={nextPhaseLabel}
+                  projectId={projectId}
+                  context={gateContext}
+                />
               )}
             </div>
-            <PhaseDates phase={current} canEditActual emphasise />
-            <PhaseActions
-              phase={current}
-              projectId={projectId}
-              isCurrent
-              advance={
-                gate && nextPhaseLabel
-                  ? {
-                      key: gate.toPhase,
-                      label: nextPhaseLabel,
-                      allMet: gate.allMet,
-                      outstanding: gate.checks.length - gate.metCount,
-                    }
-                  : undefined
-              }
-            />
-          </div>
-
-          {gate && gate.checks.length > 0 && (
-            <GateRow gate={gate} nextPhaseLabel={nextPhaseLabel} projectId={projectId} context={gateContext} />
-          )}
-        </div>
-      )}
-
-      <div className="divide-y divide-hairline border-y border-border">
-        {rest.length === 0 && visibleDrafts.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">No other phases.</p>
-        ) : (
-          rest.map((p) => (
-            <div key={p.id} className={cn(GRID, "px-3 py-3")}>
-              <PhaseName phase={p} />
-              <PhaseDates phase={p} canEditActual={reached(p)} />
-              <PhaseActions phase={p} projectId={projectId} isCurrent={false} />
-            </div>
-          ))
-        )}
-        {visibleDrafts.map((d) => (
-          <div key={d.key} className="px-3 py-3">
-            <DraftPhase
-              projectId={projectId}
-              onCreated={(id) =>
-                setDrafts((ds) => ds.map((x) => (x.key === d.key ? { ...x, createdId: id } : x)))
-              }
-              onCancel={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="px-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setDrafts((ds) => [...ds, { key: crypto.randomUUID(), createdId: null }])}
-        >
-          + Add phase
-        </Button>
+          );
+        })}
       </div>
     </div>
   );
@@ -681,65 +665,5 @@ function GateRow({
         />
       )}
     </div>
-  );
-}
-
-function DraftPhase({
-  projectId,
-  onCreated,
-  onCancel,
-}: {
-  projectId: number;
-  onCreated: (id: number) => void;
-  onCancel: () => void;
-}) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [label, setLabel] = useState("");
-  const [planned, setPlanned] = useState("");
-
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!label.trim()) return;
-        startTransition(async () => {
-          const res = await createMilestone({
-            projectId,
-            label,
-            plannedDate: planned || null,
-            actualDate: null,
-            note: null,
-          });
-          if (!res.ok) {
-            toast.error(res.error);
-            return;
-          }
-          onCreated(res.id);
-          router.refresh();
-        });
-      }}
-    >
-      <Input
-        autoFocus
-        className="h-8 max-w-56 text-xs"
-        placeholder="Phase name"
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-      />
-      <Input
-        type="date"
-        className="h-8 w-40 text-xs"
-        value={planned}
-        onChange={(e) => setPlanned(e.target.value)}
-      />
-      <Button type="submit" size="sm" disabled={pending || !label.trim()}>
-        Add
-      </Button>
-      <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-        Cancel
-      </Button>
-    </form>
   );
 }

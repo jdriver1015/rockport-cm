@@ -394,7 +394,14 @@ export default async function ProjectDetailPage({
     worstSlip == null ? "No dates yet" : worstSlip > 0 ? `+${worstSlip}d late` : worstSlip < 0 ? `${worstSlip}d early` : "On plan";
   const scheduleColor = worstSlip == null ? "text-muted-foreground" : worstSlip > 0 ? "text-alert" : "text-positive";
 
-  const nextMilestone = milestones.find((m) => !m.actualDate) ?? null;
+  // The next phase is the one after the phase the project is IN, not the first
+  // row with no actual date. On a project in Complete that read "next
+  // Pre-Construction", because the Pre-Construction row is stamped by hand and
+  // is usually left blank.
+  const upcoming = nextPhase(project.phase);
+  const nextMilestone = upcoming
+    ? (milestones.find((m) => m.phase === upcoming.key) ?? null)
+    : null;
 
   // Spend against the approved budget — drives the "Over budget" pill and the
   // red sub-line under Actual to date.
@@ -417,7 +424,7 @@ export default async function ProjectDetailPage({
 
   const doneCount = completedMilestones.length;
   const stageNote = milestones.length
-    ? `${doneCount} of ${milestones.length}${nextMilestone ? ` · next ${nextMilestone.label}` : " · all met"}`
+    ? `${doneCount} of ${milestones.length}${nextMilestone ? ` · next ${nextMilestone.label}` : " · final phase"}`
     : undefined;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
@@ -426,7 +433,6 @@ export default async function ProjectDetailPage({
   // the page already loaded, so the checks cannot disagree with what the rest of
   // the screen shows. src/lib/phase-gates.ts held these but nothing rendered
   // them — they were only reachable from a dialog no page mounted.
-  const upcoming = nextPhase(project.phase);
   const startMilestone = milestones.find((m) => m.phase === "in_process");
   // The same reader the server-side check uses, so what the section shows and
   // what an advance is allowed to do cannot drift apart.
@@ -566,7 +572,7 @@ export default async function ProjectDetailPage({
               <span className="text-sm text-muted-foreground">
                 {nextMilestone
                   ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
-                  : "All phases met"}
+                  : "Final phase"}
               </span>
             </div>
             <ProjectPhases
