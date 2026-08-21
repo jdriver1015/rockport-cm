@@ -8,12 +8,17 @@ import type { ProjectPhaseKey } from "@/lib/stages";
  * resolves by clicking something. The later transitions check on-site progress,
  * which no dialog can fix.
  */
-export const PRECON_GATE_KEYS = ["pre_walk", "scope", "bid"] as const;
+export const PRECON_GATE_KEYS = ["pre_walk", "rfp", "bid", "contract"] as const;
 export type PreconGateKey = (typeof PRECON_GATE_KEYS)[number];
 
 export type GateCheck = {
   /** Present when the gate has an action behind it. */
   key?: PreconGateKey;
+  /**
+   * The first unmet gate — the thing to do next. Emphasised in the UI so the
+   * row reads as a queue rather than four equal buttons.
+   */
+  next?: boolean;
   /**
    * Reads as the current state rather than the requirement — "Pre-Walk
    * Scheduled" once a date is set, not "Schedule Pre-Walk" — so the row doubles
@@ -39,10 +44,14 @@ export type PreconGateState = {
   /** The linked pre-walk audit's status, or null when no walk exists yet. */
   preWalkAuditStatus: "draft" | "complete" | null;
   scopeLineCount: number;
+  /** Any bid has left the building — status past draft, so an RFP went out. */
+  bidsSent: number;
   /** A non-archived bid on this project with approved = true. */
   hasApprovedBid: boolean;
   /** Bids sent and not yet returned — progress while none is approved. */
   bidsOutstanding: number;
+  /** projects.contract_signed_at */
+  contractSignedAt: string | null;
 };
 
 /** The rest of what the later transitions check. */
@@ -75,13 +84,44 @@ function preWalkCheck(state: PreconGateState): GateCheck {
   return { key: "pre_walk", label: "Schedule Pre-Walk", met: false, detail: "Not scheduled" };
 }
 
-function scopeCheck(state: PreconGateState): GateCheck {
-  const n = state.scopeLineCount;
+/**
+ * The scope is no longer its own gate.
+ *
+ * You cannot send an RFP without scope — sendBidPackageRows refuses an empty
+ * selection — so "RFP Sent" already implies it. Keeping both would have been two
+ * rows for one fact, and the design's four are the four that move independently.
+ */
+function rfpCheck(state: PreconGateState): GateCheck {
+  if (state.bidsSent > 0) {
+    return {
+      key: "rfp",
+      label: "RFP Sent",
+      met: true,
+      detail: `${state.bidsSent} vendor${state.bidsSent === 1 ? "" : "s"}`,
+    };
+  }
   return {
-    key: "scope",
-    label: n > 0 ? "Scope Defined" : "Define Scope",
-    met: n > 0,
-    detail: n > 0 ? `${n} line${n === 1 ? "" : "s"}` : "No scope lines",
+    key: "rfp",
+    label: "Send RFP",
+    met: false,
+    detail: state.scopeLineCount > 0 ? "Not sent" : "No scope to send",
+  };
+}
+
+function contractCheck(state: PreconGateState): GateCheck {
+  if (state.contractSignedAt) {
+    return {
+      key: "contract",
+      label: "Contract Signed",
+      met: true,
+      detail: state.contractSignedAt,
+    };
+  }
+  return {
+    key: "contract",
+    label: "Sign Contract",
+    met: false,
+    detail: state.hasApprovedBid ? "Not signed" : "Awaiting a selected bid",
   };
 }
 
@@ -115,7 +155,11 @@ export function evaluateGates(
   let checks: GateCheck[];
 
   if (fromPhase === "precon" && toPhase === "in_process") {
-    checks = [preWalkCheck(data), scopeCheck(data), bidCheck(data)];
+    checks = [preWalkCheck(data), rfpCheck(data), bidCheck(data), contractCheck(data)];
+    // The first unmet gate is the next thing to do. Marking it here rather than
+    // in the component keeps "what is next" one definition instead of two.
+    const firstUnmet = checks.findIndex((c) => !c.met);
+    if (firstUnmet !== -1) checks[firstUnmet] = { ...checks[firstUnmet], next: true };
   } else if (fromPhase === "in_process" && toPhase === "punch") {
     checks = [
       {

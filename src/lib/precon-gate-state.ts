@@ -21,7 +21,7 @@ export async function readPreconGateState(
   const [project, preWalk, scope, bids] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
-      columns: { preWalkDate: true, preWalkTime: true },
+      columns: { preWalkDate: true, preWalkTime: true, contractSignedAt: true },
     }),
     // The one pre-walk for this project. A partial unique index guarantees there
     // is at most one, so "the" pre-walk is unambiguous.
@@ -41,6 +41,10 @@ export async function readPreconGateState(
       .select({
         approved: sql<number>`count(*) filter (where ${schema.bids.approved})::int`,
         outstanding: sql<number>`count(*) filter (where ${schema.bids.status} = 'sent')::int`,
+        // An RFP went out. sent_at rather than status, because a vendor who has
+        // since returned or declined still received the request — the RFP gate
+        // records that the scope left the building, not where it ended up.
+        sent: sql<number>`count(*) filter (where ${schema.bids.sentAt} is not null)::int`,
       })
       .from(schema.bids)
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
@@ -52,7 +56,9 @@ export async function readPreconGateState(
     preWalkAuditId: preWalk?.id ?? null,
     preWalkAuditStatus: (preWalk?.status as "draft" | "complete" | undefined) ?? null,
     scopeLineCount: scope[0]?.n ?? 0,
+    bidsSent: bids[0]?.sent ?? 0,
     hasApprovedBid: (bids[0]?.approved ?? 0) > 0,
     bidsOutstanding: bids[0]?.outstanding ?? 0,
+    contractSignedAt: project?.contractSignedAt ?? null,
   };
 }

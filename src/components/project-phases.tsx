@@ -22,6 +22,7 @@ import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
 import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
 import { SelectBidDialog } from "@/components/select-bid-dialog";
+import { ContractDialog } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
 
 /** What the pre-con gate dialogs need to resolve their gate. */
@@ -35,6 +36,9 @@ export type GateContext = {
   preWalkTime: string | null;
   preWalkAuditId: number | null;
   preWalkAuditStatus: "draft" | "complete" | null;
+  contractSignedAt: string | null;
+  /** The awarded bid, for the contract dialog to confirm. */
+  award: { vendorName: string | null; total: number } | null;
 };
 
 export type PhaseRow = {
@@ -161,7 +165,21 @@ export function ProjectPhases({
               )}
             </div>
             <PhaseDates phase={current} canEditActual emphasise />
-            <PhaseActions phase={current} projectId={projectId} isCurrent />
+            <PhaseActions
+              phase={current}
+              projectId={projectId}
+              isCurrent
+              advance={
+                gate && nextPhaseLabel
+                  ? {
+                      key: gate.toPhase,
+                      label: nextPhaseLabel,
+                      allMet: gate.allMet,
+                      outstanding: gate.checks.length - gate.metCount,
+                    }
+                  : undefined
+              }
+            />
           </div>
 
           {gate && gate.checks.length > 0 && (
@@ -378,10 +396,13 @@ function PhaseActions({
   phase,
   projectId,
   isCurrent,
+  advance,
 }: {
   phase: PhaseRow;
   projectId: number;
   isCurrent: boolean;
+  /** Where this phase leads, when it is the current one. */
+  advance?: { key: string; label: string; allMet: boolean; outstanding: number };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -420,25 +441,7 @@ function PhaseActions({
             run(() => updateMilestone({ id: phase.id, note }));
           }}
         />
-      ) : (
-        isCurrent &&
-        !done && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() =>
-              run(
-                () => updateMilestone({ id: phase.id, actualDate: today() }),
-                `${phase.label} marked complete`,
-              )
-            }
-          >
-            <CheckCircle2Icon className="size-3.5" />
-            Mark complete
-          </Button>
-        )
-      )}
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger disabled={pending} render={<Button variant="ghost" size="icon-sm" />}>
@@ -446,6 +449,43 @@ function PhaseActions({
           <span className="sr-only">{phase.label} actions</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {/*
+            Advancing lives here now. The header no longer carries a phase
+            dropdown, so this is the only way the project moves forward, which is
+            why it sits first and says where it is going.
+
+            Not disabled when gates are outstanding. Every live project has an
+            unmet gate today — no contract has ever been recorded — so disabling
+            this would stop all 28 of them moving at all. The count says what is
+            missing; setProjectPhase is where a refusal belongs, and when it
+            starts refusing, the toast will say which gate.
+          */}
+          {advance && (
+            <DropdownMenuItem
+              onClick={() => {
+                const fd = new FormData();
+                fd.set("projectId", String(projectId));
+                fd.set("toPhase", advance.key);
+                run(() => setProjectPhase(fd), `Advanced to ${advance.label}`);
+              }}
+            >
+              {advance.allMet
+                ? `Advance to ${advance.label}`
+                : `Advance to ${advance.label} — ${advance.outstanding} left`}
+            </DropdownMenuItem>
+          )}
+          {isCurrent && !done && (
+            <DropdownMenuItem
+              onClick={() =>
+                run(
+                  () => updateMilestone({ id: phase.id, actualDate: today() }),
+                  `${phase.label} marked complete`,
+                )
+              }
+            >
+              Mark complete
+            </DropdownMenuItem>
+          )}
           {back && (
             <DropdownMenuItem
               onClick={() =>
@@ -506,65 +546,95 @@ function GateRow({
   context?: GateContext;
 }) {
   const [openGate, setOpenGate] = useState<PreconGateKey | null>(null);
-  const outstanding = gate.checks.length - gate.metCount;
 
   return (
-    <div className="grid grid-cols-[minmax(170px,1fr)_auto] items-start gap-3 border-t border-hairline px-3 py-3.5">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-        Action items
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {gate.checks.map((check) => {
-          const body = (
-            <>
-              {check.met ? (
-                <CheckCircle2Icon className="size-3.5" />
-              ) : (
-                <CircleIcon className="size-3.5" />
-              )}
-              {check.label}
-              <span className={cn("font-normal", check.met ? "text-positive/80" : "text-ink-300")}>
-                · {check.detail}
-              </span>
-            </>
-          );
-          const shape = cn(
-            "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px] font-medium",
-            check.met
-              ? "border-positive/30 bg-positive-bg text-positive"
-              : "border-dashed border-border text-ink-400",
-          );
-          // A gate with something behind it is a button; a met gate stays a
-          // button too, because you still open it to see or change what met it.
-          if (check.key && context) {
-            return (
-              <button
-                key={check.label}
-                type="button"
-                title={check.detail}
-                onClick={() => setOpenGate(check.key!)}
-                className={cn(shape, "transition-colors hover:border-solid hover:bg-track")}
-              >
-                {body}
-              </button>
+    <div className="border-t border-hairline px-3 py-3.5">
+      <div className="grid grid-cols-[minmax(170px,1fr)_auto] items-start gap-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+          Action items
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {gate.checks.map((check) => {
+            const body = (
+              <>
+                {check.met ? (
+                  <CheckCircle2Icon className="size-3.5" />
+                ) : (
+                  <CircleIcon className="size-3.5" />
+                )}
+                {check.label}
+                <span
+                  className={cn(
+                    "font-normal",
+                    check.met ? "text-positive/80" : check.next ? "text-navy/60" : "text-ink-300",
+                  )}
+                >
+                  · {check.detail}
+                </span>
+              </>
             );
-          }
-          return (
-            <span key={check.label} title={check.detail} className={shape}>
-              {body}
-            </span>
-          );
-        })}
-        <span className="ml-1 text-[12px] text-muted-foreground">
-          {outstanding === 0
+            // Three states, not two. Met is settled, the next one is what to do
+            // now, and the rest are further down the queue — flattening the last
+            // two gave four identical buttons and no sense of order.
+            const shape = cn(
+              "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px] font-medium",
+              check.met
+                ? "border-positive/30 bg-positive-bg text-positive"
+                : check.next
+                  ? "border-navy/40 bg-navy/[0.04] text-navy"
+                  : "border-dashed border-border text-ink-400",
+            );
+            // A gate with something behind it is a button; a met gate stays a
+            // button too, because you still open it to see or change what met it.
+            if (check.key && context) {
+              return (
+                <button
+                  key={check.label}
+                  type="button"
+                  title={check.detail}
+                  onClick={() => setOpenGate(check.key!)}
+                  className={cn(shape, "transition-colors hover:border-solid hover:bg-track")}
+                >
+                  {body}
+                </button>
+              );
+            }
+            return (
+              <span key={check.label} title={check.detail} className={shape}>
+                {body}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {/*
+        One segment per gate, in gate order, so the bar and the buttons above it
+        are the same list read twice. A count on its own ("2 of 4") does not say
+        which two.
+      */}
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex flex-1 gap-1" aria-hidden>
+          {gate.checks.map((check) => (
+            <span
+              key={check.label}
+              className={cn(
+                "h-1 flex-1 rounded-full",
+                check.met ? "bg-positive" : check.next ? "bg-navy/35" : "bg-track",
+              )}
+            />
+          ))}
+        </div>
+        <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+          {gate.allMet
             ? `all met — ready for ${nextPhaseLabel ?? "the next phase"}`
-            : `all ${gate.checks.length} required to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
+            : `${gate.metCount} of ${gate.checks.length} met to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
         </span>
       </div>
 
       {context && (
         <SelectBidDialog
-          open={openGate === "bid"}
+          open={openGate === "bid" || (openGate === "rfp" && context.scopeLineCount > 0)}
           onOpenChange={(o) => !o && setOpenGate(null)}
           projectId={projectId}
           data={context.bidPackage}
@@ -572,8 +642,23 @@ function GateRow({
       )}
 
       {context && (
+        <ContractDialog
+          open={openGate === "contract"}
+          onOpenChange={(o) => !o && setOpenGate(null)}
+          projectId={projectId}
+          contractSignedAt={context.contractSignedAt}
+          award={context.award}
+        />
+      )}
+
+      {/*
+        Send RFP resolves to whichever thing is actually blocking it. With no
+        scope there is nothing to send, so the button opens the scope; with scope
+        it opens the package. From the person's side it is one errand.
+      */}
+      {context && (
         <DefineScopeDialog
-          open={openGate === "scope"}
+          open={openGate === "rfp" && context.scopeLineCount === 0}
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}
           projectId={projectId}

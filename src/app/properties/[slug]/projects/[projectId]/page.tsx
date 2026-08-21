@@ -3,10 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
-import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
 import {
   ProjectScopeList,
   type ScopeRow,
@@ -445,6 +444,9 @@ export default async function ProjectDetailPage({
     console.error("project detail: bid package failed to load", err);
     return { scopeItems: [], vendors: [], bids: [] };
   }))!;
+  // The bid the contract is for. Read off the package rather than queried again
+  // so the dialog names exactly the bid the Select Bid screen shows as awarded.
+  const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
@@ -486,7 +488,6 @@ export default async function ProjectDetailPage({
                 <Badge variant="secondary" className="text-[10.5px] font-bold uppercase tracking-[0.09em]">
                   {project.kind === "unit" ? "Unit" : "Common"}
                 </Badge>
-                <StatusBadgeDropdown projectId={project.id} phase={project.phase} />
                 {tierName && <TierBadge label={tierName} index={tierIndex} />}
                 {isOverBudget && (
                   <Badge className="bg-alert/10 text-alert">Over budget</Badge>
@@ -558,38 +559,39 @@ export default async function ProjectDetailPage({
               note={stageNote}
             />
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Dates & milestones */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-navy">Project phases</CardTitle>
-          <span className="text-sm text-muted-foreground">
-            {nextMilestone
-              ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
-              : "All phases met"}
-          </span>
-        </CardHeader>
-        <CardContent>
-          <ProjectPhases
-            projectId={projectId}
-            phases={phaseRows}
-            currentPhase={project.phase}
-            gateContext={{
-              propertyId,
-              propertySlug: slug,
-              scopeLineCount: scopeRows.length,
-              preWalkFindings,
-              bidPackage,
-              preWalkDate: precon.preWalkDate,
-              preWalkTime: precon.preWalkTime,
-              preWalkAuditId: precon.preWalkAuditId,
-              preWalkAuditStatus: precon.preWalkAuditStatus,
-            }}
-            gate={gate}
-            nextPhaseLabel={upcoming?.label ?? null}
-          />
+          <div className="mt-5 border-t border-border pt-4">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-semibold text-navy">Project phases</h2>
+              <span className="text-sm text-muted-foreground">
+                {nextMilestone
+                  ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
+                  : "All phases met"}
+              </span>
+            </div>
+            <ProjectPhases
+              projectId={projectId}
+              phases={phaseRows}
+              currentPhase={project.phase}
+              gateContext={{
+                propertyId,
+                propertySlug: slug,
+                scopeLineCount: scopeRows.length,
+                preWalkFindings,
+                bidPackage,
+                preWalkDate: precon.preWalkDate,
+                preWalkTime: precon.preWalkTime,
+                preWalkAuditId: precon.preWalkAuditId,
+                preWalkAuditStatus: precon.preWalkAuditStatus,
+                contractSignedAt: precon.contractSignedAt,
+                award: awardedBid
+                  ? { vendorName: awardedBid.vendorName, total: awardedBid.total }
+                  : null,
+              }}
+              gate={gate}
+              nextPhaseLabel={upcoming?.label ?? null}
+            />
+          </div>
         </CardContent>
       </Card>
 

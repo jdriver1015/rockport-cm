@@ -390,6 +390,14 @@ export const projects = pgTable("projects", {
   vendorId: integer("vendor_id").references(() => vendors.id),
   budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id),
   /** Interior turns: walk-through before work starts */
+  /**
+   * When the contract for this project was signed — the fourth pre-con gate.
+   *
+   * Just the fact, not the machinery. An e-signature flow and a generated
+   * contract are coming, and all of them end by asserting a signing date, so the
+   * eventual wizard fills this column rather than replacing it.
+   */
+  contractSignedAt: date("contract_signed_at"),
   preWalkDate: date("pre_walk_date"),
   /**
    * Time of day for the pre-walk. A separate column rather than widening
