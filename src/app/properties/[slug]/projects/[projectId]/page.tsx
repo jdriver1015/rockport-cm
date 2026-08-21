@@ -17,6 +17,7 @@ import {
 import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
 import { evaluateGates } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
+import { listPreWalkFindings } from "@/lib/pre-walk-findings";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { TierBadge } from "@/components/ui/tier-badge";
@@ -430,6 +431,13 @@ export default async function ProjectDetailPage({
   // The same reader the server-side check uses, so what the section shows and
   // what an advance is allowed to do cannot drift apart.
   const precon = await readPreconGateState(projectId);
+  // The Define Scope gate offers the walk's findings, so they load with the
+  // page rather than on opening the dialog — it is one small query and the
+  // dialog is a click away from the gate that describes it.
+  const preWalkFindings = await optional(
+    listPreWalkFindings(projectId).then((r) => r),
+    "pre-walk findings",
+  );
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
@@ -562,7 +570,10 @@ export default async function ProjectDetailPage({
             phases={phaseRows}
             currentPhase={project.phase}
             gateContext={{
+              propertyId,
               propertySlug: slug,
+              scopeLineCount: scopeRows.length,
+              preWalkFindings,
               preWalkDate: precon.preWalkDate,
               preWalkTime: precon.preWalkTime,
               preWalkAuditId: precon.preWalkAuditId,

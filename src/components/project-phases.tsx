@@ -18,10 +18,14 @@ import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
 import { createMilestone, updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
+import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
 
 /** What the pre-con gate dialogs need to resolve their gate. */
 export type GateContext = {
+  propertyId: number;
   propertySlug: string;
+  scopeLineCount: number;
+  preWalkFindings: PreWalkFinding[];
   preWalkDate: string | null;
   preWalkTime: string | null;
   preWalkAuditId: number | null;
@@ -496,6 +500,18 @@ function GateRow({
             : `all ${gate.checks.length} required to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
         </span>
       </div>
+
+      {context && (
+        <DefineScopeDialog
+          open={openGate === "scope"}
+          onOpenChange={(o) => !o && setOpenGate(null)}
+          propertyId={context.propertyId}
+          projectId={projectId}
+          scopeLineCount={context.scopeLineCount}
+          findings={context.preWalkFindings}
+          hasPreWalk={context.preWalkAuditStatus != null}
+        />
+      )}
 
       {context && (
         <PreWalkDialog

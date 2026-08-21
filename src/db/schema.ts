@@ -536,6 +536,16 @@ export const scopeItems = pgTable("scope_items", {
   /** Trade section, e.g. "Cabinets", "Flooring" — snapshotted from the source scope-group item. Not currently surfaced in the scope table UI. */
   category: text("category"),
   /** Where this line stands; shown as a pill on the project's scope list. */
+  /**
+   * The pre-walk finding this line was written from, when it came from a walk.
+   *
+   * SET NULL on delete, not CASCADE: removing a finding must not remove the
+   * scope line, and therefore the work, that it caused. Also lets the import
+   * offer only the findings not yet taken.
+   */
+  sourceFindingId: integer("source_finding_id").references(() => auditFindings.id, {
+    onDelete: "set null",
+  }),
   status: scopeItemStatus("status").notNull().default("not_started"),
   /** Trade partner doing this line. Distinct from the project's overall GC. */
   vendorId: integer("vendor_id").references(() => vendors.id),

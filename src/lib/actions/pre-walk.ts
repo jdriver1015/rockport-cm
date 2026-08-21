@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { createClient } from "@/lib/supabase/server";
 import { propertyPath } from "@/lib/property-path";
+import { importFindingsToScopeRows } from "@/lib/pre-walk-findings";
 
 // ---------------------------------------------------------------------------
 // The pre-walk: the visit that produces a project's scope.
@@ -119,4 +120,28 @@ export async function startPreWalk(
 
   await revalidateProject(project.propertyId, projectId);
   return { ok: true, auditId: audit.id, created: true };
+}
+
+const importSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  findingIds: z.array(z.coerce.number().int().positive()).min(1, "Pick at least one finding"),
+});
+
+/** Turn pre-walk findings into scope lines. Validation and revalidation only. */
+export async function importFindingsToScope(
+  input: z.input<typeof importSchema>,
+): Promise<ActionResult<{ added: number; skipped: number }>> {
+  const parsed = importSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const { projectId, findingIds } = parsed.data;
+
+  const res = await importFindingsToScopeRows(projectId, findingIds);
+  if (!res.ok) return res;
+
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+    columns: { propertyId: true },
+  });
+  if (project) await revalidateProject(project.propertyId, projectId);
+  return { ok: true, added: res.added, skipped: res.skipped };
 }
