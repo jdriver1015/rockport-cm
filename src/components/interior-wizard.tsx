@@ -37,6 +37,8 @@ import {
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
+import { TriggerChecklist } from "@/components/trigger-checklist";
+import type { TriggerStep } from "@/lib/renovation-triggers";
 
 export type WizardUnit = {
   unitNumber: string;
@@ -162,6 +164,7 @@ export function InteriorWizard({
   schedule,
   suggestedDates,
   takenUnits = [],
+  triggerSteps = [],
 }: {
   propertyId: number;
   propertySlug: string;
@@ -181,6 +184,8 @@ export function InteriorWizard({
   suggestedDates?: Record<ScheduleKey, string>;
   /** Units already claimed by an interior project. */
   takenUnits?: WizardTakenUnit[];
+  /** The property's pre-walk rule, shown as a checklist beside the type choice. */
+  triggerSteps?: TriggerStep[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -209,6 +214,18 @@ export function InteriorWizard({
 
   function setDate(key: ScheduleKey, value: string) {
     setDates((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // Ticked pre-walk findings. Recorded with the project so "why this type?" has
+  // an answer later, but they never change the selection — see TriggerChecklist.
+  const [checkedConditions, setCheckedConditions] = useState<Set<number>>(new Set());
+  function toggleCondition(id: number, next: boolean) {
+    setCheckedConditions((prev) => {
+      const out = new Set(prev);
+      if (next) out.add(id);
+      else out.delete(id);
+      return out;
+    });
   }
 
   const takenByUnit = useMemo(
@@ -313,6 +330,7 @@ export function InteriorWizard({
           phase: m.phase,
           plannedDate: dates[m.phase] || undefined,
         })),
+        checkedConditionIds: [...checkedConditions],
         lines: lines.map((l) => ({
           item: l.item,
           category: l.category,
@@ -464,6 +482,13 @@ export function InteriorWizard({
                 </button>
               );
             })}
+
+            <TriggerChecklist
+              steps={triggerSteps}
+              checked={checkedConditions}
+              onToggle={toggleCondition}
+              selectedTypeName={group?.name ?? null}
+            />
           </div>
         )}
 

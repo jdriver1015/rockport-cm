@@ -4,10 +4,9 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
-import { RestoreProjectButton } from "@/components/restore-project-button";
+import { ProjectManageMenu } from "@/components/project-manage-menu";
+import type { DocumentRow } from "@/components/document-manager";
 import { StatusBadgeDropdown } from "@/components/status-badge-dropdown";
-import { ProjectEditDialog } from "@/components/project-edit-dialog";
 import {
   ProjectScopeList,
   type ScopeRow,
@@ -17,14 +16,9 @@ import {
 } from "@/components/project-scope-list";
 import { ProjectMilestonesTable, type MilestoneRow } from "@/components/project-milestones-table";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
-import { DocumentsDialogButton, type DocumentRow } from "@/components/document-manager";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
-import { AddAuditDialog } from "@/components/add-audit-dialog";
-import { SiteAuditsTable } from "@/components/site-audits-table";
 import { TierBadge } from "@/components/ui/tier-badge";
-import { TriggerAnswersPanel } from "@/components/trigger-answers-panel";
 import { fmtDate, money, num } from "@/lib/format";
-import { listTriggerAnswers, listTriggerSteps } from "@/lib/renovation-triggers-store";
 import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
@@ -121,8 +115,6 @@ export default async function ProjectDetailPage({
     milestones,
     budgetGroups,
     vendorOptions,
-    triggerSteps,
-    triggerAnswers,
   ] = await Promise.all([
     db()
       .select()
@@ -239,10 +231,6 @@ export default async function ProjectDetailPage({
       .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
       .from(schema.vendors)
       .orderBy(asc(schema.vendors.name)),
-    // Wrapped: the trigger rule is a nicety on this page, and a unit should
-    // still open if it fails to load.
-    optional(listTriggerSteps(propertyId), "trigger steps"),
-    optional(listTriggerAnswers(projectId), "trigger answers"),
   ]);
 
   const findingsByAudit = findings.reduce((m, f) => {
@@ -425,24 +413,6 @@ export default async function ProjectDetailPage({
     : undefined;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
-  const audits = (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base text-navy">Site Audits</CardTitle>
-        <AddAuditDialog
-          propertyId={propertyId}
-          propertySlug={slug}
-          defaultAuditor={profile?.fullName ?? null}
-          projects={[{ id: projectId, name: project.name }, ...otherProjectOptions]}
-          defaultProjectId={projectId}
-        />
-      </CardHeader>
-      <CardContent>
-        <SiteAuditsTable propertySlug={slug} audits={projectAudits} findingsByAudit={findingsByAudit} />
-      </CardContent>
-    </Card>
-  );
-
   // Phase labels resolve here so the log dialog stays a presentational client component.
   const logEntries: LogEntry[] = auditLog.map((e) => ({
     id: e.id,
@@ -491,43 +461,31 @@ export default async function ProjectDetailPage({
                 {vendor ? ` · ${vendor.name}` : ""}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <DocumentsDialogButton
-                propertyId={propertyId}
-                projectId={projectId}
-                documents={documentRows}
-              />
-              <ActivityLogDialogButton entries={logEntries} />
-              {project.archivedAt ? (
-                <RestoreProjectButton projectId={project.id} />
-              ) : (
-                <>
-                  <ProjectEditDialog
-                    project={{
-                      id: project.id,
-                      name: project.name,
-                      kind: project.kind,
-                      startDate: project.startDate,
-                      completeDate: project.completeDate,
-                      notes: project.notes,
-                      previousRent: project.previousRent,
-                      tradeOutRent: project.tradeOutRent,
-                      leaseDate: project.leaseDate,
-                    }}
-                  />
-                  <ArchiveProjectDialog
-                    propertySlug={slug}
-                    projectId={project.id}
-                    projectName={project.name}
-                    redirectTo={
-                      project.kind === "unit"
-                        ? `/properties/${slug}/interiors`
-                        : `/properties/${slug}`
-                    }
-                  />
-                </>
-              )}
-            </div>
+            <ProjectManageMenu
+              propertyId={propertyId}
+              propertySlug={slug}
+              projectId={projectId}
+              projectName={project.name}
+              projectKind={project.kind}
+              archived={project.archivedAt != null}
+              documents={documentRows}
+              activityLog={logEntries}
+              editData={{
+                id: project.id,
+                name: project.name,
+                kind: project.kind,
+                startDate: project.startDate,
+                completeDate: project.completeDate,
+                notes: project.notes,
+                previousRent: project.previousRent,
+                tradeOutRent: project.tradeOutRent,
+                leaseDate: project.leaseDate,
+              }}
+              audits={projectAudits}
+              findingsByAudit={findingsByAudit}
+              auditProjects={[{ id: projectId, name: project.name }, ...otherProjectOptions]}
+              defaultAuditor={profile?.fullName ?? null}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-5">
@@ -560,28 +518,6 @@ export default async function ProjectDetailPage({
         </CardContent>
       </Card>
 
-      {project.kind === "unit" && (
-        <Card>
-          <CardHeader className="flex flex-row items-baseline justify-between gap-3">
-            <CardTitle className="text-base text-navy">
-              {tierName ? `Why ${tierName}?` : "Renovation type triggers"}
-            </CardTitle>
-            <span className="text-sm text-muted-foreground">
-              What the walker found at pre-walk.
-            </span>
-          </CardHeader>
-          <CardContent>
-            <TriggerAnswersPanel
-              projectId={projectId}
-              propertyId={propertyId}
-              steps={triggerSteps}
-              answers={triggerAnswers}
-              assignedTypeName={tierName ?? null}
-            />
-          </CardContent>
-        </Card>
-      )}
-
       {/* Dates & milestones */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -613,8 +549,6 @@ export default async function ProjectDetailPage({
         budgetByCode={budgetByCode}
         approvedBudget={budgetAmt}
       />
-
-      {audits}
     </div>
   );
 }

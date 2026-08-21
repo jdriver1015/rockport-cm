@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
   DialogContent,
@@ -22,15 +23,16 @@ export function AddAuditDialog({
   defaultAuditor,
   projects = [],
   defaultProjectId,
+  ...dialog
 }: {
   propertyId: number;
   propertySlug: string;
   defaultAuditor?: string | null;
   projects?: { id: number; name: string }[];
   defaultProjectId?: number;
-}) {
+} & ControllableDialog) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   const [busy, setBusy] = useState(false);
   const today = new Date().toLocaleDateString("en-CA");
 
@@ -56,7 +58,7 @@ export function AddAuditDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" />}>New audit</DialogTrigger>
+      {hasTrigger && <DialogTrigger render={<Button size="sm" />}>New audit</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New site audit</DialogTitle>

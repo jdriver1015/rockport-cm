@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
   DialogContent,
@@ -28,9 +29,12 @@ export type ProjectEditData = {
   leaseDate: string | null;
 };
 
-export function ProjectEditDialog({ project }: { project: ProjectEditData }) {
+export function ProjectEditDialog({
+  project,
+  ...dialog
+}: { project: ProjectEditData } & ControllableDialog) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   const [busy, setBusy] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -53,7 +57,9 @@ export function ProjectEditDialog({ project }: { project: ProjectEditData }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>Edit</DialogTrigger>
+      {hasTrigger && (
+        <DialogTrigger render={<Button size="sm" variant="outline" />}>Edit</DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit project</DialogTitle>

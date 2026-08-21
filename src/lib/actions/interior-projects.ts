@@ -74,6 +74,13 @@ const createSchema = z.object({
   milestones: z
     .array(z.object({ phase: z.string().trim().min(1), plannedDate: optDate }))
     .optional(),
+  /**
+   * Pre-walk conditions the walker ticked in the wizard, so "why this type?" has
+   * an answer later. Ids not on this property's rule are ignored rather than
+   * refused: the checklist is a reminder, and a stale tab should not block
+   * creating the project.
+   */
+  checkedConditionIds: z.array(z.coerce.number().int().positive()).max(200).optional(),
   lines: z.array(lineSchema).min(1, "Add at least one budget line"),
 });
 
@@ -218,6 +225,36 @@ export async function createInteriorProject(
           plannedDate: plannedByPhase.get(row.phase) ?? null,
         })),
       );
+
+      // Pre-walk answers, recorded against every condition on the rule — the
+      // unchecked ones too, because "we looked and it did not apply" is a
+      // different fact from "we never asked".
+      // Present-but-empty is meaningful: the walker saw the checklist and ticked
+      // nothing. Absent means the caller never showed one.
+      if (d.checkedConditionIds) {
+        const conditions = await tx
+          .select({
+            id: schema.renovationTriggerConditions.id,
+            text: schema.renovationTriggerConditions.text,
+          })
+          .from(schema.renovationTriggerConditions)
+          .innerJoin(
+            schema.renovationTriggerSteps,
+            eq(schema.renovationTriggerSteps.id, schema.renovationTriggerConditions.stepId),
+          )
+          .where(eq(schema.renovationTriggerSteps.propertyId, d.propertyId));
+        if (conditions.length > 0) {
+          const ticked = new Set(d.checkedConditionIds);
+          await tx.insert(schema.projectTriggerAnswers).values(
+            conditions.map((c) => ({
+              projectId: project.id,
+              conditionId: c.id,
+              conditionText: c.text,
+              checked: ticked.has(c.id),
+            })),
+          );
+        }
+      }
 
       return { ok: true as const, projectId: project.id, projectName };
     });

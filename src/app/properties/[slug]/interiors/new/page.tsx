@@ -5,7 +5,8 @@ import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { readScheduleDefaults } from "@/lib/interior-defaults";
-import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
+import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
+import { listTriggerSteps } from "@/lib/renovation-triggers-store";
 import { projectSlug } from "@/lib/slug";
 import { phaseLabel } from "@/lib/stages";
 import {
@@ -136,6 +137,13 @@ export default async function NewInteriorProjectPage({
   // (local), which shifted every suggested date by a day after ~7pm Central and
   // mismatched on hydration. One anchored answer, rendered once.
   const suggestedDates = suggestSchedule(schedule, todayInBusinessZone());
+  // The pre-walk rule, shown as a checklist beside the type choice. Not fatal if
+  // it fails: the wizard's job is creating the project, and the checklist is a
+  // reminder alongside it.
+  const triggerSteps = await listTriggerSteps(propertyId).catch((err) => {
+    console.error("interior wizard: trigger rule failed to load", err);
+    return [];
+  });
 
   // Units that already have an interior project. A unit cannot be turned twice
   // in one cycle, and the budget would double-count it — so these are offered
@@ -236,7 +244,8 @@ export default async function NewInteriorProjectPage({
         allocations={allocations}
         schedule={schedule}
         suggestedDates={suggestedDates}
-        takenUnits={takenUnits}
+        takenUnits={takenUnits}
+        triggerSteps={triggerSteps}
       />
     </div>
   );

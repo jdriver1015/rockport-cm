@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import {useTransition} from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
   DialogClose,
@@ -21,14 +22,15 @@ export function ArchiveProjectDialog({
   projectId,
   projectName,
   redirectTo,
+  ...dialog
 }: {
   propertySlug: string;
   projectId: number;
   projectName: string;
   redirectTo?: string;
-}) {
+} & ControllableDialog) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   const [pending, startTransition] = useTransition();
 
   function handleArchive() {
@@ -49,16 +51,18 @@ export function ArchiveProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button
-            size="sm"
-            variant="destructive"
-          />
-        }
-      >
-        Archive
-      </DialogTrigger>
+      {hasTrigger && (
+        <DialogTrigger
+          render={
+            <Button
+              size="sm"
+              variant="destructive"
+            />
+          }
+        >
+          Archive
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Archive this project?</DialogTitle>

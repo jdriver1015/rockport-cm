@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
   DialogContent,
@@ -24,11 +24,16 @@ export type LogEntry = {
 };
 
 /** Phase history lives behind a header button rather than on the page. */
-export function ActivityLogDialogButton({ entries }: { entries: LogEntry[] }) {
-  const [open, setOpen] = useState(false);
+export function ActivityLogDialogButton({
+  entries,
+  ...dialog
+}: { entries: LogEntry[] } & ControllableDialog) {
+  const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>Activity log</DialogTrigger>
+      {hasTrigger && (
+        <DialogTrigger render={<Button size="sm" variant="outline" />}>Activity log</DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Activity log</DialogTitle>

@@ -5,6 +5,7 @@ import { useRef, useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
   DialogContent,
@@ -132,17 +133,20 @@ export function DocumentsDialogButton({
   propertyId,
   projectId,
   documents,
+  ...dialog
 }: {
   propertyId: number;
   projectId: number;
   documents: DocumentRow[];
-}) {
-  const [open, setOpen] = useState(false);
+} & ControllableDialog) {
+  const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>
-        Documents{documents.length > 0 ? ` (${documents.length})` : ""}
-      </DialogTrigger>
+      {hasTrigger && (
+        <DialogTrigger render={<Button size="sm" variant="outline" />}>
+          Documents{documents.length > 0 ? ` (${documents.length})` : ""}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Documents</DialogTitle>
