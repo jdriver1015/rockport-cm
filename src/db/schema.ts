@@ -609,6 +609,33 @@ export const budgetTemplates = pgTable("budget_templates", {
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
+/**
+ * Capability URLs that let a vendor price a scope without an account.
+ *
+ * One live token per bid. The token IS the authorisation: whoever holds the link
+ * can read that bid's lines and write amounts on them, and nothing else — not
+ * the project, not the property, not another vendor's bid.
+ *
+ * Stored literally rather than hashed. A hash would be right if this guarded
+ * something sensitive, but the capability is a scope list and one vendor's own
+ * prices, and read access to this table already implies read access to every bid.
+ * In exchange the link stays re-copyable when a vendor loses it. Expiry and
+ * revocation are the controls doing the work.
+ */
+export const bidAccessTokens = pgTable("bid_access_tokens", {
+  id: serial("id").primaryKey(),
+  bidId: integer("bid_id")
+    .notNull()
+    .references(() => bids.id, { onDelete: "cascade" }),
+  /** 32 random bytes, base64url — long enough that guessing is not a threat. */
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Set to kill the link early. A reissue revokes whatever came before. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdBy: uuid("created_by").references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const budgetTemplateLines = pgTable(
   "budget_template_lines",
   {
