@@ -17,7 +17,104 @@ import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
 import { sendBidPackage } from "@/lib/actions/bid-package";
 import { createVendor } from "@/lib/actions/vendors";
+import { issueLink, revokeLink } from "@/lib/actions/bid-portal";
 import type { BidPackageOption } from "@/lib/bid-package";
+
+/**
+ * The vendor's link for one bid.
+ *
+ * Copying puts a URL on the clipboard that anyone holding it can price with, so
+ * the button says what it is rather than just "copy". Reissuing revokes the
+ * previous link, which is the way to kill one that went to the wrong address.
+ */
+function BidLink({
+  projectId,
+  bid,
+  disabled,
+}: {
+  projectId: number;
+  bid: { id: number; token: string | null; approved: boolean; status: string };
+  disabled: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  // A decided bid has nothing left for the vendor to do.
+  if (bid.approved || bid.status === "declined") return null;
+
+  async function copy(token: string) {
+    const url = `${window.location.origin}/bid/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied — send it to the vendor");
+    } catch {
+      // Clipboard access can be refused; showing the URL still gets the job done.
+      toast.info(url, { duration: 20000 });
+    }
+  }
+
+  function mint(reissue: boolean) {
+    startTransition(async () => {
+      const res = await issueLink({ bidId: bid.id, projectId });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      await copy(res.token);
+      if (reissue) toast.info("The previous link no longer works");
+      router.refresh();
+    });
+  }
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {bid.token ? (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled || pending}
+            onClick={() => copy(bid.token!)}
+          >
+            Copy link
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled || pending}
+            title="Issue a new link and stop the old one working"
+            onClick={() => mint(true)}
+          >
+            Reissue
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-alert hover:text-alert"
+            disabled={disabled || pending}
+            onClick={() =>
+              startTransition(async () => {
+                const res = await revokeLink({ bidId: bid.id, projectId });
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
+                toast.success("Link revoked");
+                router.refresh();
+              })
+            }
+          >
+            Revoke
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" disabled={disabled || pending} onClick={() => mint(false)}>
+          {pending ? "…" : "Get link"}
+        </Button>
+      )}
+    </span>
+  );
+}
 
 /** Which statuses mean the request is still with the vendor. */
 const LIVE = new Set(["draft", "sent"]);
@@ -137,6 +234,7 @@ export function SelectBidDialog({
                     <span className="w-24 text-right text-[13px] font-semibold tabular-nums text-navy">
                       {b.total > 0 ? money(b.total) : "—"}
                     </span>
+                    <BidLink projectId={projectId} bid={b} disabled={pending} />
                   </div>
                 ))}
               </div>

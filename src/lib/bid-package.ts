@@ -28,6 +28,9 @@ export type BidPackageOption = {
     approved: boolean;
     lineCount: number;
     total: number;
+    /** The live portal link for this bid, if one has been issued. */
+    token: string | null;
+    tokenExpiresAt: Date | null;
   }[];
 };
 
@@ -36,7 +39,7 @@ export async function readBidPackage(
   propertyId: number,
   projectId: number,
 ): Promise<BidPackageOption> {
-  const [scopeItems, vendors, bids] = await Promise.all([
+  const [scopeItems, vendors, bids, tokens] = await Promise.all([
     db()
       .select({
         id: schema.scopeItems.id,
@@ -93,10 +96,37 @@ export async function readBidPackage(
         schema.bids.approved,
       )
       .orderBy(asc(schema.bids.bidNumber)),
+    // Live links only. An expired or revoked one is not a link the person can
+    // hand out, so showing it would invite copying something already dead.
+    db()
+      .select({
+        bidId: schema.bidAccessTokens.bidId,
+        token: schema.bidAccessTokens.token,
+        expiresAt: schema.bidAccessTokens.expiresAt,
+      })
+      .from(schema.bidAccessTokens)
+      .innerJoin(schema.bids, eq(schema.bids.id, schema.bidAccessTokens.bidId))
+      .where(
+        and(
+          eq(schema.bids.projectId, projectId),
+          isNull(schema.bidAccessTokens.revokedAt),
+          sql`${schema.bidAccessTokens.expiresAt} > now()`,
+        ),
+      ),
   ]);
 
+  const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
+
   void propertyId;
-  return { scopeItems, vendors, bids };
+  return {
+    scopeItems,
+    vendors,
+    bids: bids.map((b) => ({
+      ...b,
+      token: tokenByBid.get(b.id)?.token ?? null,
+      tokenExpiresAt: tokenByBid.get(b.id)?.expiresAt ?? null,
+    })),
+  };
 }
 
 export type SendResult =
