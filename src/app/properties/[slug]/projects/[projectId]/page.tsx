@@ -561,6 +561,13 @@ export default async function ProjectDetailPage({
             projectId={projectId}
             phases={phaseRows}
             currentPhase={project.phase}
+            gateContext={{
+              propertySlug: slug,
+              preWalkDate: precon.preWalkDate,
+              preWalkTime: precon.preWalkTime,
+              preWalkAuditId: precon.preWalkAuditId,
+              preWalkAuditStatus: precon.preWalkAuditStatus,
+            }}
             gate={gate}
             nextPhaseLabel={upcoming?.label ?? null}
           />

@@ -10,11 +10,18 @@ import type { PreconGateState } from "@/lib/phase-gates";
  * would eventually disagree, and the disagreement would look like the gate
  * refusing something the screen says is done.
  */
-export async function readPreconGateState(projectId: number): Promise<PreconGateState> {
+export type PreconGateExtras = {
+  preWalkTime: string | null;
+  preWalkAuditId: number | null;
+};
+
+export async function readPreconGateState(
+  projectId: number,
+): Promise<PreconGateState & PreconGateExtras> {
   const [project, preWalk, scope, bids] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
-      columns: { preWalkDate: true },
+      columns: { preWalkDate: true, preWalkTime: true },
     }),
     // The one pre-walk for this project. A partial unique index guarantees there
     // is at most one, so "the" pre-walk is unambiguous.
@@ -24,7 +31,7 @@ export async function readPreconGateState(projectId: number): Promise<PreconGate
         eq(schema.siteAudits.kind, "pre_walk"),
         isNull(schema.siteAudits.archivedAt),
       ),
-      columns: { status: true },
+      columns: { id: true, status: true },
     }),
     db()
       .select({ n: sql<number>`count(*)::int` })
@@ -41,6 +48,8 @@ export async function readPreconGateState(projectId: number): Promise<PreconGate
 
   return {
     preWalkDate: project?.preWalkDate ?? null,
+    preWalkTime: project?.preWalkTime ?? null,
+    preWalkAuditId: preWalk?.id ?? null,
     preWalkAuditStatus: (preWalk?.status as "draft" | "complete" | undefined) ?? null,
     scopeLineCount: scope[0]?.n ?? 0,
     hasApprovedBid: (bids[0]?.approved ?? 0) > 0,

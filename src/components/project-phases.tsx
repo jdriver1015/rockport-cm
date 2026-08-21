@@ -16,7 +16,17 @@ import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
 import { createMilestone, updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
-import type { GateResult } from "@/lib/phase-gates";
+import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
+import { PreWalkDialog } from "@/components/pre-walk-dialog";
+
+/** What the pre-con gate dialogs need to resolve their gate. */
+export type GateContext = {
+  propertySlug: string;
+  preWalkDate: string | null;
+  preWalkTime: string | null;
+  preWalkAuditId: number | null;
+  preWalkAuditStatus: "draft" | "complete" | null;
+};
 
 export type PhaseRow = {
   id: number;
@@ -65,12 +75,15 @@ export function ProjectPhases({
   phases,
   currentPhase,
   gate,
+  gateContext,
   nextPhaseLabel,
 }: {
   projectId: number;
   phases: PhaseRow[];
   /** The phase the project is actually in — projects.phase. */
   currentPhase: string;
+  /** Everything the gate dialogs need. Absent for a project with no gates. */
+  gateContext?: GateContext;
   /**
    * Gate checks for leaving the current phase. Null when the project is in its
    * last phase, or when the transition has no checks defined.
@@ -137,7 +150,7 @@ export function ProjectPhases({
           </div>
 
           {gate && gate.checks.length > 0 && (
-            <GateRow gate={gate} nextPhaseLabel={nextPhaseLabel} />
+            <GateRow gate={gate} nextPhaseLabel={nextPhaseLabel} projectId={projectId} context={gateContext} />
           )}
         </div>
       )}
@@ -416,7 +429,18 @@ function PhaseActions({ phase }: { phase: PhaseRow }) {
  * nothing mounted; the point of showing them here is that the requirement is
  * visible before someone tries to advance, not after.
  */
-function GateRow({ gate, nextPhaseLabel }: { gate: GateResult; nextPhaseLabel: string | null }) {
+function GateRow({
+  gate,
+  nextPhaseLabel,
+  projectId,
+  context,
+}: {
+  gate: GateResult;
+  nextPhaseLabel: string | null;
+  projectId: number;
+  context?: GateContext;
+}) {
+  const [openGate, setOpenGate] = useState<PreconGateKey | null>(null);
   const outstanding = gate.checks.length - gate.metCount;
 
   return (
@@ -425,34 +449,66 @@ function GateRow({ gate, nextPhaseLabel }: { gate: GateResult; nextPhaseLabel: s
         Action items
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {gate.checks.map((check) => (
-          <span
-            key={check.label}
-            title={check.detail}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px] font-medium",
-              check.met
-                ? "border-positive/30 bg-positive-bg text-positive"
-                : "border-dashed border-border text-ink-400",
-            )}
-          >
-            {check.met ? (
-              <CheckCircle2Icon className="size-3.5" />
-            ) : (
-              <CircleIcon className="size-3.5" />
-            )}
-            {check.label}
-            <span className={cn("font-normal", check.met ? "text-positive/80" : "text-ink-300")}>
-              · {check.detail}
+        {gate.checks.map((check) => {
+          const body = (
+            <>
+              {check.met ? (
+                <CheckCircle2Icon className="size-3.5" />
+              ) : (
+                <CircleIcon className="size-3.5" />
+              )}
+              {check.label}
+              <span className={cn("font-normal", check.met ? "text-positive/80" : "text-ink-300")}>
+                · {check.detail}
+              </span>
+            </>
+          );
+          const shape = cn(
+            "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px] font-medium",
+            check.met
+              ? "border-positive/30 bg-positive-bg text-positive"
+              : "border-dashed border-border text-ink-400",
+          );
+          // A gate with something behind it is a button; a met gate stays a
+          // button too, because you still open it to see or change what met it.
+          if (check.key && context) {
+            return (
+              <button
+                key={check.label}
+                type="button"
+                title={check.detail}
+                onClick={() => setOpenGate(check.key!)}
+                className={cn(shape, "transition-colors hover:border-solid hover:bg-track")}
+              >
+                {body}
+              </button>
+            );
+          }
+          return (
+            <span key={check.label} title={check.detail} className={shape}>
+              {body}
             </span>
-          </span>
-        ))}
+          );
+        })}
         <span className="ml-1 text-[12px] text-muted-foreground">
           {outstanding === 0
             ? `all met — ready for ${nextPhaseLabel ?? "the next phase"}`
             : `all ${gate.checks.length} required to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
         </span>
       </div>
+
+      {context && (
+        <PreWalkDialog
+          open={openGate === "pre_walk"}
+          onOpenChange={(o) => !o && setOpenGate(null)}
+          projectId={projectId}
+          propertySlug={context.propertySlug}
+          preWalkDate={context.preWalkDate}
+          preWalkTime={context.preWalkTime}
+          auditId={context.preWalkAuditId}
+          auditStatus={context.preWalkAuditStatus}
+        />
+      )}
     </div>
   );
 }
