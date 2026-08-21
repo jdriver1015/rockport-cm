@@ -1,7 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/forgot-password", "/auth"];
+/**
+ * Paths served without a signed-in user.
+ *
+ * "/bid" is the vendor portal, and it is the only entry here that shows real
+ * data: a contractor prices a scope at /bid/<token> with no account. The token
+ * in the URL is the whole authorisation, so everything behind it is keyed by
+ * that token and never by an id taken from the request — see src/lib/bid-portal.ts.
+ *
+ * Adding a prefix here makes every route beneath it world-readable. Nothing
+ * should join this list without the same treatment.
+ *
+ * Note the trailing slash on "/bid/". These are matched with startsWith, so a
+ * bare "/bid" would also match a future "/bids" page and make it public without
+ * anyone meaning to.
+ */
+const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/forgot-password", "/auth", "/bid/"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
