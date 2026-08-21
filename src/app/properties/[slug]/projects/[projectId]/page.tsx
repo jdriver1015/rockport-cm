@@ -16,6 +16,7 @@ import {
 } from "@/components/project-scope-list";
 import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
 import { evaluateGates } from "@/lib/phase-gates";
+import { readPreconGateState } from "@/lib/precon-gate-state";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { TierBadge } from "@/components/ui/tier-badge";
@@ -426,12 +427,12 @@ export default async function ProjectDetailPage({
   // them — they were only reachable from a dialog no page mounted.
   const upcoming = nextPhase(project.phase);
   const startMilestone = milestones.find((m) => m.phase === "in_process");
+  // The same reader the server-side check uses, so what the section shows and
+  // what an advance is allowed to do cannot drift apart.
+  const precon = await readPreconGateState(projectId);
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
-        scopeLineCount: scopeRows.length,
-        budgetAmount: budgetAmt,
-        committedCost: committedAmt,
-        vendorAssigned: project.vendorId != null,
+        ...precon,
         scopeNotStartedCount: scopeRows.filter((r) => r.status === "not_started").length,
         scopeCompleteCount: scopeRows.filter((r) => r.status === "complete").length,
         scopeTotalCount: scopeRows.length,

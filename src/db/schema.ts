@@ -10,6 +10,7 @@ import {
   pgTable,
   serial,
   text,
+  time,
   timestamp,
   uniqueIndex,
   uuid,
@@ -390,6 +391,13 @@ export const projects = pgTable("projects", {
   budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id),
   /** Interior turns: walk-through before work starts */
   preWalkDate: date("pre_walk_date"),
+  /**
+   * Time of day for the pre-walk. A separate column rather than widening
+   * preWalkDate to a timestamp: the schedule agenda, calendar and Gantt all
+   * group and parse that column as a plain date string, and making it an instant
+   * would reintroduce the timezone bug class that shifted dates by a day.
+   */
+  preWalkTime: time("pre_walk_time"),
   startDate: date("start_date"),
   /** Planned delivery/target date (distinct from completeDate, the actual finish) */
   targetCompletionDate: date("target_completion_date"),
@@ -466,6 +474,15 @@ export const bids = pgTable("bids", {
   bidNumber: integer("bid_number").notNull().default(1),
   receivedDate: date("received_date"),
   approved: boolean("approved").notNull().default(false),
+  /**
+   * Where this bid is in its life: draft, sent, received, awarded, declined.
+   *
+   * An RFP and a returned bid are the same shape — a bid with a line per scope
+   * item — so sending seeds the lines at zero and the vendor fills them in,
+   * rather than there being a second table for requests.
+   */
+  status: text("status").notNull().default("draft"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
   note: text("note"),
   /** Soft-delete: hidden from the bids list but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -1159,6 +1176,14 @@ export const siteAudits = pgTable("site_audits", {
   /** Optional link to a specific work project */
   projectId: integer("project_id").references(() => projects.id),
   title: text("title").notNull(),
+  /**
+   * Which walk this is. A pre-walk produces the scope; a quality walk checks
+   * work already done. They share every column and the same findings screen,
+   * but the pre-con gate has to find THE pre-walk for a project, and "the
+   * earliest audit" is not that. Text with a CHECK rather than an enum, so
+   * adding a kind is a migration and not an enum alter.
+   */
+  kind: text("kind").notNull().default("quality"),
   auditDate: date("audit_date").notNull(),
   auditorName: text("auditor_name"),
   notes: text("notes"),

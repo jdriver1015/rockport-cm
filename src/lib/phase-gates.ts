@@ -1,6 +1,24 @@
 import type { ProjectPhaseKey } from "@/lib/stages";
 
+/**
+ * The pre-con gates, in the order the work actually happens: walk the unit,
+ * write the scope from what the walk found, then bid it.
+ *
+ * These are the only gates with a key, because they are the only ones a person
+ * resolves by clicking something. The later transitions check on-site progress,
+ * which no dialog can fix.
+ */
+export const PRECON_GATE_KEYS = ["pre_walk", "scope", "bid"] as const;
+export type PreconGateKey = (typeof PRECON_GATE_KEYS)[number];
+
 export type GateCheck = {
+  /** Present when the gate has an action behind it. */
+  key?: PreconGateKey;
+  /**
+   * Reads as the current state rather than the requirement — "Pre-Walk
+   * Scheduled" once a date is set, not "Schedule Pre-Walk" — so the row doubles
+   * as a status.
+   */
   label: string;
   met: boolean;
   detail: string;
@@ -14,64 +32,99 @@ export type GateResult = {
   metCount: number;
 };
 
+/** What the pre-con gates read. Every field is state the project already holds. */
+export type PreconGateState = {
+  /** projects.pre_walk_date — the walk is on the calendar. */
+  preWalkDate: string | null;
+  /** The linked pre-walk audit's status, or null when no walk exists yet. */
+  preWalkAuditStatus: "draft" | "complete" | null;
+  scopeLineCount: number;
+  /** A non-archived bid on this project with approved = true. */
+  hasApprovedBid: boolean;
+  /** Bids sent and not yet returned — progress while none is approved. */
+  bidsOutstanding: number;
+};
+
+/** The rest of what the later transitions check. */
+export type ProgressGateState = {
+  scopeNotStartedCount: number;
+  scopeCompleteCount: number;
+  scopeTotalCount: number;
+  hasStartMilestoneActual: boolean;
+  openFindingCount: number;
+  postedGlTotal: number;
+};
+
+/**
+ * The pre-walk's states.
+ *
+ * The gate is met at complete, not at scheduled: a booked walk nobody has done
+ * tells you nothing about the unit, and the scope is written from what the walk
+ * found.
+ */
+function preWalkCheck(state: PreconGateState): GateCheck {
+  if (state.preWalkAuditStatus === "complete") {
+    return { key: "pre_walk", label: "Pre-Walk Complete", met: true, detail: "Walked" };
+  }
+  if (state.preWalkAuditStatus === "draft") {
+    return { key: "pre_walk", label: "Pre-Walk Started", met: false, detail: "Walk in progress" };
+  }
+  if (state.preWalkDate) {
+    return { key: "pre_walk", label: "Pre-Walk Scheduled", met: false, detail: state.preWalkDate };
+  }
+  return { key: "pre_walk", label: "Schedule Pre-Walk", met: false, detail: "Not scheduled" };
+}
+
+function scopeCheck(state: PreconGateState): GateCheck {
+  const n = state.scopeLineCount;
+  return {
+    key: "scope",
+    label: n > 0 ? "Scope Defined" : "Define Scope",
+    met: n > 0,
+    detail: n > 0 ? `${n} line${n === 1 ? "" : "s"}` : "No scope lines",
+  };
+}
+
+function bidCheck(state: PreconGateState): GateCheck {
+  if (state.hasApprovedBid) {
+    return { key: "bid", label: "Bid Selected", met: true, detail: "Awarded" };
+  }
+  if (state.bidsOutstanding > 0) {
+    return {
+      key: "bid",
+      label: "Select Bid",
+      met: false,
+      detail: `${state.bidsOutstanding} out for bid`,
+    };
+  }
+  return { key: "bid", label: "Select Bid", met: false, detail: "Not sent" };
+}
+
 /**
  * Evaluate the gate checks for advancing from one phase to another.
- * Each transition has its own set of requirements. The checks are soft —
- * a PM can override with a note explaining why.
+ *
+ * Pre-con's three are actionable and ordered walk → scope → bid. Budget set and
+ * Vendor assigned used to be separate checks here and are gone: awarding a bid
+ * sets both, so they were restating the bid gate.
  */
 export function evaluateGates(
   fromPhase: ProjectPhaseKey,
   toPhase: ProjectPhaseKey,
-  data: {
-    scopeLineCount: number;
-    budgetAmount: number;
-    committedCost: number;
-    vendorAssigned: boolean;
-    scopeNotStartedCount: number;
-    scopeCompleteCount: number;
-    scopeTotalCount: number;
-    hasStartMilestoneActual: boolean;
-    openFindingCount: number;
-    postedGlTotal: number;
-  },
+  data: PreconGateState & ProgressGateState,
 ): GateResult {
   let checks: GateCheck[];
 
   if (fromPhase === "precon" && toPhase === "in_process") {
-    checks = [
-      {
-        label: "Scope defined",
-        met: data.scopeLineCount > 0,
-        detail: data.scopeLineCount > 0
-          ? `${data.scopeLineCount} scope line${data.scopeLineCount === 1 ? "" : "s"}`
-          : "No scope lines",
-      },
-      {
-        label: "Budget set",
-        met: data.budgetAmount > 0,
-        detail: data.budgetAmount > 0 ? `$${Math.round(data.budgetAmount).toLocaleString()}` : "No budget",
-      },
-      {
-        label: "Committed cost or approved bid",
-        met: data.committedCost > 0,
-        detail: data.committedCost > 0
-          ? `$${Math.round(data.committedCost).toLocaleString()} committed`
-          : "No committed cost",
-      },
-      {
-        label: "Vendor assigned",
-        met: data.vendorAssigned,
-        detail: data.vendorAssigned ? "Assigned" : "No vendor",
-      },
-    ];
+    checks = [preWalkCheck(data), scopeCheck(data), bidCheck(data)];
   } else if (fromPhase === "in_process" && toPhase === "punch") {
     checks = [
       {
         label: "All scope lines started",
         met: data.scopeNotStartedCount === 0,
-        detail: data.scopeNotStartedCount === 0
-          ? "All started"
-          : `${data.scopeNotStartedCount} not started`,
+        detail:
+          data.scopeNotStartedCount === 0
+            ? "All started"
+            : `${data.scopeNotStartedCount} not started`,
       },
       {
         label: "In Process date recorded",
@@ -84,9 +137,10 @@ export function evaluateGates(
       {
         label: "No open audit findings",
         met: data.openFindingCount === 0,
-        detail: data.openFindingCount === 0
-          ? "All clear"
-          : `${data.openFindingCount} open finding${data.openFindingCount === 1 ? "" : "s"}`,
+        detail:
+          data.openFindingCount === 0
+            ? "All clear"
+            : `${data.openFindingCount} open finding${data.openFindingCount === 1 ? "" : "s"}`,
       },
       {
         label: "All scope lines complete",
@@ -99,9 +153,10 @@ export function evaluateGates(
       {
         label: "GL actuals posted",
         met: data.postedGlTotal > 0,
-        detail: data.postedGlTotal > 0
-          ? `$${Math.round(data.postedGlTotal).toLocaleString()} posted`
-          : "No posted GL",
+        detail:
+          data.postedGlTotal > 0
+            ? `$${Math.round(data.postedGlTotal).toLocaleString()} posted`
+            : "No posted GL",
       },
     ];
   } else {
