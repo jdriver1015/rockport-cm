@@ -615,7 +615,7 @@ export function InteriorWizard({
                       {SCHEDULE_LABELS[key]}
                       {key === PRE_WALK_KEY && (
                         <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                          not a milestone
+                          not a phase
                         </span>
                       )}
                     </Label>
@@ -631,7 +631,7 @@ export function InteriorWizard({
               </div>
 
               <p className="text-[11px] text-muted-foreground">
-                The four milestones are created with the project and stamp their actual dates as it
+                The four phases are created with the project and stamp their actual dates as it
                 moves through each phase. Leave a date blank to fill it in later.
               </p>
 

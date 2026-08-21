@@ -21,10 +21,12 @@ import type { GateResult } from "@/lib/phase-gates";
 export type PhaseRow = {
   id: number;
   label: string;
+  /** Which phase this row records. Null on a custom row. */
+  phase: string | null;
   plannedDate: string | null;
   actualDate: string | null;
   note: string | null;
-  /** One of the four seeded phase milestones — fixed label, cannot be deleted. */
+  /** One of the four seeded phase rows — label follows the phase, cannot be deleted. */
   isDefault: boolean;
 };
 
@@ -53,18 +55,22 @@ function today(): string {
  * The project's phases: planned against actual, with the current one raised out
  * of the list and carrying what has to happen before it can be left.
  *
- * The four seeded milestones ARE the phases, so this is one table rather than a
- * phase widget and a milestone table restating each other. Custom milestones
- * share the list; they carry no phase, so they never become the current row.
+ * The four seeded rows ARE the phases — same names, one vocabulary — so this is
+ * one table rather than a phase widget and a milestone table restating each
+ * other. Custom rows share the list; they carry no phase, so they never become
+ * the current row.
  */
 export function ProjectPhases({
   projectId,
   phases,
+  currentPhase,
   gate,
   nextPhaseLabel,
 }: {
   projectId: number;
   phases: PhaseRow[];
+  /** The phase the project is actually in — projects.phase. */
+  currentPhase: string;
   /**
    * Gate checks for leaving the current phase. Null when the project is in its
    * last phase, or when the transition has no checks defined.
@@ -78,9 +84,11 @@ export function ProjectPhases({
   );
 
   const defaults = phases.filter((p) => p.isDefault);
-  // The current phase is the first seeded milestone with no actual date — what
-  // the project is working towards. Everything above it is history.
-  const currentIndex = defaults.findIndex((p) => !p.actualDate);
+  // The current phase is the one the PROJECT says it is in, not the first row
+  // without an actual date. Those disagree constantly: the Pre-Construction row
+  // is stamped by hand so it is usually blank, and rows get completed out of
+  // order — deriving from dates put 26 of 28 live projects on the wrong row.
+  const currentIndex = defaults.findIndex((p) => p.phase === currentPhase);
   const current = currentIndex === -1 ? null : defaults[currentIndex];
   const doneCount = defaults.filter((p) => p.actualDate).length;
   const rest = phases.filter((p) => p.id !== current?.id);
@@ -91,7 +99,7 @@ export function ProjectPhases({
         <span className="text-sm text-muted-foreground">
           {current
             ? `Phase ${currentIndex + 1} of ${defaults.length}`
-            : `All ${defaults.length} phases met`}
+            : `${defaults.length} phases`}
           {current?.plannedDate ? ` · planned ${fmtDate(current.plannedDate)}` : ""}
         </span>
         <span className="text-sm tabular-nums text-muted-foreground">

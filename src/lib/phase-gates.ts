@@ -74,7 +74,7 @@ export function evaluateGates(
           : `${data.scopeNotStartedCount} not started`,
       },
       {
-        label: "Start milestone recorded",
+        label: "In Process date recorded",
         met: data.hasStartMilestoneActual,
         detail: data.hasStartMilestoneActual ? "Recorded" : "No actual start date",
       },

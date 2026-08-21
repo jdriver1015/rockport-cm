@@ -91,7 +91,7 @@ export function ScheduleDefaultsPanel({
         <div className="divide-y divide-hairline rounded-card border border-border">
           <div className="grid grid-cols-[1fr_7rem_9rem] gap-3 bg-muted/30 px-3 py-1.5">
             <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-              Milestone
+              Phase
             </span>
             <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
               Days out
@@ -106,7 +106,7 @@ export function ScheduleDefaultsPanel({
                 {SCHEDULE_LABELS[key]}
                 {key === PRE_WALK_KEY && (
                   <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                    not a milestone
+                    not a phase
                   </span>
                 )}
               </Label>

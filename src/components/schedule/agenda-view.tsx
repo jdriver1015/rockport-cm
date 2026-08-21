@@ -53,7 +53,7 @@ export function AgendaView({ projects }: { projects: ScheduleProject[] }) {
   if (milestones.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        No scheduled milestones yet — dates are set when a project moves through its phases.
+        No scheduled phase dates yet — these are set as a project moves through its phases.
       </p>
     );
   }
@@ -74,7 +74,7 @@ export function AgendaView({ projects }: { projects: ScheduleProject[] }) {
             <TableHead>Date</TableHead>
             <TableHead>Property</TableHead>
             <TableHead>Project</TableHead>
-            <TableHead>Milestone</TableHead>
+            <TableHead>Phase</TableHead>
             <TableHead>Phase</TableHead>
           </TableRow>
         </TableHeader>

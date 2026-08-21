@@ -358,6 +358,7 @@ export default async function ProjectDetailPage({
   const phaseRows: PhaseRow[] = milestones.map((m) => ({
     id: m.id,
     label: m.label,
+    phase: m.phase,
     plannedDate: m.plannedDate,
     actualDate: m.actualDate,
     note: m.note,
@@ -551,13 +552,14 @@ export default async function ProjectDetailPage({
           <span className="text-sm text-muted-foreground">
             {nextMilestone
               ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
-              : "All milestones met"}
+              : "All phases met"}
           </span>
         </CardHeader>
         <CardContent>
           <ProjectPhases
             projectId={projectId}
             phases={phaseRows}
+            currentPhase={project.phase}
             gate={gate}
             nextPhaseLabel={upcoming?.label ?? null}
           />
