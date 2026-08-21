@@ -4,9 +4,9 @@
  * in_progress → in_process, punch stays, complete/invoiced/closed → complete.
  */
 export const PROJECT_PHASES = [
-  { key: "precon", label: "Pre-Con", gate: "Scoped, budgeted, contracted, vendor assigned" },
+  { key: "precon", label: "Pre-Construction", gate: "Scoped, budgeted, contracted, vendor assigned" },
   { key: "in_process", label: "In Process", gate: "Work substantially complete" },
-  { key: "punch", label: "Punch", gate: "All punch items resolved" },
+  { key: "punch", label: "Punch and Sign-Off", gate: "All punch items resolved" },
   { key: "complete", label: "Complete", gate: "Costs posted and reconciled" },
 ] as const;
 
