@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2Icon, CircleIcon, EllipsisIcon } from "lucide-react";
+import { ArrowRightIcon, CheckCircle2Icon, CircleIcon, EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -117,7 +117,6 @@ export function ProjectPhases({
   const reached = (row: PhaseRow) =>
     row.phase == null || phaseIndex(row.phase) <= phaseIndex(currentPhase);
   const current = currentIndex === -1 ? null : defaults[currentIndex];
-  const doneCount = defaults.filter((p) => p.actualDate).length;
   // Always phase order, never the order the rows came back in and never with the
   // current one lifted to the top. A project in Complete showed Complete above
   // Pre-Construction, which reads as the sequence rather than as emphasis.
@@ -131,18 +130,6 @@ export function ProjectPhases({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
-        <span className="text-sm text-muted-foreground">
-          {current
-            ? `Phase ${currentIndex + 1} of ${defaults.length}`
-            : `${defaults.length} phases`}
-          {current?.plannedDate ? ` · planned ${fmtDate(current.plannedDate)}` : ""}
-        </span>
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {doneCount} of {defaults.length} met
-        </span>
-      </div>
-
       <div
         className={cn(
           GRID,
@@ -156,18 +143,26 @@ export function ProjectPhases({
         <div className="text-right">Actions</div>
       </div>
 
-      <div className="divide-y divide-hairline border-y border-border">
+      <div className="border-y border-border">
         {ordered.map((row) => {
           const isCurrent = row.id === current?.id;
           return (
-            <div key={row.id} className={cn(isCurrent && "bg-muted/30")}>
-              <div className={cn(GRID, "px-3", isCurrent ? "py-4" : "py-3")}>
+            <div
+              key={row.id}
+              className={cn(
+                isCurrent
+                  ? "mx-1 my-2 rounded-card border border-border bg-card shadow-[0_1px_2px_rgba(22,35,58,0.05)]"
+                  : "[&:not(:first-child)]:border-t [&:not(:first-child)]:border-hairline",
+              )}
+            >
+              <div className={cn(GRID, isCurrent ? "px-3 py-3.5" : "px-3 py-3")}>
                 {isCurrent ? (
                   <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gold-ink">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                      <span className="size-1.5 rounded-full bg-positive" />
                       Current phase
                     </div>
-                    <div className="mt-1 truncate text-base font-semibold text-navy">
+                    <div className="mt-1 truncate text-[17px] font-semibold text-navy">
                       {row.label}
                     </div>
                     {row.note && (
@@ -532,88 +527,97 @@ function GateRow({
   const [openGate, setOpenGate] = useState<PreconGateKey | null>(null);
 
   return (
-    <div className="border-t border-hairline px-3 py-3.5">
-      <div className="grid grid-cols-[minmax(170px,1fr)_auto] items-start gap-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-          Action items
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {gate.checks.map((check) => {
-            const body = (
-              <>
-                {check.met ? (
-                  <CheckCircle2Icon className="size-3.5" />
-                ) : (
-                  <CircleIcon className="size-3.5" />
-                )}
-                {check.label}
-                <span
-                  className={cn(
-                    "font-normal",
-                    check.met ? "text-positive/80" : check.next ? "text-navy/60" : "text-ink-300",
-                  )}
-                >
-                  · {check.detail}
-                </span>
-              </>
-            );
-            // Three states, not two. Met is settled, the next one is what to do
-            // now, and the rest are further down the queue — flattening the last
-            // two gave four identical buttons and no sense of order.
-            const shape = cn(
-              "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px] font-medium",
-              check.met
-                ? "border-positive/30 bg-positive-bg text-positive"
-                : check.next
-                  ? "border-navy/40 bg-navy/[0.04] text-navy"
-                  : "border-dashed border-border text-ink-400",
-            );
-            // A gate with something behind it is a button; a met gate stays a
-            // button too, because you still open it to see or change what met it.
-            if (check.key && context) {
-              return (
-                <button
-                  key={check.label}
-                  type="button"
-                  title={check.detail}
-                  onClick={() => setOpenGate(check.key!)}
-                  className={cn(shape, "transition-colors hover:border-solid hover:bg-track")}
-                >
-                  {body}
-                </button>
-              );
-            }
-            return (
-              <span key={check.label} title={check.detail} className={shape}>
-                {body}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
+    <div className="border-t border-hairline px-3.5 py-3">
       {/*
-        One segment per gate, in gate order, so the bar and the buttons above it
-        are the same list read twice. A count on its own ("2 of 4") does not say
-        which two.
+        The count and the bar on one line, the things you click on the next. One
+        segment per gate in gate order, so the bar and the buttons under it are
+        the same list read twice — a count alone ("2 of 4") does not say which two.
       */}
-      <div className="mt-3 flex items-center gap-3">
-        <div className="flex flex-1 gap-1" aria-hidden>
+      <div className="flex items-center gap-2.5">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+          Action items
+        </span>
+        <ArrowRightIcon className="size-3 shrink-0 text-ink-100" />
+        <div className="flex w-24 shrink-0 gap-1" aria-hidden>
           {gate.checks.map((check) => (
             <span
               key={check.label}
               className={cn(
-                "h-1 flex-1 rounded-full",
-                check.met ? "bg-positive" : check.next ? "bg-navy/35" : "bg-track",
+                "h-[3px] flex-1 rounded-full",
+                check.met ? "bg-positive" : check.next ? "bg-ink-300" : "bg-track",
               )}
             />
           ))}
         </div>
-        <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
-          {gate.allMet
-            ? `all met — ready for ${nextPhaseLabel ?? "the next phase"}`
-            : `${gate.metCount} of ${gate.checks.length} met to advance${nextPhaseLabel ? ` to ${nextPhaseLabel}` : ""}`}
+        <span className="min-w-0 text-[12px] text-muted-foreground">
+          {gate.allMet ? (
+            <>all met — ready for {nextPhaseLabel ?? "the next phase"}</>
+          ) : (
+            <>
+              <span className="tabular-nums">
+                {gate.metCount} of {gate.checks.length}
+              </span>{" "}
+              met to advance
+              {nextPhaseLabel ? (
+                <>
+                  {" to "}
+                  <span className="text-ink-500">{nextPhaseLabel}</span>
+                </>
+              ) : null}
+            </>
+          )}
         </span>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        {gate.checks.map((check) => {
+          const body = (
+            <>
+              {check.met ? (
+                <CheckCircle2Icon className={cn("size-3.5", !check.next && "text-positive")} />
+              ) : (
+                <CircleIcon className="size-3.5" />
+              )}
+              {check.label}
+            </>
+          );
+          // Three states, not two. Met is settled, the next one is the thing to
+          // do now and gets the only filled button on the row, and the rest are
+          // further down the queue. The detail moves to the title: four buttons
+          // each carrying "· 3 out for bid" was a paragraph, not a row.
+          const shape = cn(
+            "inline-flex items-center gap-1.5 rounded-control border px-3 py-1.5 text-[12.5px] font-medium",
+            check.next
+              ? "border-positive bg-positive text-white"
+              : check.met
+                ? "border-border bg-card text-ink-700"
+                : "border-border bg-card text-ink-400",
+          );
+          // A gate with something behind it is a button; a met gate stays a
+          // button too, because you still open it to see or change what met it.
+          if (check.key && context) {
+            return (
+              <button
+                key={check.label}
+                type="button"
+                title={check.detail}
+                onClick={() => setOpenGate(check.key!)}
+                className={cn(
+                  shape,
+                  "transition-colors",
+                  check.next ? "hover:bg-positive/90" : "hover:bg-track",
+                )}
+              >
+                {body}
+              </button>
+            );
+          }
+          return (
+            <span key={check.label} title={check.detail} className={shape}>
+              {body}
+            </span>
+          );
+        })}
       </div>
 
       {context && (

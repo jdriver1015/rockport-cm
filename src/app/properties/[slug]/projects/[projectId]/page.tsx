@@ -538,7 +538,7 @@ export default async function ProjectDetailPage({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-5">
+          <div className="mx-[calc(var(--card-spacing)*-1)] grid grid-cols-2 border-y border-border sm:grid-cols-5 [&>*]:border-border [&>*]:px-[var(--card-spacing)] [&>*]:py-3.5 sm:[&>*:not(:first-child)]:border-l">
             <HeaderKpi label="Approved budget" value={money(budgetAmt)} />
             <HeaderKpi
               label="Committed"
@@ -566,7 +566,7 @@ export default async function ProjectDetailPage({
             />
           </div>
 
-          <div className="mt-5 border-t border-border pt-4">
+          <div className="pt-1">
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-base font-semibold text-navy">Project phases</h2>
               <span className="text-sm text-muted-foreground">
