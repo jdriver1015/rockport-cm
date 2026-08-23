@@ -716,7 +716,6 @@ function GateRow({
           scopeConfirmedAt={context.scopeConfirmedAt}
           scopeLocked={context.scopeLocked}
           findings={context.preWalkFindings}
-          hasPreWalk={context.preWalkAuditStatus != null}
         />
       )}
 

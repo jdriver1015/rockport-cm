@@ -44,21 +44,40 @@ export type ScopeLine = {
   item: string;
   materialQuality: string | null;
   quantity: string | null;
+  unitPrice: string | null;
   costCodeName: string | null;
 };
 
+/** Qty × unit cost, or null when the line has not been costed. */
+export function lineTotal(line: { quantity: string | null; unitPrice: string | null }) {
+  if (line.unitPrice == null || line.unitPrice === "") return null;
+  const unit = Number(line.unitPrice);
+  if (!Number.isFinite(unit)) return null;
+  const qty = line.quantity == null || line.quantity === "" ? 1 : Number(line.quantity);
+  if (!Number.isFinite(qty)) return null;
+  return unit * qty;
+}
+
+const usd = (n: number) =>
+  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** One grid for the header, every row and the totals, so the columns line up. */
+const SCOPE_GRID =
+  "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_92px_minmax(0,110px)_28px] items-start gap-2";
+
 /**
- * Resolve the Define Scope gate.
+ * Resolve the Confirm Scope and Budget gate.
  *
- * It lists every line, because confirming is a commitment — it is the gate, and
- * sending afterwards locks the pricing fields — and asking someone to confirm
- * "10 lines" they cannot see is asking them to guess.
+ * One table, because the scope and the budget are one thing: the budget is what
+ * the scope costs. They were two stacked sections asking you to reconcile a
+ * number against a list by eye, which is the work the screen should be doing.
  *
- * Only the fields a vendor prices against are editable here: the wording, the
- * quantity, and whether the line belongs at all. Cost codes, dates, vendors and
- * spec grids stay on the scope list below, which is built for them. Missing cost
- * codes are flagged rather than fixed, because this is the last moment before
- * the scope is priced and a line with no code will not reconcile later.
+ * Editable here: the wording, the quantity, the unit cost, and whether the line
+ * belongs at all — everything that decides what a vendor is asked to price and
+ * what it is expected to come to. Cost codes, dates, vendors and spec grids stay
+ * on the scope list below, which is built for them. Missing cost codes are
+ * flagged rather than fixed: this is the last moment before the scope is priced,
+ * and a line with no code will not reconcile later.
  */
 export function DefineScopeDialog({
   open,
@@ -70,7 +89,6 @@ export function DefineScopeDialog({
   scopeConfirmedAt,
   scopeLocked,
   findings,
-  hasPreWalk,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -83,8 +101,6 @@ export function DefineScopeDialog({
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
   scopeLocked: boolean;
   findings: PreWalkFinding[];
-  /** False when no pre-walk has been started, which changes the empty state. */
-  hasPreWalk: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -92,19 +108,21 @@ export function DefineScopeDialog({
   const scopeLineCount = lines.length;
   const missingCode = lines.filter((l) => !l.costCodeName).length;
   const [approved, setApproved] = useState(budget.approved > 0 ? String(budget.approved) : "");
-  const [costCodeId, setCostCodeId] = useState(
-    budget.costCodeId == null ? "" : String(budget.costCodeId),
-  );
+
+  // What the lines actually add up to. Null lines contribute nothing, so an
+  // uncosted scope totals zero rather than guessing at a number.
+  const costed = lines.map(lineTotal).filter((n): n is number => n != null);
+  const scopeTotal = costed.reduce((a, b) => a + b, 0);
+  const uncostedCount = lines.length - costed.length;
 
   const approvedValue = Number(approved);
   const budgetOk = approved.trim() !== "" && Number.isFinite(approvedValue) && approvedValue > 0;
+  // Worth saying out loud when they disagree: one of the two is wrong, and
+  // which one is a judgement only the person can make.
+  const differs = budgetOk && scopeTotal > 0 && Math.abs(approvedValue - scopeTotal) >= 1;
 
   function saveBudget() {
-    return setProjectBudget({
-      projectId,
-      budgetAmount: approved.trim(),
-      ...(budget.kind === "common" ? { costCodeId } : {}),
-    });
+    return setProjectBudget({ projectId, budgetAmount: approved.trim() });
   }
 
   const importable = findings.filter((f) => !f.inScope);
@@ -207,17 +225,107 @@ export function DefineScopeDialog({
                 Nothing scoped yet.
               </p>
             ) : (
-              <div className="max-h-72 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
-                {lines.map((line, i) => (
-                  <ScopeLineRow
-                    key={line.id}
-                    index={i + 1}
-                    line={line}
-                    propertyId={propertyId}
-                    projectId={projectId}
-                    locked={scopeLocked}
-                  />
-                ))}
+              <div className="rounded-card border border-border">
+                <div className={cn(SCOPE_GRID, "border-b border-border px-3 py-1.5")}>
+                  <span />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
+                    Item
+                  </span>
+                  <span className="text-right text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
+                    Qty
+                  </span>
+                  <span className="text-right text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
+                    Unit $
+                  </span>
+                  <span className="text-right text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
+                    Total
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
+                    Cost code
+                  </span>
+                  <span />
+                </div>
+
+                <div className="max-h-64 divide-y divide-hairline overflow-y-auto">
+                  {lines.map((line, i) => (
+                    <ScopeLineRow
+                      key={line.id}
+                      index={i + 1}
+                      line={line}
+                      propertyId={propertyId}
+                      projectId={projectId}
+                      locked={scopeLocked}
+                    />
+                  ))}
+                </div>
+
+                {/*
+                  The budget sits at the foot of the scope rather than in a
+                  section of its own, because it is the scope's total. Seeded
+                  from the lines, overridable for a lump sum nobody has broken
+                  down yet.
+                */}
+                <div className="border-t border-border bg-muted/25 px-3 py-2.5">
+                  <div className={cn(SCOPE_GRID, "items-center")}>
+                    <span />
+                    <span className="text-[12px] text-muted-foreground">
+                      {uncostedCount > 0
+                        ? `${costed.length} of ${lines.length} lines costed`
+                        : "All lines costed"}
+                    </span>
+                    <span />
+                    <span className="text-right text-[11px] uppercase tracking-[0.08em] text-ink-300">
+                      Scope
+                    </span>
+                    <span className="text-right text-[13px] font-semibold tabular-nums text-navy">
+                      {scopeTotal > 0 ? usd(scopeTotal) : "—"}
+                    </span>
+                    <span />
+                    <span />
+                  </div>
+
+                  <div className={cn(SCOPE_GRID, "mt-2 items-center")}>
+                    <span />
+                    <label
+                      htmlFor="confirm-budget"
+                      className="text-[13px] font-medium text-navy"
+                    >
+                      Approved budget
+                    </label>
+                    <span />
+                    <span />
+                    <Input
+                      id="confirm-budget"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="h-8 text-right text-[13px] tabular-nums"
+                      value={approved}
+                      disabled={pending || scopeLocked}
+                      onChange={(e) => setApproved(e.target.value)}
+                    />
+                    <span>
+                      {differs && !scopeLocked && (
+                        <button
+                          type="button"
+                          className="text-[11.5px] text-link hover:underline"
+                          onClick={() => setApproved(String(Math.round(scopeTotal * 100) / 100))}
+                        >
+                          Use scope total
+                        </button>
+                      )}
+                    </span>
+                    <span />
+                  </div>
+
+                  {differs && (
+                    <p className="mt-1.5 pl-8 text-[11.5px] text-alert">
+                      The approved budget is {usd(Math.abs(approvedValue - scopeTotal))}{" "}
+                      {approvedValue > scopeTotal ? "above" : "below"} what the lines add up to.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -232,153 +340,90 @@ export function DefineScopeDialog({
             )}
           </div>
 
-          <div className="space-y-2">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-              Budget
-            </span>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label
-                  htmlFor="confirm-budget"
-                  className="text-[12px] font-medium text-ink-600"
-                >
-                  Approved budget ($)
-                </label>
-                <Input
-                  id="confirm-budget"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="25000"
-                  className="h-9 tabular-nums"
-                  value={approved}
-                  disabled={pending}
-                  onChange={(e) => setApproved(e.target.value)}
-                />
+          {importable.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+                  From the pre-walk
+                </span>
+                {importable.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-link hover:underline"
+                    onClick={() =>
+                      setPicked((p) =>
+                        p.size === importable.length ? new Set() : new Set(importable.map((f) => f.id)),
+                      )
+                    }
+                  >
+                    {picked.size === importable.length ? "Clear all" : "Select all"}
+                  </button>
+                )}
               </div>
-              {budget.kind === "common" ? (
-                <div className="space-y-1">
-                  <label
-                    htmlFor="confirm-cost-code"
-                    className="text-[12px] font-medium text-ink-600"
-                  >
-                    UW line item
-                  </label>
-                  <select
-                    id="confirm-cost-code"
-                    value={costCodeId}
-                    disabled={pending}
-                    onChange={(e) => setCostCodeId(e.target.value)}
-                    className="h-9 w-full rounded-control border border-input bg-card px-3 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    <option value="">Not coded yet</option>
-                    {budget.costCodes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <p className="self-end text-[11.5px] text-muted-foreground">
-                  An interior turn spends across every 4000-series code, so it has no single UW
-                  line item.
-                </p>
-              )}
-            </div>
-          </div>
 
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-                From the pre-walk
-              </span>
-              {importable.length > 0 && (
-                <button
-                  type="button"
-                  className="text-[11px] text-link hover:underline"
-                  onClick={() =>
-                    setPicked((p) =>
-                      p.size === importable.length ? new Set() : new Set(importable.map((f) => f.id)),
-                    )
-                  }
-                >
-                  {picked.size === importable.length ? "Clear all" : "Select all"}
-                </button>
-              )}
-            </div>
-
-            {!hasPreWalk ? (
-              <p className="rounded-card border border-border bg-muted/30 px-3 py-3 text-[13px] text-muted-foreground">
-                No pre-walk yet. Walk the unit first and its findings will land here — that is what
-                the scope is written from.
-              </p>
-            ) : findings.length === 0 ? (
-              <p className="rounded-card border border-border bg-muted/30 px-3 py-3 text-[13px] text-muted-foreground">
-                The pre-walk has no findings recorded yet.
-              </p>
-            ) : (
-              <div className="max-h-64 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
-                {findings.map((f) => (
-                  <label
-                    key={f.id}
-                    className={cn(
-                      "flex items-start gap-2.5 px-3 py-2",
-                      f.inScope ? "bg-hairline/50" : "cursor-pointer hover:bg-track",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 size-3.5 accent-navy"
-                      disabled={f.inScope || pending}
-                      checked={f.inScope || picked.has(f.id)}
-                      onChange={(e) =>
-                        setPicked((p) => {
-                          const next = new Set(p);
-                          if (e.target.checked) next.add(f.id);
-                          else next.delete(f.id);
-                          return next;
-                        })
-                      }
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-baseline gap-2">
-                        <span
-                          className={cn(
-                            "text-[13px]",
-                            f.inScope ? "text-ink-300" : "font-medium text-navy",
+              {(
+                <div className="max-h-64 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
+                  {findings.map((f) => (
+                    <label
+                      key={f.id}
+                      className={cn(
+                        "flex items-start gap-2.5 px-3 py-2",
+                        f.inScope ? "bg-hairline/50" : "cursor-pointer hover:bg-track",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-3.5 accent-navy"
+                        disabled={f.inScope || pending}
+                        checked={f.inScope || picked.has(f.id)}
+                        onChange={(e) =>
+                          setPicked((p) => {
+                            const next = new Set(p);
+                            if (e.target.checked) next.add(f.id);
+                            else next.delete(f.id);
+                            return next;
+                          })
+                        }
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-2">
+                          <span
+                            className={cn(
+                              "text-[13px]",
+                              f.inScope ? "text-ink-300" : "font-medium text-navy",
+                            )}
+                          >
+                            {f.title}
+                          </span>
+                          {f.location && (
+                            <span className="text-[11px] text-muted-foreground">{f.location}</span>
                           )}
-                        >
-                          {f.title}
+                          {f.inScope && (
+                            <span className="text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
+                              already scope
+                            </span>
+                          )}
                         </span>
-                        {f.location && (
-                          <span className="text-[11px] text-muted-foreground">{f.location}</span>
-                        )}
-                        {f.inScope && (
-                          <span className="text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                            already scope
+                        {f.description && (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {f.description}
                           </span>
                         )}
                       </span>
-                      {f.description && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {f.description}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
+                    </label>
+                  ))}
+                </div>
+              )}
 
-            {importable.length > 0 && (
-              <div className="flex justify-end">
-                <Button size="sm" disabled={pending || picked.size === 0} onClick={importPicked}>
-                  Add {picked.size} to scope
-                </Button>
-              </div>
-            )}
-          </div>
+              {importable.length > 0 && (
+                <div className="flex justify-end">
+                  <Button size="sm" disabled={pending || picked.size === 0} onClick={importPicked}>
+                    Add {picked.size} to scope
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2 border-t border-border pt-4">
             <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
@@ -423,12 +468,16 @@ export function DefineScopeDialog({
               <>
                 <p className="min-w-0 flex-1 text-[12.5px] text-ink-600">
                   <CheckCircle2Icon className="mr-1.5 inline size-3.5 -translate-y-px text-positive" />
-                  Confirmed {fmtDate(scopeConfirmedAt)}. Both stay editable until you send it out
-                  for pricing.
+                  Confirmed {fmtDate(scopeConfirmedAt)}.{" "}
+                  {scopeLocked
+                    ? "Out for pricing — withdraw the requests to change anything."
+                    : "Both stay editable until you send it out for pricing."}
                 </p>
-                <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
-                  Re-open
-                </Button>
+                {!scopeLocked && (
+                  <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
+                    Re-open
+                  </Button>
+                )}
               </>
             ) : (
               <>
@@ -480,9 +529,16 @@ function ScopeLineRow({
   const [pending, startTransition] = useTransition();
   const [item, setItem] = useState(line.item);
   const [quantity, setQuantity] = useState(line.quantity ?? "");
+  const [unitPrice, setUnitPrice] = useState(line.unitPrice ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  function save(patch: { item?: string; quantity?: string | null }, revert: () => void) {
+  // Off the edited values, not the saved ones, so the number moves as you type.
+  const total = lineTotal({ quantity: quantity || null, unitPrice: unitPrice || null });
+
+  function save(
+    patch: { item?: string; quantity?: string | null; unitPrice?: string | null },
+    revert: () => void,
+  ) {
     startTransition(async () => {
       const res = await updateScopeItem({ id: line.id, propertyId, projectId, ...patch });
       if (!res.ok) {
@@ -495,10 +551,10 @@ function ScopeLineRow({
   }
 
   return (
-    <div className="flex items-start gap-2.5 px-3 py-2">
-      <span className="w-5 shrink-0 pt-2 text-[11px] tabular-nums text-ink-300">{index}</span>
+    <div className={cn(SCOPE_GRID, "px-3 py-2")}>
+      <span className="pt-2 text-[11px] tabular-nums text-ink-300">{index}</span>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <Input
           className="h-8 text-[13px]"
           value={item}
@@ -522,60 +578,75 @@ function ScopeLineRow({
         )}
       </div>
 
-      <div className="w-20 shrink-0">
-        <Input
-          className="h-8 text-right text-[13px] tabular-nums"
-          placeholder="Qty"
-          inputMode="decimal"
-          value={quantity}
-          disabled={pending || locked}
-          onChange={(e) => setQuantity(e.target.value)}
-          onBlur={() => {
-            const next = quantity.trim();
-            if (next === (line.quantity ?? "")) return;
-            save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
-          }}
-          aria-label={`Line ${index} quantity`}
-        />
-      </div>
+      <Input
+        className="h-8 text-right text-[13px] tabular-nums"
+        placeholder="Qty"
+        inputMode="decimal"
+        value={quantity}
+        disabled={pending || locked}
+        onChange={(e) => setQuantity(e.target.value)}
+        onBlur={() => {
+          const next = quantity.trim();
+          if (next === (line.quantity ?? "")) return;
+          save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
+        }}
+        aria-label={`Line ${index} quantity`}
+      />
 
-      <div className="w-32 shrink-0 pt-2">
+      <Input
+        className="h-8 text-right text-[13px] tabular-nums"
+        placeholder="Unit $"
+        inputMode="decimal"
+        value={unitPrice}
+        disabled={pending || locked}
+        onChange={(e) => setUnitPrice(e.target.value)}
+        onBlur={() => {
+          const next = unitPrice.trim();
+          if (next === (line.unitPrice ?? "")) return;
+          save({ unitPrice: next || null }, () => setUnitPrice(line.unitPrice ?? ""));
+        }}
+        aria-label={`Line ${index} unit cost`}
+      />
+
+      <span
+        className={cn(
+          "pt-2 text-right text-[13px] tabular-nums",
+          total == null ? "text-ink-300" : "text-ink-700",
+        )}
+      >
+        {total == null ? "—" : usd(total)}
+      </span>
+
+      <span className="min-w-0 pt-2">
         {line.costCodeName ? (
           <span className="block truncate text-[11.5px] text-ink-500">{line.costCodeName}</span>
         ) : (
           <span className="text-[11.5px] text-alert">No cost code</span>
         )}
-      </div>
+      </span>
 
-      <div className="w-16 shrink-0 pt-1 text-right">
+      <span className="pt-1.5 text-right">
         {locked ? null : confirmDelete ? (
-          <div className="flex items-center justify-end gap-1">
-            <button
-              type="button"
-              className="text-[11px] text-muted-foreground hover:underline"
-              onClick={() => setConfirmDelete(false)}
-            >
-              No
-            </button>
-            <button
-              type="button"
-              className="text-[11px] font-medium text-alert hover:underline"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await deleteScopeItem({ id: line.id, propertyId, projectId });
-                  if (!res.ok) {
-                    toast.error(res.error);
-                    return;
-                  }
-                  setConfirmDelete(false);
-                  router.refresh();
-                })
-              }
-            >
-              Remove
-            </button>
-          </div>
+          <button
+            type="button"
+            className="text-[11px] font-medium text-alert hover:underline"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const res = await deleteScopeItem({ id: line.id, propertyId, projectId });
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
+                setConfirmDelete(false);
+                router.refresh();
+              })
+            }
+            onBlur={() => setConfirmDelete(false)}
+            aria-label={`Confirm removing line ${index}`}
+          >
+            Sure?
+          </button>
         ) : (
           <button
             type="button"
@@ -587,7 +658,7 @@ function ScopeLineRow({
             <Trash2Icon className="size-3.5" />
           </button>
         )}
-      </div>
+      </span>
     </div>
   );
 }

@@ -586,6 +586,7 @@ export default async function ProjectDetailPage({
                   item: r.item,
                   materialQuality: r.materialQuality,
                   quantity: r.quantity,
+                  unitPrice: r.unitPrice,
                   costCodeName:
                     activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
                 })),
@@ -596,7 +597,7 @@ export default async function ProjectDetailPage({
                   costCodes: activeCostCodes,
                   kind: project.kind,
                 },
-                scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString() ?? null,
+                scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
                 preWalkFindings,
                 bidPackage,
                 preWalkDate: precon.preWalkDate,
