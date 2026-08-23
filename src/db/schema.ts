@@ -454,6 +454,64 @@ export const projectStageEvents = pgTable("project_stage_events", {
  * A milestone tied to a `phase` gets its `actualDate` stamped automatically the
  * first time the project enters that phase; untied milestones are set by hand.
  */
+/**
+ * The boilerplate a contract is built from.
+ *
+ * Text, not an uploaded PDF: the generated document interleaves these terms with
+ * an Exhibit A whose length varies with the scope, and merging a fixed PDF
+ * cannot do that. Rendering the whole thing keeps it one file with one page
+ * count — which is also what an e-signature provider wants.
+ */
+export const contractTemplates = pgTable("contract_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  body: text("body").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  /** Bumped on every save, so a stale editor cannot overwrite a newer one. */
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
+
+/**
+ * One row per attempt at getting a contract signed — not one per project.
+ *
+ * A contract that is voided and reissued is two rows, and that history is the
+ * answer to "why did this unit sit for three weeks". A partial unique index
+ * keeps at most one non-voided row per project.
+ */
+export const projectContracts = pgTable("project_contracts", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
+  bidId: integer("bid_id")
+    .notNull()
+    .references(() => bids.id),
+  templateId: integer("template_id").references(() => contractTemplates.id),
+  /**
+   * draft → out_for_signature → vendor_signed → executed, or voided.
+   * Only executed meets the gate: a subcontract binds when both sides sign.
+   */
+  status: text("status").notNull().default("draft"),
+  /**
+   * The terms as they were when this contract was generated. The template can
+   * be edited afterwards and what was signed must not change with it.
+   */
+  bodySnapshot: text("body_snapshot").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  /** Set in phase C, when an e-signature provider is wired up. */
+  providerEnvelopeId: text("provider_envelope_id"),
+  storageKey: text("storage_key"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  vendorSignedAt: timestamp("vendor_signed_at", { withTimezone: true }),
+  countersignedAt: timestamp("countersigned_at", { withTimezone: true }),
+  executedAt: timestamp("executed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => profiles.id),
+}, (t) => [index("project_contracts_project_idx").on(t.projectId)]);
+
 export const projectMilestones = pgTable("project_milestones", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")

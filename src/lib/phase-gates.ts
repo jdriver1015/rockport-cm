@@ -60,6 +60,8 @@ export type PreconGateState = {
   directAward: boolean;
   /** Days since the contract went out for signature. Null when it has not. */
   contractOutDays: number | null;
+  /** The live contract's status, or null when none has been generated. */
+  contractStatus: string | null;
   /** A non-archived bid on this project with approved = true. */
   hasApprovedBid: boolean;
   /** Bids sent and not yet returned — progress while none is approved. */
@@ -163,17 +165,22 @@ function contractCheck(state: PreconGateState): GateCheck {
   if (state.contractOutDays != null) {
     return {
       key: "contract",
-      label: "Out for Signature",
+      label: state.contractStatus === "vendor_signed" ? "Awaiting Countersign" : "Out for Signature",
       met: false,
-      detail: "Awaiting signatures",
+      detail: state.contractStatus === "vendor_signed" ? "Vendor has signed" : "Sent to the vendor",
       waitingDays: state.contractOutDays,
     };
+  }
+  // A generated draft nobody has sent is a different problem from no contract
+  // at all, and the difference is whose desk it is on.
+  if (state.contractStatus === "draft") {
+    return { key: "contract", label: "Send for Signature", met: false, detail: "Draft ready" };
   }
   return {
     key: "contract",
     label: "Sign Contract",
     met: false,
-    detail: state.hasApprovedBid ? "Ready to send" : "Awaiting a selected bid",
+    detail: state.hasApprovedBid ? "Ready to generate" : "Awaiting a selected bid",
   };
 }
 

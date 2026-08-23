@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ProjectCostBar } from "@/components/project-cost-bar";
 import { daysSince } from "@/lib/duration";
 import { readPhaseClock } from "@/lib/phase-clock";
+import { readContract } from "@/lib/contracts";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
 import {
@@ -437,6 +438,7 @@ export default async function ProjectDetailPage({
   // so the dialog names exactly the bid the Select Bid screen shows as awarded.
   const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
 
+  const liveContract = await readContract(projectId);
   const clock = await readPhaseClock(projectId, project.phase);
   const daysInPhase = daysSince(clock.phaseEnteredAt);
   const daysInTurn = daysSince(project.startDate ?? clock.startedAt);
@@ -575,7 +577,14 @@ export default async function ProjectDetailPage({
                 preWalkTime: precon.preWalkTime,
                 preWalkAuditId: precon.preWalkAuditId,
                 preWalkAuditStatus: precon.preWalkAuditStatus,
-                contractSignedAt: precon.contractSignedAt,
+                contract: liveContract
+                  ? {
+                      ...liveContract,
+                      sentAt: liveContract.sentAt?.toISOString() ?? null,
+                      vendorSignedAt: liveContract.vendorSignedAt?.toISOString() ?? null,
+                      executedAt: liveContract.executedAt?.toISOString() ?? null,
+                    }
+                  : null,
                 award: awardedBid
                   ? { vendorName: awardedBid.vendorName, total: awardedBid.total }
                   : null,

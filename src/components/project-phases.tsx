@@ -22,7 +22,7 @@ import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
 import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
 import { SelectBidDialog } from "@/components/select-bid-dialog";
-import { ContractDialog } from "@/components/contract-dialog";
+import { ContractDialog, type ContractView } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
 
 /** What the pre-con gate dialogs need to resolve their gate. */
@@ -37,7 +37,8 @@ export type GateContext = {
   preWalkTime: string | null;
   preWalkAuditId: number | null;
   preWalkAuditStatus: "draft" | "complete" | null;
-  contractSignedAt: string | null;
+  /** The live contract, if one has been generated. */
+  contract: ContractView | null;
   /** The awarded bid, for the contract dialog to confirm. */
   award: { vendorName: string | null; total: number } | null;
 };
@@ -690,7 +691,7 @@ function GateRow({
           open={openGate === "contract"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           projectId={projectId}
-          contractSignedAt={context.contractSignedAt}
+          contract={context.contract}
           award={context.award}
         />
       )}

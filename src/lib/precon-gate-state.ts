@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { PreconGateState } from "@/lib/phase-gates";
 
@@ -18,7 +18,7 @@ export type PreconGateExtras = {
 export async function readPreconGateState(
   projectId: number,
 ): Promise<PreconGateState & PreconGateExtras> {
-  const [project, preWalk, scope, bids] = await Promise.all([
+  const [project, preWalk, scope, bids, contract] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
       columns: { preWalkDate: true, preWalkTime: true, contractSignedAt: true, scopeConfirmedAt: true },
@@ -59,6 +59,15 @@ export async function readPreconGateState(
       })
       .from(schema.bids)
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
+    // The live contract. Voided rows are history and must not hold the gate.
+    db().query.projectContracts.findFirst({
+      where: and(
+        eq(schema.projectContracts.projectId, projectId),
+        ne(schema.projectContracts.status, "voided"),
+      ),
+      orderBy: desc(schema.projectContracts.id),
+      columns: { status: true, sentAt: true, createdAt: true },
+    }),
   ]);
 
   return {
@@ -70,10 +79,17 @@ export async function readPreconGateState(
     bidsSent: bids[0]?.sent ?? 0,
     oldestSentDays: bids[0]?.oldestSentDays ?? null,
     directAward: (bids[0]?.direct ?? 0) > 0,
-    // Nothing writes this yet — the signature envelope arrives with the
-    // contract wizard in the next phase of work. Reading null keeps the gate
-    // honest rather than guessing at a state that does not exist.
-    contractOutDays: null,
+    // Days the contract has been with the other side. Only counts once it has
+    // actually gone out — a generated draft sitting on our desk is our delay,
+    // not theirs, and lumping the two together would hide which is which.
+    contractStatus: contract?.status ?? null,
+    contractOutDays:
+      contract && (contract.status === "out_for_signature" || contract.status === "vendor_signed")
+        ? Math.max(
+            0,
+            Math.floor((Date.now() - (contract.sentAt ?? contract.createdAt).getTime()) / 86_400_000),
+          )
+        : null,
     hasApprovedBid: (bids[0]?.approved ?? 0) > 0,
     bidsOutstanding: bids[0]?.outstanding ?? 0,
     contractSignedAt: project?.contractSignedAt ?? null,
