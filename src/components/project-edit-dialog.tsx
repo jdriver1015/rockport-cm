@@ -17,10 +17,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateProject } from "@/lib/actions/projects";
 
+export type ProjectCostCodeOption = { id: number; code: string; name: string };
+
 export type ProjectEditData = {
   id: number;
   name: string;
   kind: "unit" | "common";
+  /** Common-area only: the UW line item this reconciles to. */
+  costCodeId: number | null;
+  /** Common-area only. Zero means no budget approved yet. */
+  budgetAmount: string | null;
   startDate: string | null;
   completeDate: string | null;
   notes: string | null;
@@ -31,8 +37,13 @@ export type ProjectEditData = {
 
 export function ProjectEditDialog({
   project,
+  costCodes,
   ...dialog
-}: { project: ProjectEditData } & ControllableDialog) {
+}: {
+  project: ProjectEditData;
+  /** Non-interior codes from this property's chart. Empty for a unit turn. */
+  costCodes: ProjectCostCodeOption[];
+} & ControllableDialog) {
   const router = useRouter();
   const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   const [busy, setBusy] = useState(false);
@@ -63,10 +74,56 @@ export function ProjectEditDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit project</DialogTitle>
-          <DialogDescription>Update the project’s details and dates.</DialogDescription>
+          <DialogDescription>
+            {project.kind === "common"
+              ? "The cost code and budget live here — a project is created with just a name."
+              : "Update the project’s details and dates."}
+          </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <input type="hidden" name="projectId" value={project.id} />
+
+          {/*
+            An interior turn spends across every 4000-series code and gets its
+            budget from a renovation template, so neither field applies to it.
+          */}
+          {project.kind === "common" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="project-cost-code">UW line item (cost code)</Label>
+                <select
+                  id="project-cost-code"
+                  name="costCodeId"
+                  defaultValue={project.costCodeId == null ? "" : String(project.costCodeId)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <option value="">Not coded yet</option>
+                  {costCodes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="project-budget">Approved budget ($)</Label>
+                <Input
+                  id="project-budget"
+                  name="budgetAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="25000"
+                  defaultValue={
+                    project.budgetAmount && Number(project.budgetAmount) > 0
+                      ? project.budgetAmount
+                      : ""
+                  }
+                />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="project-name">Name</Label>
             <Input id="project-name" name="name" required defaultValue={project.name} />

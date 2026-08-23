@@ -10,14 +10,19 @@ import { propertyPath } from "@/lib/property-path";
 import { projectSlug } from "@/lib/slug";
 import { defaultMilestoneRows } from "@/lib/milestones";
 
+/**
+ * Creating takes a name and nothing else.
+ *
+ * The cost code, the budget and the dates are all set on the project's own
+ * screen. They used to be required here, which meant committing to a budget for
+ * something that did not exist yet — and a cost code chosen from a dropdown of
+ * eighty, before anyone had looked at the work.
+ */
 const createProjectSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   kind: z.enum(["unit", "common"]),
-  name: z.string().trim().min(1).optional(),
-  costCodeId: z.coerce.number().int().positive().optional(),
+  name: z.string().trim().min(1, "Give the project a name"),
   unitNumber: z.string().trim().min(1).optional(),
-  budgetAmount: z.coerce.number().nonnegative().optional(),
-  startDate: z.string().trim().optional(),
 });
 
 export async function createProject(
@@ -26,17 +31,19 @@ export async function createProject(
   const parsed = createProjectSchema.safeParse({
     propertyId: formData.get("propertyId"),
     kind: formData.get("kind"),
-    name: formData.get("name") || undefined,
-    costCodeId: formData.get("costCodeId") || undefined,
+    name: formData.get("name"),
     unitNumber: formData.get("unitNumber") || undefined,
-    budgetAmount: formData.get("budgetAmount") || undefined,
-    startDate: formData.get("startDate") || undefined,
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
 
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, d.propertyId),
+    columns: { id: true },
+  });
+  if (!property) return { ok: false, error: "Property not found" };
+
   let unitId: number | undefined;
-  let name = d.name;
 
   if (d.kind === "unit") {
     if (!d.unitNumber) return { ok: false, error: "Unit number is required for a unit project" };
@@ -55,23 +62,6 @@ export async function createProject(
         .returning();
       unitId = unit.id;
     }
-    name ??= `Unit ${d.unitNumber} Interior`;
-  } else {
-    if (!d.costCodeId) return { ok: false, error: "Cost code is required for a common project" };
-    const code = await db().query.costCodes.findFirst({
-      where: eq(schema.costCodes.id, d.costCodeId),
-    });
-    if (!code) return { ok: false, error: "Cost code not found" };
-    // The code must belong to this property's chart of accounts.
-    const property = await db().query.properties.findFirst({
-      where: eq(schema.properties.id, d.propertyId),
-      columns: { chartOfAccountsId: true },
-    });
-    if (!property) return { ok: false, error: "Property not found" };
-    if (code.chartId !== property.chartOfAccountsId) {
-      return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
-    }
-    if (!name) name = code.name ?? "Project";
   }
 
   const [project] = await db()
@@ -79,11 +69,8 @@ export async function createProject(
     .values({
       propertyId: d.propertyId,
       kind: d.kind,
-      name: name!,
-      costCodeId: d.kind === "common" ? d.costCodeId : undefined,
+      name: d.name,
       unitId,
-      budgetAmount: (d.budgetAmount ?? 0).toFixed(2),
-      startDate: d.startDate || undefined,
     })
     .returning();
 
@@ -121,6 +108,21 @@ const optDate = z
 const updateProjectSchema = z.object({
   projectId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, "Name is required"),
+  /**
+   * The UW line item this project reconciles to, and its approved budget. Set
+   * here rather than at creation — creating asks for a name and nothing else,
+   * so this is the only place either is chosen.
+   *
+   * Empty clears them: a project can genuinely be uncoded or unbudgeted while
+   * it is being worked out, and the cost bar says so.
+   */
+  costCodeId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? Number(v) : null))
+    .refine((v) => v === null || Number.isInteger(v), "Invalid cost code"),
+  budgetAmount: optMoney,
   startDate: optDate,
   completeDate: optDate,
   notes: z
@@ -138,6 +140,11 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
   const parsed = updateProjectSchema.safeParse({
     projectId: formData.get("projectId"),
     name: formData.get("name"),
+    // formData.get returns null for a field the form did not render, and these
+    // two are only rendered for common projects. A bare null fails the string
+    // schema, so editing any unit project would come back "Invalid input".
+    costCodeId: formData.get("costCodeId") ?? undefined,
+    budgetAmount: formData.get("budgetAmount") ?? undefined,
     startDate: formData.get("startDate"),
     completeDate: formData.get("completeDate"),
     notes: formData.get("notes"),
@@ -153,10 +160,38 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
   });
   if (!project) return { ok: false, error: "Project not found" };
 
+  // The code has to belong to this property's chart. This check used to live on
+  // creation; it follows the field here rather than being dropped, because a
+  // project coded to another property's chart reconciles against nothing.
+  if (d.costCodeId != null) {
+    const [code, property] = await Promise.all([
+      db().query.costCodes.findFirst({ where: eq(schema.costCodes.id, d.costCodeId) }),
+      db().query.properties.findFirst({
+        where: eq(schema.properties.id, project.propertyId),
+        columns: { chartOfAccountsId: true },
+      }),
+    ]);
+    if (!code) return { ok: false, error: "Cost code not found" };
+    if (!property) return { ok: false, error: "Property not found" };
+    if (code.chartId !== property.chartOfAccountsId) {
+      return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
+    }
+  }
+
+  const budget = d.budgetAmount == null ? null : Number(d.budgetAmount);
+  if (budget != null && (!Number.isFinite(budget) || budget < 0)) {
+    return { ok: false, error: "Enter a valid budget" };
+  }
+
   await db()
     .update(schema.projects)
     .set({
       name: d.name,
+      // An interior turn spends across every 4000-series code, so a single UW
+      // line item would be a lie. Its budget comes from the renovation template.
+      ...(project.kind === "common"
+        ? { costCodeId: d.costCodeId, budgetAmount: (budget ?? 0).toFixed(2) }
+        : {}),
       startDate: d.startDate,
       completeDate: d.completeDate,
       notes: d.notes,

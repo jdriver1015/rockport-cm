@@ -506,8 +506,10 @@ export default async function ProjectDetailPage({
               <p className="text-sm text-muted-foreground">
                 {costCode ? (
                   <>UW line item: {costCode.name}</>
-                ) : (
+                ) : project.kind === "unit" ? (
                   "Interior unit turn — spend across all interior codes"
+                ) : (
+                  <span className="text-alert">Not coded to a UW line item yet</span>
                 )}
                 {unit ? ` · Unit ${unit.unitNumber}` : ""}
                 {vendor ? ` · ${vendor.name}` : ""}
@@ -526,6 +528,8 @@ export default async function ProjectDetailPage({
                 id: project.id,
                 name: project.name,
                 kind: project.kind,
+                costCodeId: project.costCodeId,
+                budgetAmount: project.budgetAmount,
                 startDate: project.startDate,
                 completeDate: project.completeDate,
                 notes: project.notes,
@@ -536,6 +540,7 @@ export default async function ProjectDetailPage({
               audits={projectAudits}
               findingsByAudit={findingsByAudit}
               auditProjects={[{ id: projectId, name: project.name }, ...otherProjectOptions]}
+              costCodes={activeCostCodes}
               defaultAuditor={profile?.fullName ?? null}
             />
           </div>

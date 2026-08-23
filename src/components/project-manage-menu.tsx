@@ -19,7 +19,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DocumentsDialogButton, type DocumentRow } from "@/components/document-manager";
 import { ActivityLogDialogButton } from "@/components/project-log-dialog";
-import { ProjectEditDialog, type ProjectEditData } from "@/components/project-edit-dialog";
+import {
+  ProjectEditDialog,
+  type ProjectCostCodeOption,
+  type ProjectEditData,
+} from "@/components/project-edit-dialog";
 import { ArchiveProjectDialog } from "@/components/archive-project-dialog";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { AddAuditDialog } from "@/components/add-audit-dialog";
@@ -57,6 +61,7 @@ export function ProjectManageMenu({
   documents,
   activityLog,
   editData,
+  costCodes,
   audits,
   findingsByAudit,
   auditProjects,
@@ -71,6 +76,8 @@ export function ProjectManageMenu({
   documents: DocumentRow[];
   activityLog: ActivityLogRow[];
   editData: ProjectEditData;
+  /** Non-interior codes from this property's chart, for the edit dialog. */
+  costCodes: ProjectCostCodeOption[];
   audits: SiteAuditRow[];
   findingsByAudit: Map<number, number>;
   auditProjects: { id: number; name: string }[];
@@ -144,7 +151,8 @@ export function ProjectManageMenu({
         />
       )}
       {panel === "edit" && (
-        <ProjectEditDialog project={editData} open onOpenChange={(o) => !o && close()} />
+        <ProjectEditDialog
+          costCodes={costCodes} project={editData} open onOpenChange={(o) => !o && close()} />
       )}
       {panel === "archive" && (
         <ArchiveProjectDialog
