@@ -12,9 +12,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CheckCircle2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/pre-walk";
 import { createScopeItem } from "@/lib/actions/scope";
+import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 
 export type PreWalkFinding = {
   id: number;
@@ -40,6 +43,7 @@ export function DefineScopeDialog({
   propertyId,
   projectId,
   scopeLineCount,
+  scopeConfirmedAt,
   findings,
   hasPreWalk,
 }: {
@@ -48,6 +52,8 @@ export function DefineScopeDialog({
   propertyId: number;
   projectId: number;
   scopeLineCount: number;
+  /** Set once the scope is agreed as ready to price — pre-con gate 2. */
+  scopeConfirmedAt: string | null;
   findings: PreWalkFinding[];
   /** False when no pre-walk has been started, which changes the empty state. */
   hasPreWalk: boolean;
@@ -73,6 +79,31 @@ export function DefineScopeDialog({
           ? `${res.added} line(s) added — ${res.skipped} were already scope`
           : `${res.added} line(s) added to scope`,
       );
+      router.refresh();
+    });
+  }
+
+  function confirm() {
+    startTransition(async () => {
+      const res = await confirmScope({ projectId });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Scope confirmed — ready to send out for pricing");
+      onOpenChange(false);
+      router.refresh();
+    });
+  }
+
+  function unconfirm() {
+    startTransition(async () => {
+      const res = await unconfirmScope({ projectId });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Scope re-opened");
       router.refresh();
     });
   }
@@ -223,6 +254,37 @@ export function DefineScopeDialog({
               Cost codes, quantities and dates are set on the scope list below — this just gets the
               line onto it.
             </p>
+          </div>
+
+          {/*
+            Confirming is gate 2, and it is also the last free edit: sending the
+            scope out is what locks it, so this is where a person should be told
+            that before they press anything.
+          */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-muted/30 px-3.5 py-3">
+            {scopeConfirmedAt ? (
+              <>
+                <p className="min-w-0 flex-1 text-[12.5px] text-ink-600">
+                  <CheckCircle2Icon className="mr-1.5 inline size-3.5 -translate-y-px text-positive" />
+                  Confirmed {fmtDate(scopeConfirmedAt)}. It stays editable until you send it out for
+                  pricing.
+                </p>
+                <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
+                  Re-open
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
+                  {scopeLineCount === 0
+                    ? "Add at least one line before confirming."
+                    : "Confirm when these lines are what you want priced."}
+                </p>
+                <Button size="sm" disabled={pending || scopeLineCount === 0} onClick={confirm}>
+                  Confirm scope
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </DialogContent>

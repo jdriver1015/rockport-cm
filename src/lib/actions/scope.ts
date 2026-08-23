@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { SCOPE_STATUS_KEYS } from "@/lib/scope-status";
 import { propertyProjectPath } from "@/lib/property-path";
+import { checkScopeEditable, checkScopeStructureEditable } from "@/lib/scope-lock";
 
 async function revalidateProject(propertyId: number, projectId: number) {
   const path = await propertyProjectPath(propertyId, projectId);
@@ -58,6 +59,9 @@ export async function createScopeItem(
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
+
+  const locked = await checkScopeStructureEditable(d.projectId);
+  if (locked) return { ok: false, error: locked };
 
   const [{ maxOrder }] = await db()
     .select({ maxOrder: sql<number>`coalesce(max(${schema.scopeItems.sortOrder}), 0)::int` })
@@ -148,6 +152,10 @@ export async function updateScopeItem(input: {
   }
 
   if (Object.keys(set).length === 0) return { ok: true };
+
+  const locked = await checkScopeEditable(input.projectId, Object.keys(set));
+  if (locked) return { ok: false, error: locked };
+
   await db().update(schema.scopeItems).set(set).where(eq(schema.scopeItems.id, input.id));
   await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
@@ -158,6 +166,9 @@ export async function deleteScopeItem(input: {
   propertyId: number;
   projectId: number;
 }): Promise<ActionResult> {
+  const locked = await checkScopeStructureEditable(input.projectId);
+  if (locked) return { ok: false, error: locked };
+
   await db()
     .update(schema.scopeItems)
     .set({ archivedAt: new Date() })
@@ -172,6 +183,9 @@ export async function restoreScopeItem(input: {
   propertyId: number;
   projectId: number;
 }): Promise<ActionResult> {
+  const locked = await checkScopeStructureEditable(input.projectId);
+  if (locked) return { ok: false, error: locked };
+
   await db()
     .update(schema.scopeItems)
     .set({ archivedAt: null })

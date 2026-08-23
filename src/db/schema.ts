@@ -397,6 +397,14 @@ export const projects = pgTable("projects", {
    * contract are coming, and all of them end by asserting a signing date, so the
    * eventual wizard fills this column rather than replacing it.
    */
+  /**
+   * When the scope was confirmed as ready to price — pre-con gate 2.
+   *
+   * Cleared when the RFPs that locked the scope are withdrawn, so re-opening
+   * the scope for editing re-opens the gate rather than leaving it ticked
+   * against something that has since changed.
+   */
+  scopeConfirmedAt: timestamp("scope_confirmed_at", { withTimezone: true }),
   contractSignedAt: date("contract_signed_at"),
   preWalkDate: date("pre_walk_date"),
   /**
@@ -490,6 +498,14 @@ export const bids = pgTable("bids", {
    * rather than there being a second table for requests.
    */
   status: text("status").notNull().default("draft"),
+  /**
+   * How the work was let: "rfp" (sent out and priced) or "direct" (assigned
+   * without competition). A direct award is still a bid row so the award,
+   * committed cost and the contract all read off one place either way.
+   */
+  source: text("source").notNull().default("rfp"),
+  /** Why competition was skipped. Required on a direct award, null otherwise. */
+  awardReason: text("award_reason"),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   note: text("note"),
   /** Soft-delete: hidden from the bids list but restorable. Null = active. */

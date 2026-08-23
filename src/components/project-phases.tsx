@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowRightIcon, CheckCircle2Icon, CircleIcon, EllipsisIcon } from "lucide-react";
+import { AlertCircleIcon, CheckCircle2Icon, ChevronRightIcon, CircleIcon, EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -30,6 +30,7 @@ export type GateContext = {
   propertyId: number;
   propertySlug: string;
   scopeLineCount: number;
+  scopeConfirmedAt: string | null;
   preWalkFindings: PreWalkFinding[];
   bidPackage: BidPackageOption;
   preWalkDate: string | null;
@@ -54,7 +55,10 @@ export type PhaseRow = {
 };
 
 /** The one grid the header and every row share, so columns line up. */
-const GRID = "grid grid-cols-[minmax(170px,1fr)_112px_112px_84px_auto] items-center gap-3";
+const GRID = "grid grid-cols-[minmax(150px,1fr)_112px_112px_84px_auto] items-center gap-3";
+
+/** The rail the step markers sit on, and the gutter between it and the row. */
+const RAIL = "flex w-5 shrink-0 flex-col items-center";
 
 function varianceDays(planned: string | null, actual: string | null): number | null {
   if (!planned || !actual) return null;
@@ -130,73 +134,112 @@ export function ProjectPhases({
 
   return (
     <div className="space-y-3">
-      <div
-        className={cn(
-          GRID,
-          "border-b border-border px-3 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300",
-        )}
-      >
-        <div>Phase</div>
-        <div className="text-right">Planned</div>
-        <div className="text-right">Actual</div>
-        <div className="text-right">Var</div>
-        <div className="text-right">Actions</div>
+      <div className="flex gap-3">
+        <div className="w-5 shrink-0" aria-hidden />
+        <div
+          className={cn(
+            GRID,
+            "flex-1 border-b border-border px-1 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300",
+          )}
+        >
+          <div>Phase</div>
+          <div className="text-right">Planned</div>
+          <div className="text-right">Actual</div>
+          <div className="text-right">Var</div>
+          <div className="text-right">Actions</div>
+        </div>
       </div>
 
-      <div className="border-y border-border">
-        {ordered.map((row) => {
+      {/*
+        A rail with a marker per phase, rather than four equal table rows. The
+        phase you are in is the only one that expands, so the ones you are not
+        in cost a line each instead of a row of empty cells — and pre-con, which
+        carries most of the work, gets the room its five gates need.
+      */}
+      <div>
+        {ordered.map((row, i) => {
           const isCurrent = row.id === current?.id;
+          const done = !!row.actualDate;
+          const last = i === ordered.length - 1;
+          // Reached but never stamped. Worth showing as a warning rather than
+          // as an empty cell: it means the project moved past a phase without
+          // anyone recording when, and the variance column silently gives up.
+          const skipped = !isCurrent && !done && reached(row);
+
           return (
-            <div
-              key={row.id}
-              className={cn(
-                isCurrent
-                  ? "mx-1 my-2 rounded-card border border-border bg-card shadow-[0_1px_2px_rgba(22,35,58,0.05)]"
-                  : "[&:not(:first-child)]:border-t [&:not(:first-child)]:border-hairline",
-              )}
-            >
-              <div className={cn(GRID, isCurrent ? "px-3 py-3.5" : "px-3 py-3")}>
-                {isCurrent ? (
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
-                      <span className="size-1.5 rounded-full bg-positive" />
-                      Current phase
-                    </div>
-                    <div className="mt-1 truncate text-[17px] font-semibold text-navy">
-                      {row.label}
-                    </div>
-                    {row.note && (
-                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.note}</div>
-                    )}
-                  </div>
+            <div key={row.id} className="flex gap-3">
+              <div className={RAIL}>
+                {done ? (
+                  <CheckCircle2Icon className="size-[18px] shrink-0 text-positive" />
+                ) : isCurrent ? (
+                  <span className="flex size-[18px] shrink-0 items-center justify-center">
+                    <span className="size-2.5 rounded-full bg-navy" />
+                  </span>
+                ) : skipped ? (
+                  <AlertCircleIcon className="size-[18px] shrink-0 text-alert/70" />
                 ) : (
-                  <PhaseName phase={row} />
+                  <CircleIcon className="size-[18px] shrink-0 text-ink-100" />
                 )}
-                <PhaseDates phase={row} canEditActual={reached(row)} emphasise={isCurrent} />
-                <PhaseActions
-                  phase={row}
-                  projectId={projectId}
-                  isCurrent={isCurrent}
-                  advance={
-                    isCurrent && gate && nextPhaseLabel
-                      ? {
-                          key: gate.toPhase,
-                          label: nextPhaseLabel,
-                          allMet: gate.allMet,
-                          outstanding: gate.checks.length - gate.metCount,
-                        }
-                      : undefined
-                  }
-                />
+                {!last && (
+                  <div
+                    className={cn("w-px flex-1", done ? "bg-positive/30" : "bg-border")}
+                    aria-hidden
+                  />
+                )}
               </div>
-              {isCurrent && gate && gate.checks.length > 0 && (
-                <GateRow
-                  gate={gate}
-                  nextPhaseLabel={nextPhaseLabel}
-                  projectId={projectId}
-                  context={gateContext}
-                />
-              )}
+
+              <div className={cn("min-w-0 flex-1", last ? "pb-0" : "pb-3")}>
+                <div className={cn(GRID, "px-1")}>
+                  {isCurrent ? (
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                        Current phase
+                      </div>
+                      <div className="mt-0.5 truncate text-[17px] font-semibold text-navy">
+                        {row.label}
+                      </div>
+                      {row.note && (
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {row.note}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <PhaseName phase={row} hideIcon />
+                  )}
+                  <PhaseDates phase={row} canEditActual={reached(row)} emphasise={isCurrent} />
+                  <PhaseActions
+                    phase={row}
+                    projectId={projectId}
+                    isCurrent={isCurrent}
+                    advance={
+                      isCurrent && gate && nextPhaseLabel
+                        ? {
+                            key: gate.toPhase,
+                            label: nextPhaseLabel,
+                            allMet: gate.allMet,
+                            outstanding: gate.checks.length - gate.metCount,
+                          }
+                        : undefined
+                    }
+                  />
+                </div>
+
+                {skipped && (
+                  <div className="px-1 pt-0.5 text-[11.5px] text-alert/80">
+                    Passed through with no date recorded
+                  </div>
+                )}
+
+                {isCurrent && gate && gate.checks.length > 0 && (
+                  <GateRow
+                    gate={gate}
+                    nextPhaseLabel={nextPhaseLabel}
+                    projectId={projectId}
+                    context={gateContext}
+                  />
+                )}
+              </div>
             </div>
           );
         })}
@@ -309,7 +352,7 @@ function PhaseDates({
   );
 }
 
-function PhaseName({ phase }: { phase: PhaseRow }) {
+function PhaseName({ phase, hideIcon }: { phase: PhaseRow; hideIcon?: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [label, setLabel] = useState(phase.label);
@@ -350,14 +393,15 @@ function PhaseName({ phase }: { phase: PhaseRow }) {
           phase.isDefault ? "cursor-default" : "hover:text-link",
         )}
       >
-        {phase.actualDate ? (
-          <CheckCircle2Icon className="size-3.5 shrink-0 text-positive" />
-        ) : (
-          <CircleIcon className="size-3.5 shrink-0 text-ink-100" />
-        )}
+        {!hideIcon &&
+          (phase.actualDate ? (
+            <CheckCircle2Icon className="size-3.5 shrink-0 text-positive" />
+          ) : (
+            <CircleIcon className="size-3.5 shrink-0 text-ink-100" />
+          ))}
         <span className="truncate">{phase.label}</span>
       </button>
-      {phase.note && <div className="mt-0.5 truncate pl-5 text-xs text-muted-foreground">{phase.note}</div>}
+      {phase.note && <div className="mt-0.5 truncate text-xs text-muted-foreground">{phase.note}</div>}
     </div>
   );
 }
@@ -527,24 +571,21 @@ function GateRow({
   const [openGate, setOpenGate] = useState<PreconGateKey | null>(null);
 
   return (
-    <div className="border-t border-hairline px-3.5 py-3">
+    <>
+      <div className="mt-2 rounded-card border border-border bg-muted/25">
       {/*
-        The count and the bar on one line, the things you click on the next. One
-        segment per gate in gate order, so the bar and the buttons under it are
-        the same list read twice — a count alone ("2 of 4") does not say which two.
+        One row per gate, not a row of chips. Pre-con carries most of the work,
+        and its five steps each have a state, a wait and a thing to press —
+        which is more than a chip can say without becoming a paragraph.
       */}
-      <div className="flex items-center gap-2.5">
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-          Action items
-        </span>
-        <ArrowRightIcon className="size-3 shrink-0 text-ink-100" />
-        <div className="flex w-24 shrink-0 gap-1" aria-hidden>
+      <div className="flex items-center gap-2.5 px-3 py-2">
+        <div className="flex w-20 shrink-0 gap-1" aria-hidden>
           {gate.checks.map((check) => (
             <span
               key={check.label}
               className={cn(
                 "h-[3px] flex-1 rounded-full",
-                check.met ? "bg-positive" : check.next ? "bg-ink-300" : "bg-track",
+                check.met ? "bg-positive" : check.next ? "bg-navy/40" : "bg-track",
               )}
             />
           ))}
@@ -569,60 +610,75 @@ function GateRow({
         </span>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {gate.checks.map((check) => {
-          const body = (
-            <>
-              {check.met ? (
-                <CheckCircle2Icon className={cn("size-3.5", !check.next && "text-positive")} />
-              ) : (
-                <CircleIcon className="size-3.5" />
-              )}
-              {check.label}
-            </>
-          );
-          // Three states, not two. Met is settled, the next one is the thing to
-          // do now and gets the only filled button on the row, and the rest are
-          // further down the queue. The detail moves to the title: four buttons
-          // each carrying "· 3 out for bid" was a paragraph, not a row.
-          const shape = cn(
-            "inline-flex items-center gap-1.5 rounded-control border px-3 py-1.5 text-[12.5px] font-medium",
-            check.next
-              ? "border-positive bg-positive text-white"
-              : check.met
-                ? "border-border bg-card text-ink-700"
-                : "border-border bg-card text-ink-400",
-          );
-          // A gate with something behind it is a button; a met gate stays a
-          // button too, because you still open it to see or change what met it.
-          if (check.key && context) {
-            return (
-              <button
-                key={check.label}
-                type="button"
-                title={check.detail}
-                onClick={() => setOpenGate(check.key!)}
+      {gate.checks.map((check) => {
+        const clickable = !!(check.key && context);
+        return (
+          <div
+            key={check.label}
+            className={cn(
+              "grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-hairline px-3 py-2",
+              check.next && "bg-card",
+            )}
+          >
+            {check.met ? (
+              <CheckCircle2Icon className="size-4 text-positive" />
+            ) : check.next ? (
+              <span className="flex size-4 items-center justify-center">
+                <span className="size-2 rounded-full bg-navy" />
+              </span>
+            ) : (
+              <CircleIcon className="size-4 text-ink-100" />
+            )}
+
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <span
                 className={cn(
-                  shape,
-                  "transition-colors",
-                  check.next ? "hover:bg-positive/90" : "hover:bg-track",
+                  "truncate text-[13px]",
+                  check.next ? "font-medium text-navy" : check.met ? "text-ink-600" : "text-ink-400",
                 )}
               >
-                {body}
-              </button>
-            );
-          }
-          return (
-            <span key={check.label} title={check.detail} className={shape}>
-              {body}
-            </span>
-          );
-        })}
-      </div>
+                {check.label}
+              </span>
+              <span className="truncate text-[12px] text-muted-foreground">{check.detail}</span>
+              {/*
+                The only number on this screen that is somebody else's fault.
+                Both gates that can show it are waiting on a vendor, and that
+                wait is where turns actually go late.
+              */}
+              {check.waitingDays != null && (
+                <span
+                  className={cn(
+                    "rounded-control px-1.5 py-0.5 text-[11px] tabular-nums",
+                    check.waitingDays >= 5
+                      ? "bg-alert/10 text-alert"
+                      : "bg-track text-muted-foreground",
+                  )}
+                >
+                  waiting {check.waitingDays}d
+                </span>
+              )}
+            </div>
+
+            {clickable ? (
+              <Button
+                size="sm"
+                variant={check.next ? "default" : "ghost"}
+                onClick={() => setOpenGate(check.key!)}
+              >
+                {check.met ? "View" : check.next ? "Open" : "Open"}
+                <ChevronRightIcon className="size-3.5" />
+              </Button>
+            ) : (
+              <span />
+            )}
+          </div>
+        );
+      })}
+    </div>
 
       {context && (
         <SelectBidDialog
-          open={openGate === "bid" || (openGate === "rfp" && context.scopeLineCount > 0)}
+          open={openGate === "bid" || openGate === "rfp"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           projectId={projectId}
           data={context.bidPackage}
@@ -639,18 +695,14 @@ function GateRow({
         />
       )}
 
-      {/*
-        Send RFP resolves to whichever thing is actually blocking it. With no
-        scope there is nothing to send, so the button opens the scope; with scope
-        it opens the package. From the person's side it is one errand.
-      */}
       {context && (
         <DefineScopeDialog
-          open={openGate === "rfp" && context.scopeLineCount === 0}
+          open={openGate === "scope"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}
           projectId={projectId}
           scopeLineCount={context.scopeLineCount}
+          scopeConfirmedAt={context.scopeConfirmedAt}
           findings={context.preWalkFindings}
           hasPreWalk={context.preWalkAuditStatus != null}
         />
@@ -668,6 +720,6 @@ function GateRow({
           auditStatus={context.preWalkAuditStatus}
         />
       )}
-    </div>
+    </>
   );
 }

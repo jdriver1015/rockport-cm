@@ -4,6 +4,9 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ProjectCostBar } from "@/components/project-cost-bar";
+import { daysSince } from "@/lib/duration";
+import { readPhaseClock } from "@/lib/phase-clock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
 import {
@@ -21,7 +24,7 @@ import { readBidPackage } from "@/lib/bid-package";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
 import { TierBadge } from "@/components/ui/tier-badge";
-import { fmtDate, money, num } from "@/lib/format";
+import { fmtDate, num } from "@/lib/format";
 import { nextPhase } from "@/lib/stages";
 import { phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
@@ -367,11 +370,6 @@ export default async function ProjectDetailPage({
     isDefault: m.isDefault,
   }));
 
-  // Current stage = the most recently completed milestone.
-  const completedMilestones = milestones.filter((m) => m.actualDate);
-  const activeMilestone = completedMilestones.length
-    ? completedMilestones[completedMilestones.length - 1]
-    : null;
 
 
   const slips = milestones
@@ -390,9 +388,6 @@ export default async function ProjectDetailPage({
     return worst == null || d > worst.days ? { days: d, label: m.label } : worst;
   }, null);
   const worstSlip = slips.length ? Math.max(...slips) : null;
-  const scheduleLabel =
-    worstSlip == null ? "No dates yet" : worstSlip > 0 ? `+${worstSlip}d late` : worstSlip < 0 ? `${worstSlip}d early` : "On plan";
-  const scheduleColor = worstSlip == null ? "text-muted-foreground" : worstSlip > 0 ? "text-alert" : "text-positive";
 
   // The next phase is the one after the phase the project is IN, not the first
   // row with no actual date. On a project in Complete that read "next
@@ -403,17 +398,9 @@ export default async function ProjectDetailPage({
     ? (milestones.find((m) => m.phase === upcoming.key) ?? null)
     : null;
 
-  // Spend against the approved budget — drives the "Over budget" pill and the
-  // red sub-line under Actual to date.
-  const overBy = budgetAmt > 0 ? spentAmt - budgetAmt : 0;
-  const isOverBudget = overBy > 0;
-  const pctOfApproved = budgetAmt > 0 ? Math.round((spentAmt / budgetAmt) * 100) : null;
-  const actualNote =
-    budgetAmt <= 0
-      ? undefined
-      : isOverBudget
-        ? `+${money(overBy)} · ${pctOfApproved}% of approved`
-        : `${pctOfApproved}% of approved`;
+  // Drives the "Over budget" pill beside the title. The cost bar owns the rest
+  // of the money story now, including the amount and the share of approved.
+  const isOverBudget = budgetAmt > 0 && spentAmt > budgetAmt;
 
   const scheduleNote =
     worstSlipEntry && worstSlipEntry.days > 0
@@ -422,10 +409,6 @@ export default async function ProjectDetailPage({
         ? "No slippage recorded"
         : undefined;
 
-  const doneCount = completedMilestones.length;
-  const stageNote = milestones.length
-    ? `${doneCount} of ${milestones.length}${nextMilestone ? ` · next ${nextMilestone.label}` : " · final phase"}`
-    : undefined;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
 
@@ -453,6 +436,18 @@ export default async function ProjectDetailPage({
   // The bid the contract is for. Read off the package rather than queried again
   // so the dialog names exactly the bid the Select Bid screen shows as awarded.
   const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
+
+  const clock = await readPhaseClock(projectId, project.phase);
+  const daysInPhase = daysSince(clock.phaseEnteredAt);
+  const daysInTurn = daysSince(project.startDate ?? clock.startedAt);
+
+  // What the bids say the job costs, for the pre-con state where no budget has
+  // been approved yet. That is the live money question during pre-con, and the
+  // header could not answer it at all.
+  const bidTotals = bidPackage.bids.filter((b) => b.total > 0).map((b) => b.total);
+  const bidRange = bidTotals.length
+    ? { low: Math.min(...bidTotals), high: Math.max(...bidTotals) }
+    : null;
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
@@ -539,31 +534,21 @@ export default async function ProjectDetailPage({
           </div>
 
           <div className="mx-[calc(var(--card-spacing)*-1)] grid grid-cols-2 border-y border-border sm:grid-cols-5 [&>*]:border-border [&>*]:px-[var(--card-spacing)] [&>*]:py-3.5 sm:[&>*:not(:first-child)]:border-l">
-            <HeaderKpi label="Approved budget" value={money(budgetAmt)} />
+            <div className="col-span-2 sm:col-span-3">
+              <ProjectCostBar
+                approved={budgetAmt}
+                committed={committedAmt}
+                actual={spentAmt}
+                bidRange={bidRange}
+              />
+            </div>
             <HeaderKpi
-              label="Committed"
-              value={committedAmt > 0 ? money(committedAmt) : "Not set"}
-              valueClassName={committedAmt > 0 ? undefined : "font-normal text-ink-300"}
-              note={committedAmt > 0 ? undefined : "Set by approving a bid"}
-            />
-            <HeaderKpi
-              label="Actual to date"
-              value={money(spentAmt)}
-              valueClassName={isOverBudget ? "text-alert" : undefined}
-              note={actualNote}
-              noteClassName={isOverBudget ? "text-alert" : undefined}
-            />
-            <HeaderKpi
-              label="Schedule"
-              value={scheduleLabel}
-              valueClassName={scheduleColor}
+              label="In this phase"
+              value={daysInPhase == null ? "\u2014" : `${daysInPhase}d`}
               note={scheduleNote}
+              noteClassName={worstSlip != null && worstSlip > 0 ? "text-alert" : undefined}
             />
-            <HeaderKpi
-              label="Current stage"
-              value={activeMilestone ? activeMilestone.label : "Not started"}
-              note={stageNote}
-            />
+            <HeaderKpi label="Turn to date" value={daysInTurn == null ? "\u2014" : `${daysInTurn}d`} />
           </div>
 
           <div className="pt-1">
@@ -583,6 +568,7 @@ export default async function ProjectDetailPage({
                 propertyId,
                 propertySlug: slug,
                 scopeLineCount: scopeRows.length,
+                scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString() ?? null,
                 preWalkFindings,
                 bidPackage,
                 preWalkDate: precon.preWalkDate,

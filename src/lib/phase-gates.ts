@@ -8,7 +8,7 @@ import type { ProjectPhaseKey } from "@/lib/stages";
  * resolves by clicking something. The later transitions check on-site progress,
  * which no dialog can fix.
  */
-export const PRECON_GATE_KEYS = ["pre_walk", "rfp", "bid", "contract"] as const;
+export const PRECON_GATE_KEYS = ["pre_walk", "scope", "rfp", "bid", "contract"] as const;
 export type PreconGateKey = (typeof PRECON_GATE_KEYS)[number];
 
 export type GateCheck = {
@@ -19,6 +19,12 @@ export type GateCheck = {
    * row reads as a queue rather than four equal buttons.
    */
   next?: boolean;
+  /**
+   * Days this gate has been waiting on somebody outside the company. Only the
+   * two that can stall on a vendor set it — that is where turns actually go
+   * late, and it is invisible everywhere else in the app.
+   */
+  waitingDays?: number;
   /**
    * Reads as the current state rather than the requirement — "Pre-Walk
    * Scheduled" once a date is set, not "Schedule Pre-Walk" — so the row doubles
@@ -44,8 +50,16 @@ export type PreconGateState = {
   /** The linked pre-walk audit's status, or null when no walk exists yet. */
   preWalkAuditStatus: "draft" | "complete" | null;
   scopeLineCount: number;
+  /** projects.scope_confirmed_at — the scope is agreed and ready to price. */
+  scopeConfirmedAt: Date | null;
   /** Any bid has left the building — status past draft, so an RFP went out. */
   bidsSent: number;
+  /** The oldest live request, in days. Null when nothing is out. */
+  oldestSentDays: number | null;
+  /** The award was made without competition, so there was never an RFP. */
+  directAward: boolean;
+  /** Days since the contract went out for signature. Null when it has not. */
+  contractOutDays: number | null;
   /** A non-archived bid on this project with approved = true. */
   hasApprovedBid: boolean;
   /** Bids sent and not yet returned — progress while none is approved. */
@@ -91,7 +105,39 @@ function preWalkCheck(state: PreconGateState): GateCheck {
  * selection — so "RFP Sent" already implies it. Keeping both would have been two
  * rows for one fact, and the design's four are the four that move independently.
  */
+/**
+ * The scope is agreed and ready to price.
+ *
+ * A count of lines is not the same as somebody having looked at them, which is
+ * why this is a stamped date and not `scopeLineCount > 0`. It is also the gate
+ * that makes the scope lock legible: confirming is the last free edit.
+ */
+function scopeCheck(state: PreconGateState): GateCheck {
+  if (state.scopeConfirmedAt) {
+    return {
+      key: "scope",
+      label: "Scope Confirmed",
+      met: true,
+      detail: `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"}`,
+    };
+  }
+  return {
+    key: "scope",
+    label: "Confirm Scope",
+    met: false,
+    detail:
+      state.scopeLineCount > 0
+        ? `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"} drafted`
+        : "No scope yet",
+  };
+}
+
 function rfpCheck(state: PreconGateState): GateCheck {
+  // A direct award never had a request, and never should have. The gate is met
+  // by the decision not to compete, not by pretending one went out.
+  if (state.directAward) {
+    return { key: "rfp", label: "Direct Award", met: true, detail: "No bid required" };
+  }
   if (state.bidsSent > 0) {
     return {
       key: "rfp",
@@ -104,30 +150,41 @@ function rfpCheck(state: PreconGateState): GateCheck {
     key: "rfp",
     label: "Send RFP",
     met: false,
-    detail: state.scopeLineCount > 0 ? "Not sent" : "No scope to send",
+    detail: state.scopeConfirmedAt ? "Not sent" : "Confirm the scope first",
   };
 }
 
 function contractCheck(state: PreconGateState): GateCheck {
   if (state.contractSignedAt) {
+    return { key: "contract", label: "Contract Signed", met: true, detail: state.contractSignedAt };
+  }
+  // Out for signature is its own state, the same way "out for bid" is: the work
+  // is done on our side and the wait belongs to somebody else.
+  if (state.contractOutDays != null) {
     return {
       key: "contract",
-      label: "Contract Signed",
-      met: true,
-      detail: state.contractSignedAt,
+      label: "Out for Signature",
+      met: false,
+      detail: "Awaiting signatures",
+      waitingDays: state.contractOutDays,
     };
   }
   return {
     key: "contract",
     label: "Sign Contract",
     met: false,
-    detail: state.hasApprovedBid ? "Not signed" : "Awaiting a selected bid",
+    detail: state.hasApprovedBid ? "Ready to send" : "Awaiting a selected bid",
   };
 }
 
 function bidCheck(state: PreconGateState): GateCheck {
   if (state.hasApprovedBid) {
-    return { key: "bid", label: "Bid Selected", met: true, detail: "Awarded" };
+    return {
+      key: "bid",
+      label: "Bid Selected",
+      met: true,
+      detail: state.directAward ? "Assigned directly" : "Awarded",
+    };
   }
   if (state.bidsOutstanding > 0) {
     return {
@@ -135,17 +192,21 @@ function bidCheck(state: PreconGateState): GateCheck {
       label: "Select Bid",
       met: false,
       detail: `${state.bidsOutstanding} out for bid`,
+      // Waiting on the vendors, not on us.
+      ...(state.oldestSentDays != null ? { waitingDays: state.oldestSentDays } : {}),
     };
   }
-  return { key: "bid", label: "Select Bid", met: false, detail: "Not sent" };
+  return { key: "bid", label: "Select Bid", met: false, detail: "Nothing out for bid" };
 }
 
 /**
  * Evaluate the gate checks for advancing from one phase to another.
  *
- * Pre-con's three are actionable and ordered walk → scope → bid. Budget set and
- * Vendor assigned used to be separate checks here and are gone: awarding a bid
- * sets both, so they were restating the bid gate.
+ * Pre-con's five are actionable and strictly ordered: walk the unit, write and
+ * confirm the scope from what the walk found, send it out, pick a price, sign
+ * for it. Each one is a thing a person resolves by clicking something, which is
+ * what separates them from the later phases' checks — those watch on-site
+ * progress that no dialog can fix.
  */
 export function evaluateGates(
   fromPhase: ProjectPhaseKey,
@@ -155,7 +216,13 @@ export function evaluateGates(
   let checks: GateCheck[];
 
   if (fromPhase === "precon" && toPhase === "in_process") {
-    checks = [preWalkCheck(data), rfpCheck(data), bidCheck(data), contractCheck(data)];
+    checks = [
+      preWalkCheck(data),
+      scopeCheck(data),
+      rfpCheck(data),
+      bidCheck(data),
+      contractCheck(data),
+    ];
     // The first unmet gate is the next thing to do. Marking it here rather than
     // in the component keeps "what is next" one definition instead of two.
     const firstUnmet = checks.findIndex((c) => !c.met);

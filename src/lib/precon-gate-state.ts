@@ -21,7 +21,7 @@ export async function readPreconGateState(
   const [project, preWalk, scope, bids] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
-      columns: { preWalkDate: true, preWalkTime: true, contractSignedAt: true },
+      columns: { preWalkDate: true, preWalkTime: true, contractSignedAt: true, scopeConfirmedAt: true },
     }),
     // The one pre-walk for this project. A partial unique index guarantees there
     // is at most one, so "the" pre-walk is unambiguous.
@@ -44,7 +44,18 @@ export async function readPreconGateState(
         // An RFP went out. sent_at rather than status, because a vendor who has
         // since returned or declined still received the request — the RFP gate
         // records that the scope left the building, not where it ended up.
-        sent: sql<number>`count(*) filter (where ${schema.bids.sentAt} is not null)::int`,
+        // Sent and not taken back. A withdrawn request is one we pulled so the
+        // scope could change, so it must not hold the gate open — otherwise
+        // withdrawing re-opens the scope while still claiming the RFP is out.
+        // Declined still counts: it did go out, the vendor just said no.
+        sent: sql<number>`count(*) filter (
+          where ${schema.bids.sentAt} is not null and ${schema.bids.status} <> 'withdrawn')::int`,
+        // How long the slowest vendor has been sitting on a request. Whole days
+        // from the send, so "out 6d" matches what a person would count.
+        oldestSentDays: sql<number | null>`
+          max(date_part('day', now() - ${schema.bids.sentAt}))
+            filter (where ${schema.bids.status} = 'sent')::int`,
+        direct: sql<number>`count(*) filter (where ${schema.bids.source} = 'direct' and ${schema.bids.approved})::int`,
       })
       .from(schema.bids)
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
@@ -57,8 +68,15 @@ export async function readPreconGateState(
     preWalkAuditStatus: (preWalk?.status as "draft" | "complete" | undefined) ?? null,
     scopeLineCount: scope[0]?.n ?? 0,
     bidsSent: bids[0]?.sent ?? 0,
+    oldestSentDays: bids[0]?.oldestSentDays ?? null,
+    directAward: (bids[0]?.direct ?? 0) > 0,
+    // Nothing writes this yet — the signature envelope arrives with the
+    // contract wizard in the next phase of work. Reading null keeps the gate
+    // honest rather than guessing at a state that does not exist.
+    contractOutDays: null,
     hasApprovedBid: (bids[0]?.approved ?? 0) > 0,
     bidsOutstanding: bids[0]?.outstanding ?? 0,
     contractSignedAt: project?.contractSignedAt ?? null,
+    scopeConfirmedAt: project?.scopeConfirmedAt ?? null,
   };
 }

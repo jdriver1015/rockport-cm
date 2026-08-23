@@ -11,7 +11,12 @@ import { db, schema } from "@/db";
 // Plain functions, not the actions — so they can be exercised without a request.
 // ---------------------------------------------------------------------------
 
-/** Statuses that mean an RFP is still live with that vendor. */
+/**
+ * Statuses that mean an RFP is still live with that vendor.
+ *
+ * Withdrawn is not among them: a request pulled back so the scope could change
+ * is finished, and that vendor should be sent the new one.
+ */
 const OPEN_STATUSES = ["draft", "sent"] as const;
 
 export type BidPackageOption = {
@@ -156,9 +161,15 @@ export async function sendBidPackageRows(
 
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
-    columns: { id: true },
+    columns: { id: true, scopeConfirmedAt: true },
   });
   if (!project) return { ok: false, error: "Project not found" };
+  // Gate 2 before gate 3. Sending an unconfirmed scope is how a vendor ends up
+  // pricing a draft, and it is also what makes the scope lock meaningful —
+  // sending is the moment the scope stops being editable.
+  if (!project.scopeConfirmedAt) {
+    return { ok: false, error: "Confirm the scope before sending it out" };
+  }
 
   // Only this project's scope. Without the filter a caller could put another
   // project's lines into this package.
