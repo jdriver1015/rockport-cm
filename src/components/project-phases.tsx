@@ -20,7 +20,11 @@ import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
-import { DefineScopeDialog, type PreWalkFinding } from "@/components/define-scope-dialog";
+import {
+  DefineScopeDialog,
+  type PreWalkFinding,
+  type ScopeLine,
+} from "@/components/define-scope-dialog";
 import { SelectBidDialog } from "@/components/select-bid-dialog";
 import { ContractDialog, type ContractView } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
@@ -30,7 +34,10 @@ export type GateContext = {
   propertyId: number;
   propertySlug: string;
   scopeLineCount: number;
+  scopeLines: ScopeLine[];
   scopeConfirmedAt: string | null;
+  /** True once an RFP is out — the scope's priced fields are frozen. */
+  scopeLocked: boolean;
   preWalkFindings: PreWalkFinding[];
   bidPackage: BidPackageOption;
   preWalkDate: string | null;
@@ -702,8 +709,9 @@ function GateRow({
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}
           projectId={projectId}
-          scopeLineCount={context.scopeLineCount}
+          lines={context.scopeLines}
           scopeConfirmedAt={context.scopeConfirmedAt}
+          scopeLocked={context.scopeLocked}
           findings={context.preWalkFindings}
           hasPreWalk={context.preWalkAuditStatus != null}
         />

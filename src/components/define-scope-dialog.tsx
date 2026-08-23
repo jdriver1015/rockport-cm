@@ -12,11 +12,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { CheckCircle2Icon } from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon, LockIcon, Trash2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/pre-walk";
-import { createScopeItem } from "@/lib/actions/scope";
+import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 
 export type PreWalkFinding = {
@@ -29,21 +29,35 @@ export type PreWalkFinding = {
   inScope: boolean;
 };
 
+export type ScopeLine = {
+  id: number;
+  item: string;
+  materialQuality: string | null;
+  quantity: string | null;
+  costCodeName: string | null;
+};
+
 /**
  * Resolve the Define Scope gate.
  *
- * Deliberately not a second copy of the scope editor — that is on the page
- * already, a few inches below. What this offers is the thing that gets a project
- * from no scope to some: the pre-walk's findings, and a one-line add for
- * anything the walk missed.
+ * It lists every line, because confirming is a commitment — it is the gate, and
+ * sending afterwards locks the pricing fields — and asking someone to confirm
+ * "10 lines" they cannot see is asking them to guess.
+ *
+ * Only the fields a vendor prices against are editable here: the wording, the
+ * quantity, and whether the line belongs at all. Cost codes, dates, vendors and
+ * spec grids stay on the scope list below, which is built for them. Missing cost
+ * codes are flagged rather than fixed, because this is the last moment before
+ * the scope is priced and a line with no code will not reconcile later.
  */
 export function DefineScopeDialog({
   open,
   onOpenChange,
   propertyId,
   projectId,
-  scopeLineCount,
+  lines,
   scopeConfirmedAt,
+  scopeLocked,
   findings,
   hasPreWalk,
 }: {
@@ -51,15 +65,20 @@ export function DefineScopeDialog({
   onOpenChange: (open: boolean) => void;
   propertyId: number;
   projectId: number;
-  scopeLineCount: number;
+  lines: ScopeLine[];
   /** Set once the scope is agreed as ready to price — pre-con gate 2. */
   scopeConfirmedAt: string | null;
+  /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
+  scopeLocked: boolean;
   findings: PreWalkFinding[];
   /** False when no pre-walk has been started, which changes the empty state. */
   hasPreWalk: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  const scopeLineCount = lines.length;
+  const missingCode = lines.filter((l) => !l.costCodeName).length;
 
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
@@ -125,17 +144,59 @@ export function DefineScopeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Define scope</DialogTitle>
           <DialogDescription>
-            {scopeLineCount > 0
-              ? `${scopeLineCount} line${scopeLineCount === 1 ? "" : "s"} so far. Pricing comes from the bid — nothing here is costed.`
-              : "The scope is what you send out for bid. Pricing comes back from the vendors."}
+            This is what the vendors will price. Pricing comes back from them — nothing here is
+            costed.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+                Scope · {scopeLineCount} line{scopeLineCount === 1 ? "" : "s"}
+              </span>
+              {scopeLocked && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <LockIcon className="size-3" />
+                  Locked while out for bid
+                </span>
+              )}
+            </div>
+
+            {scopeLineCount === 0 ? (
+              <p className="rounded-card border border-dashed border-border px-3 py-6 text-center text-[13px] text-muted-foreground">
+                Nothing scoped yet.
+              </p>
+            ) : (
+              <div className="max-h-72 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
+                {lines.map((line, i) => (
+                  <ScopeLineRow
+                    key={line.id}
+                    index={i + 1}
+                    line={line}
+                    propertyId={propertyId}
+                    projectId={projectId}
+                    locked={scopeLocked}
+                  />
+                ))}
+              </div>
+            )}
+
+            {missingCode > 0 && (
+              // The last moment this is cheap to fix. After the bid comes back
+              // the spend has nowhere to reconcile to and nobody remembers why.
+              <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
+                <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
+                {missingCode} line{missingCode === 1 ? " has" : "s have"} no cost code — set them on
+                the scope list below or the spend will not reconcile.
+              </p>
+            )}
+          </div>
+
           <div className="space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
@@ -243,10 +304,15 @@ export function DefineScopeDialog({
                 className="h-8 min-w-64 flex-1 text-xs"
                 placeholder="e.g. Replace bathroom exhaust fan"
                 value={manual}
-                disabled={pending}
+                disabled={pending || scopeLocked}
                 onChange={(e) => setManual(e.target.value)}
               />
-              <Button type="submit" size="sm" variant="outline" disabled={pending || !manual.trim()}>
+              <Button
+                type="submit"
+                size="sm"
+                variant="outline"
+                disabled={pending || scopeLocked || !manual.trim()}
+              >
                 Add line
               </Button>
             </form>
@@ -289,5 +355,142 @@ export function DefineScopeDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * One line, as the vendor will see it.
+ *
+ * Saves on blur rather than behind a Save button: this is a review pass, and
+ * making someone confirm each correction before confirming the whole scope is
+ * one ceremony too many. A refused save says why and puts the old value back,
+ * so the row never shows something the database did not accept.
+ */
+function ScopeLineRow({
+  index,
+  line,
+  propertyId,
+  projectId,
+  locked,
+}: {
+  index: number;
+  line: ScopeLine;
+  propertyId: number;
+  projectId: number;
+  locked: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [item, setItem] = useState(line.item);
+  const [quantity, setQuantity] = useState(line.quantity ?? "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  function save(patch: { item?: string; quantity?: string | null }, revert: () => void) {
+    startTransition(async () => {
+      const res = await updateScopeItem({ id: line.id, propertyId, projectId, ...patch });
+      if (!res.ok) {
+        toast.error(res.error);
+        revert();
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex items-start gap-2.5 px-3 py-2">
+      <span className="w-5 shrink-0 pt-2 text-[11px] tabular-nums text-ink-300">{index}</span>
+
+      <div className="min-w-0 flex-1">
+        <Input
+          className="h-8 text-[13px]"
+          value={item}
+          disabled={pending || locked}
+          onChange={(e) => setItem(e.target.value)}
+          onBlur={() => {
+            const next = item.trim();
+            if (!next) {
+              setItem(line.item);
+              return;
+            }
+            if (next === line.item) return;
+            save({ item: next }, () => setItem(line.item));
+          }}
+          aria-label={`Line ${index} description`}
+        />
+        {line.materialQuality && (
+          <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+            {line.materialQuality}
+          </p>
+        )}
+      </div>
+
+      <div className="w-20 shrink-0">
+        <Input
+          className="h-8 text-right text-[13px] tabular-nums"
+          placeholder="Qty"
+          inputMode="decimal"
+          value={quantity}
+          disabled={pending || locked}
+          onChange={(e) => setQuantity(e.target.value)}
+          onBlur={() => {
+            const next = quantity.trim();
+            if (next === (line.quantity ?? "")) return;
+            save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
+          }}
+          aria-label={`Line ${index} quantity`}
+        />
+      </div>
+
+      <div className="w-32 shrink-0 pt-2">
+        {line.costCodeName ? (
+          <span className="block truncate text-[11.5px] text-ink-500">{line.costCodeName}</span>
+        ) : (
+          <span className="text-[11.5px] text-alert">No cost code</span>
+        )}
+      </div>
+
+      <div className="w-16 shrink-0 pt-1 text-right">
+        {locked ? null : confirmDelete ? (
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground hover:underline"
+              onClick={() => setConfirmDelete(false)}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              className="text-[11px] font-medium text-alert hover:underline"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await deleteScopeItem({ id: line.id, propertyId, projectId });
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  setConfirmDelete(false);
+                  router.refresh();
+                })
+              }
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="text-ink-300 transition-colors hover:text-alert"
+            disabled={pending}
+            onClick={() => setConfirmDelete(true)}
+            aria-label={`Remove line ${index}`}
+          >
+            <Trash2Icon className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

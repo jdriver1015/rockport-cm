@@ -8,6 +8,7 @@ import { ProjectCostBar } from "@/components/project-cost-bar";
 import { daysSince } from "@/lib/duration";
 import { readPhaseClock } from "@/lib/phase-clock";
 import { readContract } from "@/lib/contracts";
+import { liveRfpCount } from "@/lib/scope-lock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
 import {
@@ -439,6 +440,10 @@ export default async function ProjectDetailPage({
   const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
 
   const liveContract = await readContract(projectId);
+  // The very function the guard uses, not a re-derivation from the bid list —
+  // a direct award is status "received" with no RFP behind it, so counting
+  // statuses here would freeze a scope nobody is pricing.
+  const scopeLocked = (await liveRfpCount(projectId)) > 0;
   const clock = await readPhaseClock(projectId, project.phase);
   const daysInPhase = daysSince(clock.phaseEnteredAt);
   const daysInTurn = daysSince(project.startDate ?? clock.startedAt);
@@ -570,6 +575,15 @@ export default async function ProjectDetailPage({
                 propertyId,
                 propertySlug: slug,
                 scopeLineCount: scopeRows.length,
+                scopeLines: scopeRows.map((r) => ({
+                  id: r.id,
+                  item: r.item,
+                  materialQuality: r.materialQuality,
+                  quantity: r.quantity,
+                  costCodeName:
+                    activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
+                })),
+                scopeLocked,
                 scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString() ?? null,
                 preWalkFindings,
                 bidPackage,
