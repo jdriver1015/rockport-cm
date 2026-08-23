@@ -548,6 +548,7 @@ export default async function ProjectDetailPage({
           <div className="mx-[calc(var(--card-spacing)*-1)] grid grid-cols-2 border-y border-border sm:grid-cols-5 [&>*]:border-border [&>*]:px-[var(--card-spacing)] [&>*]:py-3.5 sm:[&>*:not(:first-child)]:border-l">
             <div className="col-span-2 sm:col-span-3">
               <ProjectCostBar
+                projectId={projectId}
                 approved={budgetAmt}
                 committed={committedAmt}
                 actual={spentAmt}
@@ -589,6 +590,12 @@ export default async function ProjectDetailPage({
                     activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
                 })),
                 scopeLocked,
+                budget: {
+                  approved: budgetAmt,
+                  costCodeId: project.costCodeId,
+                  costCodes: activeCostCodes,
+                  kind: project.kind,
+                },
                 scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString() ?? null,
                 preWalkFindings,
                 bidPackage,

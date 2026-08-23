@@ -52,6 +52,8 @@ export type PreconGateState = {
   scopeLineCount: number;
   /** projects.scope_confirmed_at — the scope is agreed and ready to price. */
   scopeConfirmedAt: Date | null;
+  /** The approved budget. Zero means none has been set. */
+  approvedBudget: number;
   /** Any bid has left the building — status past draft, so an RFP went out. */
   bidsSent: number;
   /** The oldest live request, in days. Null when nothing is out. */
@@ -108,29 +110,29 @@ function preWalkCheck(state: PreconGateState): GateCheck {
  * rows for one fact, and the design's four are the four that move independently.
  */
 /**
- * The scope is agreed and ready to price.
+ * The scope is agreed, and there is a budget to measure the bids against.
  *
- * A count of lines is not the same as somebody having looked at them, which is
- * why this is a stamped date and not `scopeLineCount > 0`. It is also the gate
- * that makes the scope lock legible: confirming is the last free edit.
+ * Both, because they are one decision: a list of work nobody has priced a limit
+ * for tells you nothing when the bids come back. A count of lines is also not
+ * the same as somebody having looked at them, which is why this is a stamped
+ * date and not `scopeLineCount > 0`. It is the gate that makes the scope lock
+ * legible too: confirming is the last free edit.
  */
 function scopeCheck(state: PreconGateState): GateCheck {
+  const lines = `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"}`;
+  const money = `$${Math.round(state.approvedBudget).toLocaleString()}`;
+
   if (state.scopeConfirmedAt) {
-    return {
-      key: "scope",
-      label: "Scope Confirmed",
-      met: true,
-      detail: `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"}`,
-    };
+    return { key: "scope", label: "Scope & Budget Set", met: true, detail: `${lines} · ${money}` };
+  }
+  if (state.scopeLineCount === 0) {
+    return { key: "scope", label: "Confirm Scope & Budget", met: false, detail: "No scope yet" };
   }
   return {
     key: "scope",
-    label: "Confirm Scope",
+    label: "Confirm Scope & Budget",
     met: false,
-    detail:
-      state.scopeLineCount > 0
-        ? `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"} drafted`
-        : "No scope yet",
+    detail: state.approvedBudget > 0 ? `${lines} drafted · ${money}` : `${lines} · no budget set`,
   };
 }
 

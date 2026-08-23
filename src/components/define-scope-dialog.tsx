@@ -18,6 +18,7 @@ import { fmtDate } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/pre-walk";
 import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
+import { setProjectBudget } from "@/lib/actions/project-budget";
 
 export type PreWalkFinding = {
   id: number;
@@ -27,6 +28,15 @@ export type PreWalkFinding = {
   location: string | null;
   /** Already turned into a scope line. */
   inScope: boolean;
+};
+
+export type BudgetContext = {
+  approved: number;
+  costCodeId: number | null;
+  /** Non-interior codes from this property's chart. Empty for an interior turn. */
+  costCodes: { id: number; code: string; name: string }[];
+  /** An interior turn's budget comes from its renovation template. */
+  kind: "unit" | "common";
 };
 
 export type ScopeLine = {
@@ -56,6 +66,7 @@ export function DefineScopeDialog({
   propertyId,
   projectId,
   lines,
+  budget,
   scopeConfirmedAt,
   scopeLocked,
   findings,
@@ -66,6 +77,7 @@ export function DefineScopeDialog({
   propertyId: number;
   projectId: number;
   lines: ScopeLine[];
+  budget: BudgetContext;
   /** Set once the scope is agreed as ready to price — pre-con gate 2. */
   scopeConfirmedAt: string | null;
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
@@ -79,6 +91,21 @@ export function DefineScopeDialog({
 
   const scopeLineCount = lines.length;
   const missingCode = lines.filter((l) => !l.costCodeName).length;
+  const [approved, setApproved] = useState(budget.approved > 0 ? String(budget.approved) : "");
+  const [costCodeId, setCostCodeId] = useState(
+    budget.costCodeId == null ? "" : String(budget.costCodeId),
+  );
+
+  const approvedValue = Number(approved);
+  const budgetOk = approved.trim() !== "" && Number.isFinite(approvedValue) && approvedValue > 0;
+
+  function saveBudget() {
+    return setProjectBudget({
+      projectId,
+      budgetAmount: approved.trim(),
+      ...(budget.kind === "common" ? { costCodeId } : {}),
+    });
+  }
 
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
@@ -104,12 +131,20 @@ export function DefineScopeDialog({
 
   function confirm() {
     startTransition(async () => {
+      // The budget is part of what is being confirmed, so it is saved by the
+      // same press rather than needing its own. Confirming a scope while the
+      // budget field still holds an unsaved number would confirm the wrong pair.
+      const saved = await saveBudget();
+      if (!saved.ok) {
+        toast.error(saved.error);
+        return;
+      }
       const res = await confirmScope({ projectId });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success("Scope confirmed — ready to send out for pricing");
+      toast.success("Scope and budget confirmed — ready to send out for pricing");
       onOpenChange(false);
       router.refresh();
     });
@@ -146,10 +181,10 @@ export function DefineScopeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Define scope</DialogTitle>
+          <DialogTitle>Scope and budget</DialogTitle>
           <DialogDescription>
-            This is what the vendors will price. Pricing comes back from them — nothing here is
-            costed.
+            What the vendors will price, and what you have approved to spend on it. The line items
+            are not costed — pricing comes back from the bids.
           </DialogDescription>
         </DialogHeader>
 
@@ -195,6 +230,62 @@ export function DefineScopeDialog({
                 the scope list below or the spend will not reconcile.
               </p>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+              Budget
+            </span>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label
+                  htmlFor="confirm-budget"
+                  className="text-[12px] font-medium text-ink-600"
+                >
+                  Approved budget ($)
+                </label>
+                <Input
+                  id="confirm-budget"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="25000"
+                  className="h-9 tabular-nums"
+                  value={approved}
+                  disabled={pending}
+                  onChange={(e) => setApproved(e.target.value)}
+                />
+              </div>
+              {budget.kind === "common" ? (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="confirm-cost-code"
+                    className="text-[12px] font-medium text-ink-600"
+                  >
+                    UW line item
+                  </label>
+                  <select
+                    id="confirm-cost-code"
+                    value={costCodeId}
+                    disabled={pending}
+                    onChange={(e) => setCostCodeId(e.target.value)}
+                    className="h-9 w-full rounded-control border border-input bg-card px-3 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <option value="">Not coded yet</option>
+                    {budget.costCodes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="self-end text-[11.5px] text-muted-foreground">
+                  An interior turn spends across every 4000-series code, so it has no single UW
+                  line item.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -332,8 +423,8 @@ export function DefineScopeDialog({
               <>
                 <p className="min-w-0 flex-1 text-[12.5px] text-ink-600">
                   <CheckCircle2Icon className="mr-1.5 inline size-3.5 -translate-y-px text-positive" />
-                  Confirmed {fmtDate(scopeConfirmedAt)}. It stays editable until you send it out for
-                  pricing.
+                  Confirmed {fmtDate(scopeConfirmedAt)}. Both stay editable until you send it out
+                  for pricing.
                 </p>
                 <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
                   Re-open
@@ -344,10 +435,16 @@ export function DefineScopeDialog({
                 <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
                   {scopeLineCount === 0
                     ? "Add at least one line before confirming."
-                    : "Confirm when these lines are what you want priced."}
+                    : !budgetOk
+                      ? "Set an approved budget — it is what the bids will be measured against."
+                      : "Confirm when these lines and this budget are what you want priced."}
                 </p>
-                <Button size="sm" disabled={pending || scopeLineCount === 0} onClick={confirm}>
-                  Confirm scope
+                <Button
+                  size="sm"
+                  disabled={pending || scopeLineCount === 0 || !budgetOk}
+                  onClick={confirm}
+                >
+                  Confirm scope and budget
                 </Button>
               </>
             )}

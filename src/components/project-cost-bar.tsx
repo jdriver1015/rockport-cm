@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { BudgetInlineEditor } from "@/components/budget-inline-editor";
 
 // ---------------------------------------------------------------------------
 // Approved, committed and actual on one axis.
@@ -12,12 +13,14 @@ import { cn } from "@/lib/utils";
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
 export function ProjectCostBar({
+  projectId,
   approved,
   committed,
   actual,
   /** Low and high of the bids in, for the pre-con state where nothing is committed. */
   bidRange,
 }: {
+  projectId: number;
   approved: number;
   committed: number;
   actual: number;
@@ -48,7 +51,7 @@ export function ProjectCostBar({
             />
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
           {bidRange ? (
             <span className="text-navy">
               Bids in: {usd(bidRange.low)}
@@ -56,6 +59,7 @@ export function ProjectCostBar({
             </span>
           ) : null}
           <span className="text-muted-foreground">No budget approved</span>
+          <BudgetInlineEditor projectId={projectId} approved={approved} />
         </div>
       </div>
     );
@@ -104,7 +108,7 @@ export function ProjectCostBar({
         />
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
         <span className="text-ink-600">
           <span className="mr-1.5 inline-block h-px w-2 translate-y-[-3px] bg-navy" />
           Committed {committed > 0 ? usd(committed) : "not set"}
@@ -119,6 +123,7 @@ export function ProjectCostBar({
           Approved {usd(approved)}
         </span>
         <span className={overBudget ? "text-alert" : "text-ink-600"}>Actual {usd(actual)}</span>
+        <BudgetInlineEditor projectId={projectId} approved={approved} />
       </div>
 
       {uncontracted > 0 && (

@@ -21,7 +21,13 @@ export async function readPreconGateState(
   const [project, preWalk, scope, bids, contract] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
-      columns: { preWalkDate: true, preWalkTime: true, contractSignedAt: true, scopeConfirmedAt: true },
+      columns: {
+        preWalkDate: true,
+        preWalkTime: true,
+        contractSignedAt: true,
+        scopeConfirmedAt: true,
+        budgetAmount: true,
+      },
     }),
     // The one pre-walk for this project. A partial unique index guarantees there
     // is at most one, so "the" pre-walk is unambiguous.
@@ -94,5 +100,6 @@ export async function readPreconGateState(
     bidsOutstanding: bids[0]?.outstanding ?? 0,
     contractSignedAt: project?.contractSignedAt ?? null,
     scopeConfirmedAt: project?.scopeConfirmedAt ?? null,
+    approvedBudget: Number(project?.budgetAmount ?? 0),
   };
 }
