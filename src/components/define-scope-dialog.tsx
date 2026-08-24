@@ -19,6 +19,7 @@ import { importFindingsToScope } from "@/lib/actions/pre-walk";
 import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { setProjectBudget } from "@/lib/actions/project-budget";
+import { scopeLineTotal } from "@/lib/scope-total";
 
 export type PreWalkFinding = {
   id: number;
@@ -31,12 +32,8 @@ export type PreWalkFinding = {
 };
 
 export type BudgetContext = {
+  /** The approved budget. Zero means none has been set. */
   approved: number;
-  costCodeId: number | null;
-  /** Non-interior codes from this property's chart. Empty for an interior turn. */
-  costCodes: { id: number; code: string; name: string }[];
-  /** An interior turn's budget comes from its renovation template. */
-  kind: "unit" | "common";
 };
 
 export type ScopeLine = {
@@ -47,16 +44,6 @@ export type ScopeLine = {
   unitPrice: string | null;
   costCodeName: string | null;
 };
-
-/** Qty × unit cost, or null when the line has not been costed. */
-export function lineTotal(line: { quantity: string | null; unitPrice: string | null }) {
-  if (line.unitPrice == null || line.unitPrice === "") return null;
-  const unit = Number(line.unitPrice);
-  if (!Number.isFinite(unit)) return null;
-  const qty = line.quantity == null || line.quantity === "" ? 1 : Number(line.quantity);
-  if (!Number.isFinite(qty)) return null;
-  return unit * qty;
-}
 
 const usd = (n: number) =>
   `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -111,7 +98,7 @@ export function DefineScopeDialog({
 
   // What the lines actually add up to. Null lines contribute nothing, so an
   // uncosted scope totals zero rather than guessing at a number.
-  const costed = lines.map(lineTotal).filter((n): n is number => n != null);
+  const costed = lines.map(scopeLineTotal).filter((n): n is number => n != null);
   const scopeTotal = costed.reduce((a, b) => a + b, 0);
   const uncostedCount = lines.length - costed.length;
 
@@ -533,7 +520,7 @@ function ScopeLineRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Off the edited values, not the saved ones, so the number moves as you type.
-  const total = lineTotal({ quantity: quantity || null, unitPrice: unitPrice || null });
+  const total = scopeLineTotal({ quantity: quantity || null, unitPrice: unitPrice || null });
 
   function save(
     patch: { item?: string; quantity?: string | null; unitPrice?: string | null },

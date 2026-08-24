@@ -591,12 +591,7 @@ export default async function ProjectDetailPage({
                     activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
                 })),
                 scopeLocked,
-                budget: {
-                  approved: budgetAmt,
-                  costCodeId: project.costCodeId,
-                  costCodes: activeCostCodes,
-                  kind: project.kind,
-                },
+                budget: { approved: budgetAmt },
                 scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
                 preWalkFindings,
                 bidPackage,

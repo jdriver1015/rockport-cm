@@ -149,6 +149,19 @@ export async function directAwardRows(
   });
   if (!vendor) return { ok: false, error: "That vendor is not active" };
 
+  // The same precondition sendBidPackageRows enforces. Without it a direct
+  // award met gate 3 while gate 2 was still open — work committed against a
+  // scope nobody had signed off, and against no approved budget, since the
+  // budget requirement lives on the confirm step.
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+    columns: { scopeConfirmedAt: true },
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+  if (!project.scopeConfirmedAt) {
+    return { ok: false, error: "Confirm the scope and budget before awarding" };
+  }
+
   const existing = await db().query.bids.findFirst({
     where: and(
       eq(schema.bids.projectId, projectId),
@@ -199,6 +212,14 @@ export async function directAwardRows(
         sortOrder: n,
       })),
     );
+
+    // What setBidWinner does when a bid is awarded the normal way. Leaving it
+    // out made a directly-awarded project read as $0 committed with no vendor —
+    // on its own header, and in every portfolio rollup of committed cost.
+    await tx
+      .update(schema.projects)
+      .set({ vendorId, committedCost: value.toFixed(2) })
+      .where(eq(schema.projects.id, projectId));
   });
 
   return { ok: true, bidId };

@@ -278,6 +278,7 @@ export type StepResult = { ok: true } | { ok: false; error: string };
  * refuses it anyway.
  */
 export async function advanceContractRow(
+  projectId: number,
   contractId: number,
   to: "out_for_signature" | "vendor_signed" | "executed" | "voided",
 ): Promise<StepResult> {
@@ -286,6 +287,10 @@ export async function advanceContractRow(
     columns: { id: true, projectId: true, status: true, vendorSignedAt: true },
   });
   if (!row) return { ok: false, error: "Contract not found" };
+  // The caller names both, and they have to agree. Without this a contract id
+  // from another project would be executed and stamped while the cache
+  // revalidation fired for the project that was named.
+  if (row.projectId !== projectId) return { ok: false, error: "Contract not found" };
   if (row.status === "executed" && to !== "voided") {
     return { ok: false, error: "This contract is already executed" };
   }

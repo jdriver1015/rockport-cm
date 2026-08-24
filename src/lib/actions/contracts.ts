@@ -44,7 +44,7 @@ export async function advanceContract(
 ): Promise<ActionResult> {
   const parsed = stepSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
-  const res = await advanceContractRow(parsed.data.contractId, parsed.data.to);
+  const res = await advanceContractRow(parsed.data.projectId, parsed.data.contractId, parsed.data.to);
   if (!res.ok) return res;
   await revalidateProject(parsed.data.projectId);
   return { ok: true };

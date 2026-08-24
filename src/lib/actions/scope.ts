@@ -1,13 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { SCOPE_STATUS_KEYS } from "@/lib/scope-status";
 import { propertyProjectPath } from "@/lib/property-path";
-import { checkScopeEditable, checkScopeStructureEditable } from "@/lib/scope-lock";
+import {
+  checkScopeEditable,
+  checkScopeStructureEditable,
+  scopeItemProjectId,
+} from "@/lib/scope-lock";
 
 async function revalidateProject(propertyId: number, projectId: number) {
   const path = await propertyProjectPath(propertyId, projectId);
@@ -153,10 +157,19 @@ export async function updateScopeItem(input: {
 
   if (Object.keys(set).length === 0) return { ok: true };
 
-  const locked = await checkScopeEditable(input.projectId, Object.keys(set));
+  // The row decides which project it is in, not the caller. Checking the lock
+  // against input.projectId while writing by id alone meant an edit to a locked
+  // project's line went through by naming an unlocked project.
+  const owner = await scopeItemProjectId(input.id);
+  if (owner == null) return { ok: false, error: "Scope item not found" };
+
+  const locked = await checkScopeEditable(owner, Object.keys(set));
   if (locked) return { ok: false, error: locked };
 
-  await db().update(schema.scopeItems).set(set).where(eq(schema.scopeItems.id, input.id));
+  await db()
+    .update(schema.scopeItems)
+    .set(set)
+    .where(and(eq(schema.scopeItems.id, input.id), eq(schema.scopeItems.projectId, owner)));
   await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
@@ -166,7 +179,9 @@ export async function deleteScopeItem(input: {
   propertyId: number;
   projectId: number;
 }): Promise<ActionResult> {
-  const locked = await checkScopeStructureEditable(input.projectId);
+  const owner = await scopeItemProjectId(input.id);
+  if (owner == null) return { ok: false, error: "Scope item not found" };
+  const locked = await checkScopeStructureEditable(owner);
   if (locked) return { ok: false, error: locked };
 
   await db()
@@ -183,7 +198,9 @@ export async function restoreScopeItem(input: {
   propertyId: number;
   projectId: number;
 }): Promise<ActionResult> {
-  const locked = await checkScopeStructureEditable(input.projectId);
+  const owner = await scopeItemProjectId(input.id);
+  if (owner == null) return { ok: false, error: "Scope item not found" };
+  const locked = await checkScopeStructureEditable(owner);
   if (locked) return { ok: false, error: locked };
 
   await db()

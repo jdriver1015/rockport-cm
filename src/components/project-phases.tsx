@@ -174,7 +174,7 @@ export function ProjectPhases({
           // Reached but never stamped. Worth showing as a warning rather than
           // as an empty cell: it means the project moved past a phase without
           // anyone recording when, and the variance column silently gives up.
-          const skipped = !isCurrent && !done && reached(row);
+          const skipped = !isCurrent && !done && row.phase != null && reached(row);
 
           return (
             <div key={row.id} className="flex gap-3">
@@ -707,6 +707,7 @@ function GateRow({
 
       {context && (
         <DefineScopeDialog
+          key={`scope-${context.budget.approved}`}
           open={openGate === "scope"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}

@@ -124,7 +124,7 @@ export function ContractDialog({
 
             <div className="rounded-card border border-border">
               {STEPS.map((step, i) => {
-                const done = current > i || contract?.status === "executed";
+                const done = current >= i || contract?.status === "executed";
                 const isNext = current === i - 1 || (!contract && i === 0);
                 const stamp =
                   i === 1

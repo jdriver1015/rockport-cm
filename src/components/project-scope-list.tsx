@@ -20,6 +20,7 @@ import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } f
 import { fmtDate, money } from "@/lib/format";
 import { SCOPE_STATUSES, type ScopeStatusKey } from "@/lib/scope-status";
 import { cn } from "@/lib/utils";
+import { scopeLineTotal as lineTotal } from "@/lib/scope-total";
 
 export type SpecGrid = { cols: string[]; rows: string[][] };
 
@@ -69,14 +70,6 @@ function initials(name: string): string {
     .map((w) => w[0])
     .join("")
     .toUpperCase();
-}
-
-function lineTotal(row: { quantity: string | null; unitPrice: string | null }): number | null {
-  if (!row.quantity || !row.unitPrice) return null;
-  const q = Number(row.quantity);
-  const p = Number(row.unitPrice);
-  if (Number.isNaN(q) || Number.isNaN(p)) return null;
-  return q * p;
 }
 
 export function ProjectScopeList({

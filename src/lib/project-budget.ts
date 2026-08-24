@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 // ---------------------------------------------------------------------------
@@ -60,33 +60,4 @@ export async function setProjectBudgetRow(
     .where(eq(schema.projects.id, projectId));
 
   return { ok: true };
-}
-
-/** What the confirm gate and the cost bar both need to show. */
-export async function readProjectBudget(projectId: number) {
-  const row = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, projectId),
-    columns: { budgetAmount: true, costCodeId: true, kind: true },
-  });
-  if (!row) return null;
-  return {
-    budgetAmount: Number(row.budgetAmount ?? 0),
-    costCodeId: row.costCodeId,
-    kind: row.kind,
-  };
-}
-
-/** Active codes this project could book to. Empty for an interior turn. */
-export async function readBudgetCostCodes(propertyId: number, kind: string) {
-  return db()
-    .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
-    .from(schema.costCodes)
-    .innerJoin(schema.properties, eq(schema.properties.chartOfAccountsId, schema.costCodes.chartId))
-    .where(
-      and(
-        eq(schema.properties.id, propertyId),
-        eq(schema.costCodes.active, true),
-        eq(schema.costCodes.isInterior, kind === "unit"),
-      ),
-    );
 }

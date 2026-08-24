@@ -83,3 +83,19 @@ export async function checkScopeEditable(
 export function checkScopeStructureEditable(projectId: number): Promise<string | null> {
   return checkScopeEditable(projectId, ["item"]);
 }
+
+/**
+ * The project a scope line actually belongs to.
+ *
+ * Callers pass a projectId alongside the line id, and the two are not the same
+ * claim: checking the lock against the caller's projectId while updating by id
+ * alone let an edit to a locked project's line pass by naming an unlocked one.
+ * The row is the authority on which project it is in.
+ */
+export async function scopeItemProjectId(itemId: number): Promise<number | null> {
+  const row = await db().query.scopeItems.findFirst({
+    where: eq(schema.scopeItems.id, itemId),
+    columns: { projectId: true },
+  });
+  return row?.projectId ?? null;
+}
