@@ -293,6 +293,20 @@ export async function syncProjectVendor(
       .update(schema.projects)
       .set({ vendorId: null })
       .where(and(eq(schema.projects.id, projectId), eq(schema.projects.vendorId, opts.releasing)));
+    return;
+  }
+
+  // Several awarded vendors, and the project still names one of them. That value
+  // was written by an award back when there was only one, and it has stopped
+  // being true — there is no single vendor doing this job now. A name that is
+  // NOT among the awarded vendors was set by hand and is left alone.
+  if (vendorIds.length > 1) {
+    await exec
+      .update(schema.projects)
+      .set({ vendorId: null })
+      .where(
+        and(eq(schema.projects.id, projectId), inArray(schema.projects.vendorId, vendorIds)),
+      );
   }
 }
 

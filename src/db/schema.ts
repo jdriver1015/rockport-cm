@@ -516,7 +516,20 @@ export const projectContracts = pgTable("project_contracts", {
   executedAt: timestamp("executed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid("created_by").references(() => profiles.id),
-}, (t) => [index("project_contracts_project_idx").on(t.projectId)]);
+}, (t) => [
+  index("project_contracts_project_idx").on(t.projectId),
+  /**
+   * One live contract per AWARD, not per project.
+   *
+   * It was per project — "two live contracts for one unit is a mistake, not a
+   * workflow" — which was true while a project had a single winner. A project
+   * that lets its siding to one sub and its roofing to another is contracting
+   * twice, on purpose, so the thing that must not be duplicated is the bid.
+   */
+  uniqueIndex("project_contracts_one_live_per_bid")
+    .on(t.bidId)
+    .where(sql`status <> 'voided'`),
+]);
 
 export const projectActivityLog = pgTable("project_activity_log", {
   id: serial("id").primaryKey(),
