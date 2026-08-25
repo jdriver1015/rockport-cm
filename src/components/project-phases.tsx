@@ -27,7 +27,7 @@ import {
   type ScopeLine,
 } from "@/components/define-scope-dialog";
 import { SelectBidDialog } from "@/components/select-bid-dialog";
-import { ContractDialog, type ContractView } from "@/components/contract-dialog";
+import { ContractDialog, type ContractAward, type ContractView } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
 
 /** What the pre-con gate dialogs need to resolve their gate. */
@@ -46,10 +46,10 @@ export type GateContext = {
   preWalkTime: string | null;
   preWalkAuditId: number | null;
   preWalkAuditStatus: "draft" | "complete" | null;
-  /** The live contract, if one has been generated. */
-  contract: ContractView | null;
-  /** The awarded bid, for the contract dialog to confirm. */
-  award: { vendorName: string | null; total: number } | null;
+  /** Live contracts — one per award that has been papered. */
+  contracts: ContractView[];
+  /** The awarded bids. A split job has one per vendor. */
+  awards: ContractAward[];
 };
 
 export type PhaseRow = {
@@ -700,8 +700,8 @@ function GateRow({
           open={openGate === "contract"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           projectId={projectId}
-          contract={context.contract}
-          award={context.award}
+          contracts={context.contracts}
+          awards={context.awards}
         />
       )}
 

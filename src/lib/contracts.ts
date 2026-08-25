@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import type { Executor } from "@/lib/award-coverage";
 import { fillTemplate } from "@/lib/contract-template-starter";
 import type { ContractData, ContractLine } from "@/lib/contract-document";
 
@@ -27,6 +28,8 @@ export type ContractStatus =
 
 export type ContractSummary = {
   id: number;
+  /** The awarded bid this contract was written against. */
+  bidId: number;
   status: ContractStatus;
   amount: number;
   vendorName: string | null;
@@ -42,11 +45,21 @@ export function contractNumber(projectId: number, contractId: number): string {
   return `WO-${String(projectId).padStart(4, "0")}-${String(contractId).padStart(3, "0")}`;
 }
 
-/** The live contract for a project, if there is one. Voided rows are history. */
-export async function readContract(projectId: number): Promise<ContractSummary | null> {
-  const [row] = await db()
+/**
+ * The live contracts on a project. Voided rows are history.
+ *
+ * A list, not one row: a project may let its scope to several vendors, and each
+ * award is contracted separately. It used to take the newest non-voided row and
+ * call it "the" contract, which on a split job silently picked one of them.
+ */
+export async function readContracts(
+  projectId: number,
+  exec: Executor = db(),
+): Promise<ContractSummary[]> {
+  const rows = await exec
     .select({
       id: schema.projectContracts.id,
+      bidId: schema.projectContracts.bidId,
       status: schema.projectContracts.status,
       amount: schema.projectContracts.amount,
       vendorName: schema.vendors.name,
@@ -65,12 +78,11 @@ export async function readContract(projectId: number): Promise<ContractSummary |
         ne(schema.projectContracts.status, "voided"),
       ),
     )
-    .orderBy(desc(schema.projectContracts.id))
-    .limit(1);
+    .orderBy(asc(schema.projectContracts.id));
 
-  if (!row) return null;
-  return {
+  return rows.map((row) => ({
     id: row.id,
+    bidId: row.bidId,
     status: row.status as ContractStatus,
     amount: Number(row.amount),
     vendorName: row.vendorName,
@@ -80,33 +92,44 @@ export async function readContract(projectId: number): Promise<ContractSummary |
     vendorSignedAt: row.vendorSignedAt,
     countersignedAt: row.countersignedAt,
     executedAt: row.executedAt,
-  };
+  }));
+}
+
+/** The live contract for one awarded bid, if it has one. */
+export async function readBidContract(
+  projectId: number,
+  bidId: number,
+  exec: Executor = db(),
+): Promise<ContractSummary | null> {
+  const all = await readContracts(projectId, exec);
+  return all.find((c) => c.bidId === bidId) ?? null;
 }
 
 export type GenerateResult = { ok: true; contractId: number } | { ok: false; error: string };
 
 /**
- * Generate the contract for the awarded bid.
+ * Generate the contract for one awarded bid.
  *
- * Refuses if one is already live: reissuing means voiding the old one first, so
- * there is always exactly one document that counts and the reason for a second
- * attempt is on the record.
+ * Keyed by the bid rather than the project: a split job has an award per vendor
+ * and each needs its own document. Refuses if THAT bid already has a live one —
+ * reissuing means voiding it first, so there is always exactly one document per
+ * award that counts, and the reason for a second attempt is on the record.
  */
-export async function generateContractRow(projectId: number): Promise<GenerateResult> {
-  const existing = await readContract(projectId);
-  if (existing) {
-    return { ok: false, error: "This project already has a contract. Void it to issue a new one." };
-  }
-
+export async function generateContractRow(bidId: number): Promise<GenerateResult> {
   const bid = await db().query.bids.findFirst({
-    where: and(
-      eq(schema.bids.projectId, projectId),
-      eq(schema.bids.approved, true),
-      isNull(schema.bids.archivedAt),
-    ),
-    columns: { id: true, source: true, awardReason: true },
+    where: and(eq(schema.bids.id, bidId), isNull(schema.bids.archivedAt)),
+    columns: { id: true, projectId: true, approved: true, source: true, awardReason: true },
   });
-  if (!bid) return { ok: false, error: "Select a winning bid before generating a contract" };
+  if (!bid) return { ok: false, error: "Bid not found" };
+  if (!bid.approved) {
+    return { ok: false, error: "Award this bid before generating a contract for it" };
+  }
+  const projectId = bid.projectId;
+
+  const existing = await readBidContract(projectId, bid.id);
+  if (existing) {
+    return { ok: false, error: "This award already has a contract. Void it to issue a new one." };
+  }
 
   const [{ total }] = await db()
     .select({ total: sql<number>`coalesce(sum(${schema.bidLineItems.amount}), 0)::float8` })
@@ -308,28 +331,56 @@ export async function advanceContractRow(
     if (!row.vendorSignedAt) set.vendorSignedAt = now;
   }
 
+  // One transaction. The gate reads projects.contract_signed_at, so it has to
+  // move with the status — split across two writes, a failure between them
+  // leaves the contract saying signed while the phase strip says Sign Contract.
   await db().transaction(async (tx) => {
     await tx
       .update(schema.projectContracts)
       .set(set)
       .where(eq(schema.projectContracts.id, contractId));
 
-    // The gate reads projects.contract_signed_at, so executing has to stamp it
-    // in the same transaction — otherwise the contract says signed and the
-    // phase strip disagrees.
-    if (to === "executed") {
-      await tx
-        .update(schema.projects)
-        .set({ contractSignedAt: now.toISOString().slice(0, 10) })
-        .where(eq(schema.projects.id, row.projectId));
-    }
-    if (to === "voided") {
-      await tx
-        .update(schema.projects)
-        .set({ contractSignedAt: null })
-        .where(eq(schema.projects.id, row.projectId));
-    }
+    await syncContractSignedAt(row.projectId, tx);
   });
 
   return { ok: true };
+}
+
+/**
+ * projects.contract_signed_at = the day the last outstanding award was executed.
+ *
+ * Recomputed rather than stamped, so voiding one contract on a split job
+ * correctly re-opens the gate instead of leaving the project claiming to be
+ * fully contracted.
+ */
+async function syncContractSignedAt(projectId: number, exec: Executor = db()): Promise<void> {
+  // Sequential: `exec` is the caller's open transaction on one connection.
+  const awards = await exec
+    .select({ id: schema.bids.id })
+    .from(schema.bids)
+    .where(
+      and(
+        eq(schema.bids.projectId, projectId),
+        eq(schema.bids.approved, true),
+        isNull(schema.bids.archivedAt),
+      ),
+    );
+  const contracts = await readContracts(projectId, exec);
+
+  const executed = contracts.filter((c) => c.status === "executed");
+  const allExecuted = awards.length > 0 && executed.length === awards.length;
+
+  // The latest execution date, so the stamp reads as when the job became fully
+  // contracted rather than when its first piece did.
+  const signedAt = allExecuted
+    ? executed
+        .map((c) => (c.executedAt ?? c.createdAt).toISOString().slice(0, 10))
+        .sort()
+        .at(-1)!
+    : null;
+
+  await exec
+    .update(schema.projects)
+    .set({ contractSignedAt: signedAt })
+    .where(eq(schema.projects.id, projectId));
 }

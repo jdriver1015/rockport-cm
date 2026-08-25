@@ -27,7 +27,14 @@ import {
 } from "@/components/ui/table";
 import { moneyExact, num } from "@/lib/format";
 import type { ActionResult } from "@/lib/action-result";
-import { addBid, deleteBid, editBid, restoreBid, setBidWinner } from "@/lib/actions/bids";
+import {
+  addBid,
+  clearBidWinner,
+  deleteBid,
+  editBid,
+  restoreBid,
+  setBidWinner,
+} from "@/lib/actions/bids";
 
 export type BidLineRow = {
   id: number;
@@ -155,7 +162,25 @@ export function BidsCard({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          {!b.approved && (
+                          {b.approved ? (
+                            // Awarding another bid no longer un-approves this
+                            // one — disjoint awards coexist — so taking an award
+                            // back has to be its own action, or a mis-award is
+                            // permanent.
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={pending}
+                              onClick={() =>
+                                run(
+                                  () => clearBidWinner({ id: b.id, propertyId, projectId }),
+                                  "Award taken back",
+                                )
+                              }
+                            >
+                              Un-award
+                            </Button>
+                          ) : (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -163,11 +188,11 @@ export function BidsCard({
                               onClick={() =>
                                 run(
                                   () => setBidWinner({ id: b.id, propertyId, projectId }),
-                                  "Winner set — vendor assigned and cost committed",
+                                  "Awarded — vendor assigned and cost committed",
                                 )
                               }
                             >
-                              Mark winner
+                              Award
                             </Button>
                           )}
                           <BidFormDialog

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { daysSince } from "@/lib/duration";
 import { readPhaseClock } from "@/lib/phase-clock";
-import { readContract } from "@/lib/contracts";
+import { readContracts } from "@/lib/contracts";
 import { liveRfpCount } from "@/lib/scope-lock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
@@ -408,10 +408,11 @@ export default async function ProjectDetailPage({
     console.error("project detail: bid package failed to load", err);
     return { scopeItems: [], vendors: [], bids: [] };
   }))!;
-  // The bid the contract is for. Read off the package rather than queried again
-  // so the dialog names exactly the bid the Select Bid screen shows as awarded.
-  const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
-  const liveContract = await readContract(projectId);
+  // The bids the contracts are for. Read off the package rather than queried
+  // again so the dialog names exactly what the Select Bid screen shows as
+  // awarded — and a split job has one award per vendor, not one per project.
+  const awardedBids = bidPackage.bids.filter((b) => b.approved);
+  const liveContracts = await readContracts(projectId);
   // The very function the guard uses, not a re-derivation from the bid list —
   // a direct award is status "received" with no RFP behind it, so counting
   // statuses here would freeze a scope nobody is pricing.
@@ -576,17 +577,17 @@ export default async function ProjectDetailPage({
                   preWalkTime: precon.preWalkTime,
                   preWalkAuditId: precon.preWalkAuditId,
                   preWalkAuditStatus: precon.preWalkAuditStatus,
-                  contract: liveContract
-                    ? {
-                        ...liveContract,
-                        sentAt: liveContract.sentAt?.toISOString() ?? null,
-                        vendorSignedAt: liveContract.vendorSignedAt?.toISOString() ?? null,
-                        executedAt: liveContract.executedAt?.toISOString() ?? null,
-                      }
-                    : null,
-                  award: awardedBid
-                    ? { vendorName: awardedBid.vendorName, total: awardedBid.total }
-                    : null,
+                  contracts: liveContracts.map((c) => ({
+                    ...c,
+                    sentAt: c.sentAt?.toISOString() ?? null,
+                    vendorSignedAt: c.vendorSignedAt?.toISOString() ?? null,
+                    executedAt: c.executedAt?.toISOString() ?? null,
+                  })),
+                  awards: awardedBids.map((b) => ({
+                    bidId: b.id,
+                    vendorName: b.vendorName,
+                    total: b.total,
+                  })),
                 }}
                 gate={gate}
                 nextPhaseLabel={upcoming?.label ?? null}

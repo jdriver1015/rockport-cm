@@ -1,5 +1,15 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import {
+  applyAwardVendor,
+  overlapMessage,
+  overlappingHolders,
+  ownedScopeLineIds,
+  readAwardCoverage,
+  recomputeCommittedCost,
+  syncProjectVendor,
+  uncoveredLineIds,
+} from "@/lib/award-coverage";
 
 // ---------------------------------------------------------------------------
 // Confirming the scope, and taking it back.
@@ -138,6 +148,12 @@ export async function directAwardRows(
   vendorId: number,
   amount: string,
   reason: string,
+  /**
+   * The lines this award covers. Omitted means everything not already awarded,
+   * which is the whole scope on a project with no awards yet — what this always
+   * did — and the remainder once part of the job is let.
+   */
+  scopeItemIds?: readonly number[],
 ): Promise<DirectAwardResult> {
   if (!reason.trim()) return { ok: false, error: "Say why this is not going out for bid" };
   const value = Number(amount);
@@ -162,25 +178,55 @@ export async function directAwardRows(
     return { ok: false, error: "Confirm the scope and budget before awarding" };
   }
 
-  const existing = await db().query.bids.findFirst({
-    where: and(
-      eq(schema.bids.projectId, projectId),
-      eq(schema.bids.approved, true),
-      isNull(schema.bids.archivedAt),
-    ),
-    columns: { id: true },
-  });
-  if (existing) return { ok: false, error: "This project already has a selected bid" };
+  // Not "does this project already have an award" any more — several vendors
+  // may hold different parts of the scope. What cannot happen is two of them
+  // holding the same line.
+  const targetIds =
+    scopeItemIds === undefined
+      ? await uncoveredLineIds(projectId)
+      : await ownedScopeLineIds(projectId, scopeItemIds);
+  if (targetIds.length === 0) {
+    if (scopeItemIds !== undefined) {
+      return { ok: false, error: "Those scope items aren't on this project" };
+    }
+    // Nothing left to award means one of two different things, and "already
+    // awarded" is a lie on a project that has no scope at all.
+    const [{ n }] = await db()
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.scopeItems)
+      .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
+    return {
+      ok: false,
+      error: n === 0 ? "There is no scope to award" : "Every scope line is already awarded",
+    };
+  }
+
+  const coverage = await readAwardCoverage(projectId);
+  const holders = overlappingHolders(coverage, targetIds);
+  if (holders.length > 0) {
+    const clashes = targetIds.filter((id) => coverage.has(id)).length;
+    return { ok: false, error: overlapMessage(holders, clashes) };
+  }
 
   const [{ maxNumber }] = await db()
     .select({ maxNumber: sql<number>`coalesce(max(${schema.bids.bidNumber}), 0)::int` })
     .from(schema.bids)
     .where(eq(schema.bids.projectId, projectId));
 
+  // Only the lines being awarded. Seeding a line for the whole scope would have
+  // this bid cover work it is not paying for, and coverage is what decides who
+  // else may be awarded.
   const items = await db()
     .select({ id: schema.scopeItems.id, item: schema.scopeItems.item })
     .from(schema.scopeItems)
-    .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
+    .where(
+      and(
+        eq(schema.scopeItems.projectId, projectId),
+        isNull(schema.scopeItems.archivedAt),
+        inArray(schema.scopeItems.id, targetIds),
+      ),
+    )
+    .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id));
   if (items.length === 0) return { ok: false, error: "There is no scope to award" };
 
   let bidId = 0;
@@ -213,14 +259,15 @@ export async function directAwardRows(
       })),
     );
 
-    // What setBidWinner does when a bid is awarded the normal way. Leaving it
-    // out made a directly-awarded project read as $0 committed with no vendor —
-    // on its own header, and in every portfolio rollup of committed cost.
-    await tx
-      .update(schema.projects)
-      .set({ vendorId, committedCost: value.toFixed(2) })
-      .where(eq(schema.projects.id, projectId));
   });
+
+  // What setBidWinner does when a bid is awarded the normal way. Leaving it out
+  // made a directly-awarded project read as $0 committed with no vendor — on
+  // its own header, and in every portfolio rollup of committed cost. Recomputed
+  // rather than assigned, because this award may be one of several.
+  await applyAwardVendor(projectId, bidId);
+  await recomputeCommittedCost(projectId);
+  await syncProjectVendor(projectId);
 
   return { ok: true, bidId };
 }

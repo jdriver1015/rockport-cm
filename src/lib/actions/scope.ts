@@ -49,7 +49,6 @@ const createSchema = z.object({
   quantity: optionalNumeric,
   unitPrice: optionalNumeric,
   costCodeId: z.number().int().positive().nullish(),
-  vendorId: z.number().int().positive().nullish(),
   startDate: optionalDate,
   endDate: optionalDate,
   status: z.enum(SCOPE_STATUS_KEYS).optional(),
@@ -81,7 +80,6 @@ export async function createScopeItem(
       quantity: d.quantity,
       unitPrice: d.unitPrice,
       costCodeId: d.costCodeId ?? null,
-      vendorId: d.vendorId ?? null,
       startDate: d.startDate,
       endDate: d.endDate,
       ...(d.status ? { status: d.status } : {}),
@@ -102,7 +100,6 @@ export async function updateScopeItem(input: {
   quantity?: string | null;
   unitPrice?: string | null;
   costCodeId?: number | null;
-  vendorId?: number | null;
   startDate?: string | null;
   endDate?: string | null;
   status?: string;
@@ -134,9 +131,6 @@ export async function updateScopeItem(input: {
   }
   if (input.costCodeId !== undefined) {
     set.costCodeId = input.costCodeId;
-  }
-  if (input.vendorId !== undefined) {
-    set.vendorId = input.vendorId;
   }
   if (input.startDate !== undefined) {
     set.startDate = input.startDate?.trim() || null;

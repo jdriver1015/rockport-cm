@@ -657,7 +657,19 @@ export const scopeItems = pgTable("scope_items", {
     onDelete: "set null",
   }),
   status: scopeItemStatus("status").notNull().default("not_started"),
-  /** Trade partner doing this line. Distinct from the project's overall GC. */
+  /**
+   * Trade partner doing this line. Distinct from the project's overall GC.
+   *
+   * Derived, not entered: written by the award that covers this line (see
+   * applyAwardVendor in src/lib/award-coverage.ts) and cleared when that award
+   * is taken back. It used to be typed in per line, which meant it recorded an
+   * intention — a line could name a vendor nobody bid and no contract covered,
+   * and the scope table reported it as settled.
+   *
+   * Rows predating that change may still hold a hand-entered vendor on a line
+   * no award covers. Those are left as they are rather than wiped;
+   * scripts/report-scope-vendor-mismatch.ts lists them.
+   */
   vendorId: integer("vendor_id").references(() => vendors.id),
   /** This line's own window within the project schedule. */
   startDate: date("start_date"),

@@ -1,5 +1,6 @@
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { readAwardCoverage } from "@/lib/award-coverage";
 import type { PreconGateState } from "@/lib/phase-gates";
 
 /**
@@ -18,7 +19,7 @@ export type PreconGateExtras = {
 export async function readPreconGateState(
   projectId: number,
 ): Promise<PreconGateState & PreconGateExtras> {
-  const [project, preWalk, scope, bids, contract] = await Promise.all([
+  const [project, preWalk, scope, bids, contracts, coverage] = await Promise.all([
     db().query.projects.findFirst({
       where: eq(schema.projects.id, projectId),
       columns: {
@@ -65,16 +66,38 @@ export async function readPreconGateState(
       })
       .from(schema.bids)
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
-    // The live contract. Voided rows are history and must not hold the gate.
-    db().query.projectContracts.findFirst({
-      where: and(
-        eq(schema.projectContracts.projectId, projectId),
-        ne(schema.projectContracts.status, "voided"),
+    // Every live contract. Voided rows are history and must not hold the gate.
+    // A split job has one per award, so this is a list — and the state the gate
+    // reports is the LEAST advanced of them, because that is what is blocking.
+    db()
+      .select({
+        status: schema.projectContracts.status,
+        sentAt: schema.projectContracts.sentAt,
+        createdAt: schema.projectContracts.createdAt,
+      })
+      .from(schema.projectContracts)
+      .where(
+        and(
+          eq(schema.projectContracts.projectId, projectId),
+          ne(schema.projectContracts.status, "voided"),
+        ),
       ),
-      orderBy: desc(schema.projectContracts.id),
-      columns: { status: true, sentAt: true, createdAt: true },
-    }),
+    // Scope lines an approved bid covers — the coverage map itself, not a second
+    // definition of it. A count(distinct scope_item_id) was wrong: it ignores
+    // nulls, so a bid priced as one whole-job line read as covering nothing and
+    // the gate could never be met, while readAwardCoverage treats that same bid
+    // as covering everything.
+    readAwardCoverage(projectId),
   ]);
+
+  // Least-advanced first, so a project with one signed contract and one still
+  // out reports the one still out.
+  const CONTRACT_ORDER = ["draft", "out_for_signature", "vendor_signed", "executed"];
+  const liveContracts = [...contracts].sort(
+    (a, b) => CONTRACT_ORDER.indexOf(a.status) - CONTRACT_ORDER.indexOf(b.status),
+  );
+  const contract = liveContracts[0] ?? null;
+  const awardCount = bids[0]?.approved ?? 0;
 
   return {
     preWalkDate: project?.preWalkDate ?? null,
@@ -96,7 +119,11 @@ export async function readPreconGateState(
             Math.floor((Date.now() - (contract.sentAt ?? contract.createdAt).getTime()) / 86_400_000),
           )
         : null,
-    hasApprovedBid: (bids[0]?.approved ?? 0) > 0,
+    hasApprovedBid: awardCount > 0,
+    awardCount,
+    scopeLinesAwarded: coverage.size,
+    contractsLive: contracts.length,
+    contractsExecuted: contracts.filter((c) => c.status === "executed").length,
     bidsOutstanding: bids[0]?.outstanding ?? 0,
     contractSignedAt: project?.contractSignedAt ?? null,
     scopeConfirmedAt: project?.scopeConfirmedAt ?? null,

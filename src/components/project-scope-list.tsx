@@ -86,7 +86,6 @@ export function ProjectScopeList({
     () => costCodes.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })),
     [costCodes],
   );
-  const vendorOptions = useMemo(() => vendors.map((v) => ({ value: v.id, label: v.name })), [vendors]);
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
 
   // Editing happens in a dialog rather than an inline panel, so one line is open
@@ -221,7 +220,6 @@ export function ProjectScopeList({
           propertyId={propertyId}
           projectId={projectId}
           costCodeOptions={costCodeOptions}
-          vendorOptions={vendorOptions}
           vendorById={vendorById}
           budgetByCode={budgetByCode}
           actualByCode={actualByCode}
@@ -237,7 +235,6 @@ function ScopeEditorDialog({
   propertyId,
   projectId,
   costCodeOptions,
-  vendorOptions,
   vendorById,
   budgetByCode,
   actualByCode,
@@ -247,7 +244,6 @@ function ScopeEditorDialog({
   propertyId: number;
   projectId: number;
   costCodeOptions: { value: number; label: string }[];
-  vendorOptions: { value: number; label: string }[];
   vendorById: Map<number, ScopeVendorOption>;
   budgetByCode: Record<number, CostCodeBudget>;
   actualByCode: Record<number, number>;
@@ -262,7 +258,8 @@ function ScopeEditorDialog({
   const [quantity, setQuantity] = useState(row?.quantity ?? "");
   const [unitPrice, setUnitPrice] = useState(row?.unitPrice ?? "");
   const [costCodeId, setCostCodeId] = useState<number | null>(row?.costCodeId ?? null);
-  const [vendorId, setVendorId] = useState<number | null>(row?.vendorId ?? null);
+  // Read-only: the award that covers this line owns it. See applyAwardVendor.
+  const vendorId = row?.vendorId ?? null;
   const [status, setStatus] = useState(row?.status ?? "not_started");
   const [startDate, setStartDate] = useState(row?.startDate ?? "");
   const [endDate, setEndDate] = useState(row?.endDate ?? "");
@@ -279,7 +276,6 @@ function ScopeEditorDialog({
     quantity: string;
     unitPrice: string;
     costCodeId: number | null;
-    vendorId: number | null;
     status: string;
     startDate: string;
     endDate: string;
@@ -293,7 +289,6 @@ function ScopeEditorDialog({
       quantity: patch.quantity ?? quantity,
       unitPrice: patch.unitPrice ?? unitPrice,
       costCodeId: patch.costCodeId !== undefined ? patch.costCodeId : costCodeId,
-      vendorId: patch.vendorId !== undefined ? patch.vendorId : vendorId,
       status: patch.status ?? status,
       startDate: patch.startDate ?? startDate,
       endDate: patch.endDate ?? endDate,
@@ -310,7 +305,6 @@ function ScopeEditorDialog({
           quantity: next.quantity || null,
           unitPrice: next.unitPrice || null,
           costCodeId: next.costCodeId,
-          vendorId: next.vendorId,
           status: next.status as ScopeStatusKey,
           startDate: next.startDate || null,
           endDate: next.endDate || null,
@@ -597,38 +591,16 @@ function ScopeEditorDialog({
                     <div className="truncate text-xs text-muted-foreground">{vendor.trade ?? "Vendor"}</div>
                   </div>
                 </div>
-                <div className="flex items-baseline justify-between text-xs">
-                  <span className="text-muted-foreground">Contract</span>
-                  <span className="font-medium tabular-nums text-navy">
-                    {total != null ? money(total) : "—"}
-                  </span>
-                </div>
-                <ComboboxSelect
-                  options={vendorOptions}
-                  value={vendorId}
-                  placeholder="Change vendor…"
-                  emptyMessage="No matching vendors"
-                  onValueChange={(next) => {
-                    setVendorId(next);
-                    commit({ vendorId: next });
-                  }}
-                />
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                  Set by the award covering this line. To change it, award a different bid from the
+                  project&rsquo;s Workflow panel.
+                </p>
               </div>
             ) : (
               <div className="space-y-2.5 rounded-lg border border-dashed border-border bg-card p-3">
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  No vendor assigned. A contract cannot be released until one is set.
+                  No vendor yet. One is set when a bid covering this line is awarded.
                 </p>
-                <ComboboxSelect
-                  options={vendorOptions}
-                  value={vendorId}
-                  placeholder="Assign vendor…"
-                  emptyMessage="No matching vendors"
-                  onValueChange={(next) => {
-                    setVendorId(next);
-                    commit({ vendorId: next });
-                  }}
-                />
               </div>
             )}
           </div>

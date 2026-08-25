@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ContractDocument } from "@/lib/contract-document";
-import { readContract, readContractDocument } from "@/lib/contracts";
+import { readContracts, readContractDocument } from "@/lib/contracts";
 
 /**
  * The contract as a PDF.
@@ -25,10 +25,29 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ projectId: 
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const live = await readContract(projectId);
-  if (!live) return NextResponse.json({ error: "No contract" }, { status: 404 });
+  // Which contract. A split job has one per award, so the caller names it; the
+  // parameter stays optional for the single-contract case, which is most of them.
+  const live = await readContracts(projectId);
+  if (live.length === 0) return NextResponse.json({ error: "No contract" }, { status: 404 });
 
-  const data = await readContractDocument(live.id);
+  const asked = req.nextUrl.searchParams.get("contract");
+  const wanted = asked == null ? null : Number(asked);
+  if (wanted != null && !Number.isInteger(wanted)) {
+    return NextResponse.json({ error: "Invalid contract id" }, { status: 400 });
+  }
+
+  const chosen =
+    wanted != null ? live.find((c) => c.id === wanted) : live.length === 1 ? live[0] : null;
+  if (!chosen) {
+    return NextResponse.json(
+      wanted != null
+        ? { error: "No such contract on this project" }
+        : { error: "This project has several contracts — name one with ?contract=" },
+      { status: wanted != null ? 404 : 400 },
+    );
+  }
+
+  const data = await readContractDocument(chosen.id);
   if (!data) return NextResponse.json({ error: "No contract" }, { status: 404 });
 
   const project = await db().query.projects.findFirst({

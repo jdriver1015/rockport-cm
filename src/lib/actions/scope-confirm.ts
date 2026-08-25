@@ -64,6 +64,8 @@ const directSchema = z.object({
   vendorId: z.coerce.number().int().positive(),
   amount: z.string().trim().min(1, "Enter an amount"),
   reason: z.string().trim().min(1, "Say why this is not going out for bid"),
+  /** Lines this award covers. Omitted means everything not already awarded. */
+  scopeItemIds: z.array(z.coerce.number().int().positive()).optional(),
 });
 
 export async function directAward(
@@ -74,7 +76,7 @@ export async function directAward(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const d = parsed.data;
-  const res = await directAwardRows(d.projectId, d.vendorId, d.amount, d.reason);
+  const res = await directAwardRows(d.projectId, d.vendorId, d.amount, d.reason, d.scopeItemIds);
   if (!res.ok) return res;
   await revalidateProject(d.projectId);
   return { ok: true, bidId: res.bidId };

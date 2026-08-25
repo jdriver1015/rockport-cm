@@ -66,6 +66,13 @@ export type PreconGateState = {
   contractStatus: string | null;
   /** A non-archived bid on this project with approved = true. */
   hasApprovedBid: boolean;
+  /** Approved bids. A split job has one per vendor. */
+  awardCount: number;
+  /** Scope lines an approved bid covers — the job is let when this is all of them. */
+  scopeLinesAwarded: number;
+  /** Non-voided contracts, and how many of them are executed. */
+  contractsLive: number;
+  contractsExecuted: number;
   /** Bids sent and not yet returned — progress while none is approved. */
   bidsOutstanding: number;
   /** projects.contract_signed_at */
@@ -160,7 +167,26 @@ function rfpCheck(state: PreconGateState): GateCheck {
 
 function contractCheck(state: PreconGateState): GateCheck {
   if (state.contractSignedAt) {
-    return { key: "contract", label: "Contract Signed", met: true, detail: state.contractSignedAt };
+    return {
+      key: "contract",
+      label: "Contract Signed",
+      met: true,
+      detail:
+        state.awardCount > 1
+          ? `${state.awardCount} contracts · ${state.contractSignedAt}`
+          : state.contractSignedAt,
+    };
+  }
+  // An award with no document yet is a different problem from a document waiting
+  // on a signature, and on a split job both can be true at once. The ungenerated
+  // one is ours to fix, so it is what the gate asks for first.
+  if (state.awardCount > 1 && state.contractsLive < state.awardCount) {
+    return {
+      key: "contract",
+      label: "Sign Contract",
+      met: false,
+      detail: `${state.contractsLive} of ${state.awardCount} contracts generated`,
+    };
   }
   // Out for signature is its own state, the same way "out for bid" is: the work
   // is done on our side and the wait belongs to somebody else.
@@ -169,7 +195,12 @@ function contractCheck(state: PreconGateState): GateCheck {
       key: "contract",
       label: state.contractStatus === "vendor_signed" ? "Awaiting Countersign" : "Out for Signature",
       met: false,
-      detail: state.contractStatus === "vendor_signed" ? "Vendor has signed" : "Sent to the vendor",
+      detail:
+        state.awardCount > 1
+          ? `${state.contractsExecuted} of ${state.awardCount} executed`
+          : state.contractStatus === "vendor_signed"
+            ? "Vendor has signed"
+            : "Sent to the vendor",
       waitingDays: state.contractOutDays,
     };
   }
@@ -187,12 +218,32 @@ function contractCheck(state: PreconGateState): GateCheck {
 }
 
 function bidCheck(state: PreconGateState): GateCheck {
-  if (state.hasApprovedBid) {
+  // Coverage, not "is anything awarded". A project may let siding to one sub and
+  // roofing to another, so the gate is met when every line has somebody on it —
+  // a partial award used to satisfy this and let a phase advance with work
+  // nobody was contracted for.
+  const fullyAwarded =
+    state.scopeLineCount > 0 && state.scopeLinesAwarded >= state.scopeLineCount;
+
+  if (fullyAwarded) {
     return {
       key: "bid",
       label: "Bid Selected",
       met: true,
-      detail: state.directAward ? "Assigned directly" : "Awarded",
+      detail:
+        state.awardCount > 1
+          ? `${state.awardCount} vendors awarded`
+          : state.directAward
+            ? "Assigned directly"
+            : "Awarded",
+    };
+  }
+  if (state.scopeLinesAwarded > 0) {
+    return {
+      key: "bid",
+      label: "Award the Rest",
+      met: false,
+      detail: `${state.scopeLinesAwarded} of ${state.scopeLineCount} lines awarded`,
     };
   }
   if (state.bidsOutstanding > 0) {

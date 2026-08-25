@@ -20,14 +20,18 @@ async function revalidateProject(projectId: number) {
   if (path) revalidatePath(path);
 }
 
-const idSchema = z.object({ projectId: z.coerce.number().int().positive() });
+const generateSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  /** The awarded bid to contract for — a split job has one per vendor. */
+  bidId: z.coerce.number().int().positive(),
+});
 
 export async function generateContract(
-  input: z.input<typeof idSchema>,
+  input: z.input<typeof generateSchema>,
 ): Promise<ActionResult<{ contractId: number }>> {
-  const parsed = idSchema.safeParse(input);
+  const parsed = generateSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
-  const res = await generateContractRow(parsed.data.projectId);
+  const res = await generateContractRow(parsed.data.bidId);
   if (!res.ok) return res;
   await revalidateProject(parsed.data.projectId);
   return { ok: true, contractId: res.contractId };
