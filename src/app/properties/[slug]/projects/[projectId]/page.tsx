@@ -21,7 +21,6 @@ import { evaluateGates } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
 import { listPreWalkFindings } from "@/lib/pre-walk-findings";
 import { readBidPackage } from "@/lib/bid-package";
-import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
 import { fetchActivityLog } from "@/lib/actions/activity-log";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { fmtDate, num } from "@/lib/format";
@@ -228,24 +227,6 @@ export default async function ProjectDetailPage({
   const profile = user
     ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
     : null;
-
-  // --- Open items tri-split ---
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const sevenDaysOut = new Date(today);
-  sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
-
-  const openItemsSummary: OpenItemsSummary = { overdue: 0, dueSoon: 0, later: 0 };
-  for (const f of openFindings) {
-    if (!f.dueDate) {
-      openItemsSummary.later++;
-      continue;
-    }
-    const due = new Date(f.dueDate + "T00:00:00");
-    if (due < today) openItemsSummary.overdue++;
-    else if (due <= sevenDaysOut) openItemsSummary.dueSoon++;
-    else openItemsSummary.later++;
-  }
 
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
@@ -496,8 +477,6 @@ export default async function ProjectDetailPage({
         </CardContent>
       </Card>
 
-
-      <OpenItemsStrip items={openItemsSummary} />
 
       <ProjectWorkPanels
         initialTab={initialTab}

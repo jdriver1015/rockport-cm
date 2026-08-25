@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { CheckIcon, LockIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { ComboboxSelect } from "@/components/ui/combobox";
@@ -48,30 +49,24 @@ export type CostCodeBudget = { budget: number; allocated: number };
 
 const DEFAULT_SPEC_COLS = ["Item", "Product", "Notes"];
 
-/** Shared grid so the column header, every group row, and the totals line up. */
-const GRID = "grid grid-cols-[minmax(0,1fr)_132px_132px_104px] items-start gap-3.5";
+/** Shared grid so the column header, every row, and the total line up. */
+const GRID = "grid grid-cols-[minmax(0,1fr)_120px_120px_120px] items-baseline gap-3.5";
 
-const LABEL = "text-[10px] font-semibold uppercase tracking-[0.09em] text-ink-300";
+const LABEL = "text-[9.5px] font-bold uppercase tracking-[0.1em] text-ink-300";
 
-function initialsOf(name: string): string {
-  return initials(name);
-}
-
-/**
- * One budget line's worth of scope.
- *
- * The grouping is not decoration: actual spend is only knowable per cost code,
- * because gl_transactions carries a code and a project and no scope item. So
- * the code is the level the Actual column can honestly report, and the group
- * row is where it goes.
- */
-type Group = {
-  costCodeId: number | null;
-  code: string;
-  name: string;
+/** A scope line with everything the row needs resolved onto it. */
+type Line = {
+  row: ScopeRow;
+  vendor: ScopeVendorOption | null;
+  code: ScopeCostCodeOption | null;
+  /** The UW allowance on this line's code. */
   allowance: number;
+  /** Posted spend on this line's code. */
   actual: number;
-  rows: ScopeRow[];
+  /** How many scope lines share this code — 1 means the figure is this line's. */
+  sharing: number;
+  budgeted: number | null;
+  committed: number | null;
 };
 
 export function ProjectScopeList({
@@ -118,237 +113,154 @@ export function ProjectScopeList({
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const editingRow = typeof editing === "number" ? items.find((i) => i.id === editing) ?? null : null;
 
-  const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
-  const pricedCount = items.filter((i) => lineTotal(i) != null).length;
-  const total = items.reduce((sum, i) => sum + (lineTotal(i) ?? 0), 0);
-  const committedTotal = items.reduce((sum, i) => sum + (committedByLine[i.id] ?? 0), 0);
-
-  const groups = useMemo<Group[]>(() => {
-    const byCode = new Map<number | null, ScopeRow[]>();
-    for (const row of items) {
-      const key = row.costCodeId ?? null;
-      const list = byCode.get(key);
-      if (list) list.push(row);
-      else byCode.set(key, [row]);
+  const lines = useMemo<Line[]>(() => {
+    // Several scope lines may point at one cost code, and that is fine — but it
+    // decides whether posted spend can be read as this line's or only as the
+    // code's, so it is counted before anything is rendered.
+    const sharing = new Map<number, number>();
+    for (const r of items) {
+      if (r.costCodeId == null) continue;
+      sharing.set(r.costCodeId, (sharing.get(r.costCodeId) ?? 0) + 1);
     }
 
-    const out: Group[] = [];
-    for (const [costCodeId, rows] of byCode) {
-      const code = costCodeId != null ? codeById.get(costCodeId) : undefined;
-      out.push({
-        costCodeId,
-        code: code?.code ?? "",
-        name: code?.name ?? "No budget line yet",
-        allowance: costCodeId != null ? (budgetByCode[costCodeId]?.budget ?? 0) : 0,
-        actual: costCodeId != null ? (actualByCode[costCodeId] ?? 0) : 0,
-        rows,
-      });
-    }
-    // Uncoded last: it is the pile that still needs a decision, and burying it
-    // mid-table is how it stays unresolved.
-    return out.sort((a, b) => {
-      if (a.costCodeId == null) return 1;
-      if (b.costCodeId == null) return -1;
-      return a.code.localeCompare(b.code);
+    const built = items.map<Line>((row) => {
+      const code = row.costCodeId != null ? codeById.get(row.costCodeId) ?? null : null;
+      return {
+        row,
+        vendor: row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null,
+        code,
+        allowance: row.costCodeId != null ? (budgetByCode[row.costCodeId]?.budget ?? 0) : 0,
+        actual: row.costCodeId != null ? (actualByCode[row.costCodeId] ?? 0) : 0,
+        sharing: row.costCodeId != null ? (sharing.get(row.costCodeId) ?? 1) : 1,
+        budgeted: lineTotal(row),
+        committed: committedByLine[row.id] ?? null,
+      };
     });
-  }, [items, codeById, budgetByCode, actualByCode]);
 
-  // Actual only ever belongs to a cost code, and the groups above are the codes
-  // the scope actually names. Summing actualByCode wholesale put spend from
-  // codes with no scope line into a total the visible rows could not add up to.
-  const actualInScope = groups.reduce((sum, g) => sum + g.actual, 0);
-  const actualEverywhere = Object.values(actualByCode).reduce((sum, v) => sum + v, 0);
+    // By code, so lines sharing one sit together without needing a header to say
+    // so. Uncoded last: it is the pile that still needs a decision, and burying
+    // it mid-table is how it stays unresolved.
+    return built.sort((a, b) => {
+      if (!a.code && !b.code) return 0;
+      if (!a.code) return 1;
+      if (!b.code) return -1;
+      return a.code.code.localeCompare(b.code.code);
+    });
+  }, [items, codeById, vendorById, budgetByCode, actualByCode, committedByLine]);
+
+  const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
+  const pricedCount = lines.filter((l) => l.budgeted != null).length;
+  const budgetedTotal = lines.reduce((s, l) => s + (l.budgeted ?? 0), 0);
+  const committedTotal = lines.reduce((s, l) => s + (l.committed ?? 0), 0);
+
+  // Once per code, not once per line — two lines on one code would otherwise
+  // count the same posted dollars twice.
+  const actualInScope = useMemo(() => {
+    const seen = new Set<number>();
+    let sum = 0;
+    for (const l of lines) {
+      if (l.row.costCodeId == null || seen.has(l.row.costCodeId)) continue;
+      seen.add(l.row.costCodeId);
+      sum += l.actual;
+    }
+    return sum;
+  }, [lines]);
+
+  const actualEverywhere = Object.values(actualByCode).reduce((s, v) => s + v, 0);
   const actualOutsideScope = Math.max(0, actualEverywhere - actualInScope);
-
-  const summary = [
-    `${items.length} item${items.length === 1 ? "" : "s"}`,
-    vendorCount > 0 ? `${vendorCount} vendor${vendorCount === 1 ? "" : "s"}` : null,
-    total > 0 ? `${money(total)} budgeted` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const overApproved = approvedBudget > 0 && budgetedTotal > approvedBudget;
 
   return (
     <Card className="gap-0 overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between pb-(--card-spacing)">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <ProjectPanelSwitch />
-          <span className="text-sm text-muted-foreground">{summary}</span>
-          {/* The budget lived on a stat card above this table. That card is gone
-              and confirming now requires a budget, so the control belongs where
-              the requirement is felt rather than two clicks away in Manage. */}
-          <span className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">
-              {approvedBudget > 0 ? `of ${money(approvedBudget)} approved` : "no budget approved"}
-            </span>
-            <BudgetInlineEditor projectId={projectId} approved={approvedBudget} />
+      <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 pb-(--card-spacing)">
+        <ProjectPanelSwitch />
+
+        <span className="text-[13px] text-ink-400">
+          {items.length} item{items.length === 1 ? "" : "s"}
+          {vendorCount > 0 && ` · ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`}
+          {budgetedTotal > 0 && (
+            <>
+              {" · "}
+              <span className="font-semibold text-ink-700 tabular-nums">{money(budgetedTotal)}</span>
+              {" budgeted"}
+              {approvedBudget > 0 && ` of ${money(approvedBudget)} approved`}
+            </>
+          )}
+        </span>
+
+        {/* The budget lived on a stat card above this table. That card is gone and
+            confirming requires a budget, so the control sits where the
+            requirement is felt rather than two clicks away in Manage. */}
+        <BudgetInlineEditor projectId={projectId} approved={approvedBudget} />
+
+        {overApproved && (
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-alert/10 px-2 py-0.5 text-[11.5px] font-semibold text-alert">
+            {money(budgetedTotal - approvedBudget)} over the approved budget
           </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <ScopeConfirmControl
+            projectId={projectId}
+            confirmedAt={scopeConfirmedAt}
+            locked={scopeLocked}
+            liveRfpCount={liveRfpCount}
+          />
+          <Button size="sm" disabled={scopeLocked} onClick={() => setEditing("new")}>
+            Add scope item
+          </Button>
         </div>
-        <Button size="sm" disabled={scopeLocked} onClick={() => setEditing("new")}>
-          Add scope item
-        </Button>
       </CardHeader>
 
-      <ScopeConfirmBar
-        projectId={projectId}
-        confirmedAt={scopeConfirmedAt}
-        locked={scopeLocked}
-        liveRfpCount={liveRfpCount}
-      />
-
       {items.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">
+        <p className="border-t border-border py-10 text-center text-sm text-muted-foreground">
           No scope items yet — add the first with “Add scope item”.
         </p>
       ) : (
         <>
-          <div className={cn(GRID, "border-b border-border bg-muted/50 px-5 py-2", LABEL)}>
+          <div className={cn(GRID, "border-y border-border px-5 py-2", LABEL)}>
             <div>Scope item</div>
             <div className="text-right">Budgeted</div>
             <div className="text-right">Committed</div>
             <div className="text-right">Actual</div>
           </div>
 
-          {groups.map((group) => {
-            const groupBudgeted = group.rows.reduce((s, r) => s + (lineTotal(r) ?? 0), 0);
-            const groupCommitted = group.rows.reduce((s, r) => s + (committedByLine[r.id] ?? 0), 0);
-            const remaining = group.allowance - groupBudgeted;
-            const overAllowance = group.allowance > 0 && remaining < 0;
+          {lines.map((line) => (
+            <ScopeLineRow
+              key={line.row.id}
+              line={line}
+              awardIsDirect={awardIsDirect}
+              onOpen={() => setEditing(line.row.id)}
+            />
+          ))}
 
-            return (
-              <div key={group.costCodeId ?? "uncoded"}>
-                {/* Cue 1: a filled band spanning the full width. Cue 2: the name
-                    in the serif the app uses for titles, so a cost code reads as
-                    a different KIND of thing than a line, not a bigger one.
-                    Cue 3: figures a step up in size and weight, in navy. */}
-                <div
-                  className={cn(GRID, "border-t border-border-2 bg-surface-sub px-5 py-3")}
-                >
-                  <div className="min-w-0">
-                    <div
-                      className={cn(
-                        "font-plex-mono text-[10px] font-bold tracking-[0.06em]",
-                        group.costCodeId == null ? "text-alert" : "text-ink-400",
-                      )}
-                    >
-                      {group.costCodeId == null ? "NOT CODED" : group.code}
-                    </div>
-                    <div className="mt-0.5 truncate font-heading text-base leading-tight font-semibold text-navy">
-                      {group.name}
-                    </div>
-                    <div className="mt-0.5 truncate text-[11px] text-ink-400">
-                      {group.rows.length} item{group.rows.length === 1 ? "" : "s"}
-                      {group.costCodeId == null
-                        ? " · code these so the spend can reconcile"
-                        : group.allowance > 0
-                          ? ` · ${money(group.allowance)} allowance`
-                          : " · no allowance on this code"}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div
-                      className={cn(
-                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
-                        groupBudgeted > 0 ? (overAllowance ? "text-alert" : "text-navy") : "text-ink-200",
-                      )}
-                    >
-                      {groupBudgeted > 0 ? money(groupBudgeted) : "—"}
-                    </div>
-                    {group.allowance > 0 && groupBudgeted > 0 && (
-                      <div
-                        className={cn(
-                          "mt-0.5 text-[10.5px] tabular-nums",
-                          overAllowance ? "text-alert" : remaining === 0 ? "text-positive" : "text-ink-400",
-                        )}
-                      >
-                        {overAllowance
-                          ? `${money(-remaining)} over`
-                          : remaining === 0
-                            ? "fully allocated"
-                            : `${money(remaining)} left`}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="text-right">
-                    <div
-                      className={cn(
-                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
-                        groupCommitted > 0 ? "text-navy" : "text-ink-200",
-                      )}
-                    >
-                      {groupCommitted > 0 ? money(groupCommitted) : "—"}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div
-                      className={cn(
-                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
-                        group.actual > 0 ? "text-navy" : "text-ink-200",
-                      )}
-                    >
-                      {group.actual > 0 ? money(group.actual) : group.costCodeId == null ? "—" : "$0"}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cue 4: the lines hang off their code, indented behind a rail.
-                    Nothing at code level is ever indented. */}
-                <div className="relative before:absolute before:top-0 before:bottom-0 before:left-[26px] before:w-0.5 before:bg-hairline">
-                  {group.rows.map((row) => (
-                    <ScopeLineRow
-                      key={row.id}
-                      row={row}
-                      vendor={row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null}
-                      committed={committedByLine[row.id] ?? null}
-                      awardIsDirect={awardIsDirect}
-                      onOpen={() => setEditing(row.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* The bottom line is the one row that is not a section, so it does not
-              look like one. */}
-          <div className={cn(GRID, "items-baseline bg-navy px-5 py-3.5")}>
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-on-navy-muted">
-              Project total · {items.length} item{items.length === 1 ? "" : "s"} · {pricedCount}{" "}
-              priced
+          <div className={cn(GRID, "border-t border-border bg-band px-5 py-3")}>
+            <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">
+              Total · {items.length} item{items.length === 1 ? "" : "s"} · {pricedCount} priced
             </div>
-            <div className="text-right text-base font-bold tabular-nums text-white">
-              {total > 0 ? money(total) : "—"}
+            <div
+              className={cn(
+                "text-right text-[15px] font-bold tabular-nums",
+                overApproved ? "text-alert" : "text-ink-900",
+              )}
+            >
+              {budgetedTotal > 0 ? money(budgetedTotal) : "—"}
             </div>
-            <div className="text-right text-base font-bold tabular-nums text-white">
+            <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
               {committedTotal > 0 ? money(committedTotal) : "—"}
             </div>
-            <div className="text-right text-base font-bold tabular-nums text-white">
+            <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
               {actualInScope > 0 ? money(actualInScope) : "$0"}
             </div>
           </div>
 
           {actualOutsideScope > 0 && (
             // Real posted spend on codes nothing in this scope points at. Folding
-            // it into the total above would make the column stop adding up; hiding
-            // it entirely would lose the fact that money is going somewhere the
-            // scope never described.
-            <div
-              className={cn(
-                GRID,
-                "items-baseline border-t border-hairline bg-alert-bg/40 px-5 py-2.5",
-              )}
-            >
-              <div className="text-[12px] text-alert">
-                Also posted to budget lines this scope does not cover — worth a look
-              </div>
-              <div />
-              <div />
-              <div className="text-right text-[12.5px] font-semibold tabular-nums text-alert">
-                {money(actualOutsideScope)}
-              </div>
+            // it into the total would make the column stop adding up; hiding it
+            // would lose the fact that money is going somewhere the scope never
+            // described.
+            <div className="border-t border-hairline bg-alert-bg/40 px-5 py-2 text-[11.5px] text-alert">
+              {money(actualOutsideScope)} also posted to budget lines this scope does not cover
             </div>
           )}
         </>
@@ -373,28 +285,23 @@ export function ProjectScopeList({
 }
 
 /**
- * One scope line, three bands tall: the money, what the work is, and what it is
- * made of.
+ * One scope line. The cost code rides on the row rather than heading a section.
  *
- * The old row was a single line with a status pill. A scope line is a paragraph
- * of instruction to a contractor and a list of products — a table row that only
- * fits its name was hiding the part that matters, and the status was a second
- * answer to a question the project's phase already answers.
+ * Grouping by code put a full band above every line, and with one line per code
+ * — which is most of them — the band restated the row beneath it, name and
+ * figure both. The code is a property of the line, so it reads as one.
  */
 function ScopeLineRow({
-  row,
-  vendor,
-  committed,
+  line,
   awardIsDirect,
   onOpen,
 }: {
-  row: ScopeRow;
-  vendor: ScopeVendorOption | null;
-  committed: number | null;
+  line: Line;
   awardIsDirect: boolean;
   onOpen: () => void;
 }) {
-  const budgeted = lineTotal(row);
+  const { row, vendor, code, allowance, actual, sharing, budgeted, committed } = line;
+
   const qty = row.quantity ? Number(row.quantity) : null;
   const unit = row.unitPrice ? Number(row.unitPrice) : null;
   // Over what was estimated. Only meaningful when a vendor priced this line, so
@@ -404,28 +311,51 @@ function ScopeLineRow({
       ? committed - budgeted
       : null;
 
+  // Against the code's allowance. Only this line's share is knowable when it is
+  // the only line on the code; otherwise the comparison belongs to the code.
+  const remaining = allowance > 0 && budgeted != null && sharing === 1 ? allowance - budgeted : null;
+  const unbudgeted = code != null && allowance === 0 && budgeted != null && budgeted > 0;
+
   const specRows = row.specs?.rows.filter((r) => r.some((c) => c.trim())) ?? [];
   const description = row.materialQuality?.trim() ?? "";
   // A row with nothing to say should not cost a full sentence of placeholder and
   // an empty spec band. Most lines start empty, so paying three bands for every
-  // one of them is what made a 30-item scope unreadable.
+  // one of them is what made a thirty-item scope unreadable.
   const bare = !description && specRows.length === 0;
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="w-full cursor-pointer border-t border-hairline py-2.5 pr-5 pl-10 text-left transition-colors first:border-t-0 hover:bg-hover"
+      className="w-full cursor-pointer border-b border-hairline px-5 py-3 text-left transition-colors hover:bg-hover"
     >
       <div className={GRID}>
         <div className="min-w-0">
-          <div className="truncate text-[13.5px] font-semibold leading-snug text-ink-900">
+          <div className="truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300">
+            {code ? (
+              <>
+                <span className="font-plex-mono">{code.code}</span>
+                <span className="text-ink-400"> · {code.name} · </span>
+                {allowance > 0 ? (
+                  <span>{money(allowance)} allowance</span>
+                ) : (
+                  <span className="font-bold text-gold">no allowance on this code</span>
+                )}
+                {sharing > 1 && <span className="text-ink-300"> · {sharing} lines on this code</span>}
+              </>
+            ) : (
+              <span className="font-bold text-alert">NOT CODED TO A BUDGET LINE</span>
+            )}
+          </div>
+
+          <div className="mt-0.5 truncate text-sm font-semibold leading-snug text-navy">
             {row.item || "Untitled item"}
           </div>
+
           {vendor ? (
-            <div className="mt-0.5 flex items-center gap-1.5">
+            <div className="mt-1 flex items-center gap-1.5">
               <span className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border border-[#c3d3ec] bg-[#dde6f5] text-[8.5px] font-bold text-[#1b3a6b]">
-                {initialsOf(vendor.name)}
+                {initials(vendor.name)}
               </span>
               <span className="truncate text-[11.5px] text-ink-400">
                 {vendor.name}
@@ -433,55 +363,87 @@ function ScopeLineRow({
               </span>
             </div>
           ) : (
-            <div className="mt-0.5 text-[11.5px] text-ink-300">Awaiting award</div>
+            <div className="mt-1 text-[11.5px] text-ink-300">Awaiting award</div>
           )}
         </div>
 
-        {/* Detail figures are a step DOWN from the group's — quieting the detail
-            opens a wider gap than shouting the totals would. */}
         <div className="text-right">
           <div
             className={cn(
-              "text-[13px] tabular-nums",
-              budgeted != null ? "font-medium text-ink-700" : "text-ink-300",
+              "text-sm font-semibold tabular-nums tracking-[-0.01em]",
+              budgeted == null ? "text-ink-200" : unbudgeted ? "text-gold" : "text-navy",
             )}
           >
             {budgeted != null ? money(budgeted) : "Not priced"}
           </div>
-          {qty != null && unit != null && (
-            <div className="mt-px text-[10.5px] tabular-nums text-ink-300">
-              {qty.toLocaleString()} × {money(unit)}
+          {unbudgeted ? (
+            <div className="mt-px text-[10.5px] font-semibold text-gold">unbudgeted</div>
+          ) : remaining != null ? (
+            <div
+              className={cn(
+                "mt-px text-[10.5px] tabular-nums",
+                remaining < 0 ? "text-alert" : remaining === 0 ? "text-positive" : "text-ink-400",
+              )}
+            >
+              {remaining < 0
+                ? `${money(-remaining)} over`
+                : remaining === 0
+                  ? "fully allocated"
+                  : `${money(remaining)} left`}
             </div>
+          ) : (
+            qty != null &&
+            unit != null && (
+              <div className="mt-px text-[10.5px] tabular-nums text-ink-300">
+                {qty.toLocaleString()} × {money(unit)}
+              </div>
+            )
           )}
         </div>
 
         <div className="text-right">
           {committed != null && committed > 0 ? (
             <>
-              <div className="text-[13px] font-medium tabular-nums text-ink-700">
-                {money(committed)}
-              </div>
+              <div className="text-sm font-medium tabular-nums text-ink-700">{money(committed)}</div>
               {over != null && (
                 <div className="mt-px text-[10.5px] tabular-nums text-alert">{money(over)} over</div>
               )}
             </>
           ) : (
-            <span className="text-[12px] text-ink-100">·</span>
+            <span className="text-xs text-ink-100">·</span>
           )}
         </div>
 
-        {/* Actual is a cost-code fact, reported on the group row above. */}
-        <div className="text-right text-[12px] text-ink-100">·</div>
+        <div className="text-right">
+          {row.costCodeId == null ? (
+            <span className="text-xs text-ink-100">·</span>
+          ) : (
+            <>
+              <div
+                className={cn(
+                  "text-sm tabular-nums",
+                  actual > 0 ? "font-medium text-ink-700" : "text-ink-200",
+                )}
+              >
+                {actual > 0 ? money(actual) : "$0"}
+              </div>
+              {sharing > 1 && actual > 0 && (
+                // Posted spend is a cost-code fact. With more than one line on the
+                // code, nothing says how to split it, so the row shows the code's
+                // figure and says so rather than implying it is this line's.
+                <div className="mt-px text-[10.5px] text-ink-300">code total</div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {description && (
-        <p className="mt-1.5 max-w-[66ch] text-[12.5px] leading-relaxed text-ink-500">
-          {description}
-        </p>
+        <p className="mt-2 max-w-[68ch] text-[12.5px] leading-relaxed text-ink-500">{description}</p>
       )}
 
       {specRows.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {specRows.slice(0, 4).map((cells, i) => (
             <span
               key={i}
@@ -500,7 +462,7 @@ function ScopeLineRow({
       )}
 
       {bare && (
-        <div className="mt-1 flex gap-3 text-[11.5px] text-ink-300">
+        <div className="mt-1.5 flex gap-3 text-[11.5px] text-ink-200">
           <span className="underline underline-offset-[3px]">Add description</span>
           <span className="underline underline-offset-[3px]">Add specs</span>
         </div>
@@ -510,18 +472,14 @@ function ScopeLineRow({
 }
 
 /**
- * Confirm the scope, or say why it cannot be.
+ * Confirm the scope, compactly.
  *
- * Three states, because there are three: a draft you can still change, a
- * confirmed scope ready to price, and a scope frozen because vendors are
- * holding it. The third is the one worth explaining — the lock covers prices,
- * codes and specs but not dates or vendors, and this bar is the only place
- * anybody is told that.
- *
- * Confirming here and confirming from the workflow gate write the same
- * projects.scope_confirmed_at, so the gate ticks either way.
+ * This was a full-width bar with a switch under the card header. The capability
+ * matters — confirming here writes the same projects.scope_confirmed_at the
+ * workflow gate reads, so either door ticks gate 2 — but a banner across the
+ * table to hold one control was most of what made the header feel busy.
  */
-function ScopeConfirmBar({
+function ScopeConfirmControl({
   projectId,
   confirmedAt,
   locked,
@@ -547,72 +505,44 @@ function ScopeConfirmBar({
     });
   }
 
-  const state = locked ? "locked" : confirmedAt ? "confirmed" : "draft";
+  // Frozen because vendors are holding the scope. Not a button: the way back is
+  // withdrawing the requests, which the workflow panel owns.
+  if (locked) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-md bg-gold/12 px-2.5 py-1 text-[11.5px] font-semibold text-[#7a6414]"
+        title={`Prices, codes and specs are frozen while ${liveRfpCount} vendor${liveRfpCount === 1 ? " is" : "s are"} pricing. Dates stay editable.`}
+      >
+        <LockIcon className="size-3" />
+        Locked · {liveRfpCount} pricing
+      </span>
+    );
+  }
 
-  return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-3 border-b border-border px-5 py-2.5 text-[12.5px]",
-        state === "confirmed" && "bg-positive-bg",
-        state === "locked" && "bg-gold-soft/12",
-        state === "draft" && "bg-muted/50",
-      )}
-    >
+  if (confirmedAt) {
+    return (
       <button
         type="button"
-        role="switch"
-        aria-checked={state !== "draft"}
-        aria-label={confirmedAt ? "Un-confirm the scope" : "Confirm the scope"}
-        disabled={pending || locked}
-        onClick={() =>
-          confirmedAt
-            ? run(() => unconfirmScope({ projectId }), "Scope re-opened for editing")
-            : run(() => confirmScope({ projectId }), "Scope confirmed — ready to price")
-        }
-        className={cn(
-          "relative h-[21px] w-[38px] shrink-0 rounded-full transition-colors",
-          state === "draft" && "bg-ink-100 hover:bg-ink-200",
-          state === "confirmed" && "bg-positive",
-          state === "locked" && "cursor-not-allowed bg-gold",
-          pending && "opacity-60",
-        )}
+        disabled={pending}
+        onClick={() => run(() => unconfirmScope({ projectId }), "Scope re-opened for editing")}
+        className="inline-flex items-center gap-1.5 rounded-md bg-positive-bg px-2.5 py-1 text-[11.5px] font-semibold text-positive transition-colors hover:bg-positive/15 disabled:opacity-60"
+        title="Un-confirm to keep editing"
       >
-        <span
-          className={cn(
-            "absolute top-0.5 size-[17px] rounded-full bg-white shadow-sm transition-all",
-            state === "draft" ? "left-0.5" : "left-[19px]",
-          )}
-        />
+        <CheckIcon className="size-3" />
+        Confirmed {fmtDate(confirmedAt)}
       </button>
+    );
+  }
 
-      <span className="text-ink-500">
-        {state === "draft" && (
-          <>
-            <b className="font-semibold text-ink-700">Draft</b> — editable. Confirm when the scope is
-            ready to price.
-          </>
-        )}
-        {state === "confirmed" && (
-          <>
-            <b className="font-semibold text-ink-700">Confirmed</b> {fmtDate(confirmedAt)} — ready to
-            price. Un-confirm to keep editing.
-          </>
-        )}
-        {state === "locked" && (
-          <>
-            <b className="font-semibold text-ink-700">Locked</b> — {liveRfpCount} vendor
-            {liveRfpCount === 1 ? " is" : "s are"} pricing this scope. Withdraw the request
-            {liveRfpCount === 1 ? "" : "s"} to edit.
-          </>
-        )}
-      </span>
-
-      <span className="ml-auto text-right text-[11px] text-muted-foreground">
-        {state === "locked"
-          ? "Prices, codes and specs frozen · dates still editable"
-          : "Pre-construction gate 2"}
-      </span>
-    </div>
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      onClick={() => run(() => confirmScope({ projectId }), "Scope confirmed — ready to price")}
+    >
+      Confirm scope
+    </Button>
   );
 }
 
