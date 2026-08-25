@@ -1,0 +1,47 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 1080, "title": "Renovation Type — Pricing" },
+    { "file": "TradeScope.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 880, "title": "Trade Scope" },
+    { "file": "FinishSpecs.dc.html", "x": 2800, "y": 0, "w": 1280, "h": 1240, "title": "Finish Specs + Fixture Kit" },
+    { "file": "Triggers.dc.html", "x": 1400, "y": 1000, "w": 1080, "h": 940, "title": "Reno Type Triggers" },
+    { "file": "BidSheet.dc.html", "x": 0, "y": 1200, "w": 816, "h": 1056, "title": "Bid Sheet — page 1", "print": "fixed" }
+  ],
+  "annotations": [
+    {
+      "id": "start-here",
+      "x": 0,
+      "y": -150,
+      "w": 420,
+      "text": "START HERE — Renovation Type page.\n\nThe popup becomes this page's first section. The destination route already exists:\n/properties/[slug]/interiors/budget-groups/[groupId]\n\nToday it shows a bare \"Budget lines\" table and a \"← Interiors\" back link, so this is a consolidation, not a new route."
+    },
+    {
+      "id": "sections-note",
+      "x": 1400,
+      "y": -150,
+      "w": 420,
+      "text": "Trade Scope — the 13 headings from Drew's Word template, each a narrative block a GC reads to bid.\n\nThe left rail exists because a bid needs ALL of them: written vs not-written at a glance. Nothing here is priced — pricing stays in section 1."
+    },
+    {
+      "id": "specs-note",
+      "x": 2800,
+      "y": -150,
+      "w": 420,
+      "text": "Finish Specs + Fixture Kit — the template's five tables, verbatim columns.\n\nColumns differ per table (Paint has 5, Flooring has 2), which is why these are stored as {cols, rows} rather than fixed columns — same shape already used by scope_items.specs."
+    },
+    {
+      "id": "triggers-note",
+      "x": 1400,
+      "y": 1990,
+      "w": 420,
+      "text": "Reno Type Triggers — PROPERTY-level, not per type, because it's the rule that CHOOSES between types.\n\nThis is also the \"Why Signature?\" checklist from the earlier project mockup — same data, finally backed. The lower card shows the payoff on a unit."
+    },
+    {
+      "id": "bid-note",
+      "x": 0,
+      "y": 2300,
+      "w": 420,
+      "text": "Bid Sheet — the GC-facing output, Letter portrait at 96dpi (816x1056).\n\nBlank ruled cells are where the GC writes prices; our numbers show as greyed reference only. This replaces mailing the Word doc."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

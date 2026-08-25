@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #ffffff; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4a5158; text-decoration: none; }
+    a:hover { color: #16233a; }
+  </style>
+</helmet>
+
+<!-- Letter portrait at 96dpi: 816 x 1056. The GC-facing artefact. -->
+<div style="width: 816px; min-height: 1056px; background: #ffffff; font-family: Inter, system-ui, sans-serif; padding: 56px 64px; box-sizing: border-box;">
+
+  <!-- Masthead -->
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 14px; border-bottom: 2px solid #16233a;">
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 8px;">
+        <span style="font-family: Newsreader, serif; font-size: 17px; font-weight: 600; color: #16233a;">Rockport</span>
+        <span style="font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #8a94a2;">construction manager</span>
+      </div>
+      <h1 style="font-family: Newsreader, serif; font-size: 22px; font-weight: 600; color: #16233a; margin: 0; line-height: 1.25;">Aston Post Oak — Unit Interior Renovation Scope</h1>
+      <p style="font-size: 12px; color: #6b7684; margin: 5px 0 0;">Enhanced renovation type · Issued for bid</p>
+    </div>
+    <div style="text-align: right; white-space: nowrap;">
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Bid due</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #16233a; margin-top: 3px;">Sep 12, 2026</div>
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-top: 9px;">Rev</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #16233a; margin-top: 3px;">B · Aug 20</div>
+    </div>
+  </div>
+
+  <!-- At-a-glance facts a bidder needs before reading anything -->
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #dde3ea;">
+    <div style="padding: 11px 14px 11px 0; border-right: 1px solid #f1f3f5;">
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Units in scope</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; color: #16233a; margin-top: 4px;">148</div>
+    </div>
+    <div style="padding: 11px 14px; border-right: 1px solid #f1f3f5;">
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Floorplans</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; color: #16233a; margin-top: 4px;">A1 · A2 · B2</div>
+    </div>
+    <div style="padding: 11px 14px; border-right: 1px solid #f1f3f5;">
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Avg unit SF</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; color: #16233a; margin-top: 4px;">880</div>
+    </div>
+    <div style="padding: 11px 0 11px 14px;">
+      <div style="font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Trades in scope</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; color: #16233a; margin-top: 4px;">13</div>
+    </div>
+  </div>
+
+  <!-- Bid table: our scope, their price. The whole point of the document. -->
+  <h2 style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #16233a; margin: 22px 0 9px;">1 · Pricing schedule</h2>
+  <p style="font-size: 11.5px; line-height: 1.6; color: #6b7684; margin: 0 0 10px; text-wrap: pretty;">Enter a unit price for each line. Our figures are shown for reference only and are not a floor or a ceiling. Price per unit unless the basis says otherwise.</p>
+
+  <div style="border: 1px solid #dde3ea; border-radius: 6px; overflow: hidden;">
+    <div style="display: grid; grid-template-columns: 1.5fr 1fr 92px 100px 110px; column-gap: 10px; padding: 7px 12px; background: #f7f8fa; border-bottom: 1px solid #dde3ea; font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+      <div>Scope item</div>
+      <div>Basis</div>
+      <div style="text-align: right;">Ref.</div>
+      <div style="text-align: right;">Your unit price</div>
+      <div style="text-align: right;">Extended</div>
+    </div>
+    <sc-for list="{{ lines }}" as="ln" hint-placeholder-count="6">
+      <div style="{{ ln.rowStyle }}">
+        <div style="font-size: 11.5px; font-weight: 500; color: #16233a;">{{ ln.item }}</div>
+        <div style="font-size: 11px; color: #6b7684;">{{ ln.basis }}</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #a7adb4; text-align: right; font-variant-numeric: tabular-nums;">{{ ln.ref }}</div>
+        <div style="height: 18px; border-bottom: 1px solid #c2c6cb;"></div>
+        <div style="height: 18px; border-bottom: 1px solid #c2c6cb;"></div>
+      </div>
+    </sc-for>
+    <div style="display: grid; grid-template-columns: 1.5fr 1fr 92px 100px 110px; column-gap: 10px; padding: 9px 12px; background: #f7f8fa; border-top: 1px solid #dde3ea;">
+      <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #16233a;">Total per unit</div>
+      <div></div><div></div><div></div>
+      <div style="height: 18px; border-bottom: 2px solid #16233a;"></div>
+    </div>
+  </div>
+
+  <!-- Narrative scope, condensed to the printed form -->
+  <h2 style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #16233a; margin: 24px 0 9px;">2 · Scope of work</h2>
+  <sc-for list="{{ trades }}" as="t" hint-placeholder-count="4">
+    <div style="{{ t.wrapStyle }}">
+      <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #16233a; margin-bottom: 4px;">{{ t.label }}</div>
+      <p style="font-size: 11.5px; line-height: 1.7; color: #4a5158; margin: 0; text-wrap: pretty;">{{ t.body }}</p>
+    </div>
+  </sc-for>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 26px; padding-top: 11px; border-top: 1px solid #dde3ea; font-size: 9.5px; color: #8a94a2;">
+    <span>Aston Post Oak · Enhanced · Rev B</span>
+    <span>Page 1 of 4 — finish specs and fixture kit follow</span>
+  </div>
+
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":816,"height":1056}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const lines = [
+      ["Paint", "Per square foot", "1.85"],
+      ["Flooring", "Per square foot", "3.25"],
+      ["Appliances", "Per unit", "2,200"],
+      ["Countertops", "Per unit", "1,200"],
+      ["Fixtures", "Per unit", "450"],
+      ["Labor", "Per unit", "1,500"],
+    ];
+    const trades = [
+      ["Demolition", "Remove and dispose of all finishes designated for replacement, including flooring, cabinet fronts, countertops, and fixtures. Protect all surfaces designated to remain. Haul-off and dumpster are the contractor's responsibility."],
+      ["Paint", "Contractor to provide necessary labor and equipment to prep, prime, and paint the interior of the unit. Patch and sand all nail holes and drywall damage prior to priming. Finish paint plan is on the associated finish scope sheet."],
+      ["Cabinets", "Replace cabinet door and drawer fronts with shaker profile, soft-close hinges throughout. Retain existing boxes where structurally sound; prep and paint boxes per the finish scope. Hardware finish per the fixture kit."],
+      ["Final clean", "Contractor to provide labor, equipment, and incidental materials to clean the unit ready for resident occupancy, including removal of all labels and protective covers. Unit to be left broom clean."],
+    ];
+    return {
+      lines: lines.map(([item, basis, ref], i) => ({
+        item, basis, ref,
+        rowStyle: {
+          display: "grid",
+          gridTemplateColumns: "1.5fr 1fr 92px 100px 110px",
+          columnGap: "10px",
+          alignItems: "center",
+          padding: "8px 12px",
+          borderBottom: i === lines.length - 1 ? "none" : "1px solid #f1f3f5",
+        },
+      })),
+      trades: trades.map(([label, body], i) => ({
+        label, body,
+        wrapStyle: {
+          paddingBottom: "11px",
+          marginBottom: "11px",
+          borderBottom: i === trades.length - 1 ? "none" : "1px solid #f1f3f5",
+        },
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

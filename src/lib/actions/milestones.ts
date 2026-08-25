@@ -5,10 +5,13 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES } from "@/lib/stages";
+import { requireUser } from "@/lib/auth";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
 import { FIRST_CUSTOM_SORT_ORDER } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
+import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
+import { fmtDate } from "@/lib/format";
 
 const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
 
@@ -42,6 +45,9 @@ const createSchema = z.object({
 export async function createMilestone(
   input: z.input<typeof createSchema>,
 ): Promise<ActionResult<{ id: number }>> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -76,6 +82,15 @@ export async function createMilestone(
     })
     .returning({ id: schema.projectMilestones.id });
 
+  await logFieldChange({
+    projectId: d.projectId,
+    userId: auth.profile.id,
+    field: "milestone",
+    fieldLabel: `Milestone: ${d.label}`,
+    from: null,
+    to: d.plannedDate ? `Added (planned ${fmtDate(d.plannedDate)})` : "Added",
+  });
+
   await revalidateProject(project.propertyId, project);
   return { ok: true, id: ms.id };
 }
@@ -89,6 +104,9 @@ const updateSchema = z.object({
 });
 
 export async function updateMilestone(input: z.input<typeof updateSchema>): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -117,11 +135,36 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
   if (Object.keys(set).length > 0) {
     await db().update(schema.projectMilestones).set(set).where(eq(schema.projectMilestones.id, d.id));
   }
+
+  // Label stays fixed on defaults (guarded above), so it never needs logging there.
+  const label = set.label ?? milestone.label;
+  await logFieldChanges({
+    projectId: milestone.projectId,
+    userId: auth.profile.id,
+    changes: [
+      ...(set.label !== undefined
+        ? [{ field: "milestone:label", fieldLabel: `Milestone: ${milestone.label} → Label`, from: milestone.label, to: set.label }]
+        : []),
+      ...(input.plannedDate !== undefined
+        ? [{ field: "milestone:plannedDate", fieldLabel: `${label}: Planned Date`, from: fmtDate(milestone.plannedDate), to: fmtDate(d.plannedDate) }]
+        : []),
+      ...(input.actualDate !== undefined
+        ? [{ field: "milestone:actualDate", fieldLabel: `${label}: Actual Date`, from: fmtDate(milestone.actualDate), to: fmtDate(d.actualDate) }]
+        : []),
+      ...(input.note !== undefined
+        ? [{ field: "milestone:note", fieldLabel: `${label}: Note`, from: milestone.note, to: d.note }]
+        : []),
+    ],
+  });
+
   await revalidateProject(project.propertyId, project);
   return { ok: true };
 }
 
 export async function archiveMilestone(input: { id: number }): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const milestone = await db().query.projectMilestones.findFirst({
     where: eq(schema.projectMilestones.id, input.id),
   });
@@ -140,6 +183,15 @@ export async function archiveMilestone(input: { id: number }): Promise<ActionRes
     .update(schema.projectMilestones)
     .set({ archivedAt: new Date() })
     .where(eq(schema.projectMilestones.id, input.id));
+
+  await logFieldChange({
+    projectId: milestone.projectId,
+    userId: auth.profile.id,
+    field: "milestone",
+    fieldLabel: `Milestone: ${milestone.label}`,
+    from: "Active",
+    to: "Archived",
+  });
 
   await revalidateProject(project.propertyId, project);
   return { ok: true };

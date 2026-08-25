@@ -1189,9 +1189,18 @@ export const glTransactions = pgTable("gl_transactions", {
     .references(() => properties.id),
   batchId: integer("batch_id").references(() => importBatches.id),
   /** UW line item this spend reconciles to */
-  costCodeId: integer("cost_code_id").references(() => costCodes.id),
-  /** Work project this spend belongs to (JTD per project) */
-  projectId: integer("project_id").references(() => projects.id),
+    costCodeId: integer("cost_code_id").references(() => costCodes.id),
+    /**
+     * The cost code this row was LAST POSTED AS, so an un-post / restore can
+     * restore the original accounting. Set the first time a row moves to
+     * `posted`; thereafter it is sticky and survives later corrections (those
+     * corrections force the row back to `staged` and may overwrite costCodeId,
+     * but originalCostCodeId stays pinned to the code that was actually posted).
+     * See src/lib/gl-edit-rules.ts:originalCostCodeAfterEdit.
+     */
+    originalCostCodeId: integer("original_cost_code_id").references(() => costCodes.id),
+    /** Work project this spend belongs to (JTD per project) */
+    projectId: integer("project_id").references(() => projects.id),
   vendorId: integer("vendor_id").references(() => vendors.id),
   /** Vendor string exactly as it appeared in the source file */
   vendorRaw: text("vendor_raw"),
@@ -1236,6 +1245,13 @@ export const mappingRules = pgTable("mapping_rules", {
   /** Lower number wins when multiple rules match */
   priority: integer("priority").notNull().default(100),
   active: boolean("active").notNull().default(true),
+  /**
+   * Profile id of the user who first learned this rule. Sticky across later
+   * priority tweaks: the upsert in src/lib/actions/gl.ts writes priority +
+   * updatedAt on conflict but never overwrites createdBy, so the
+   * "first-proposer" attribution is stable.
+   */
+  createdBy: uuid("created_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #fafafa; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4a5158; text-decoration: none; }
+    a:hover { color: #16233a; }
+  </style>
+</helmet>
+
+<div style="width: 1080px; background: #fafafa; font-family: Inter, system-ui, sans-serif;">
+  <div style="max-width: 1032px; margin: 0 auto; padding: 28px 24px;">
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6b7684; margin-bottom: 10px;">
+      <span>Portfolio</span><span style="color: #c2c6cb;">/</span>
+      <span>Aston Post Oak</span><span style="color: #c2c6cb;">/</span>
+      <span>Unit Upgrades</span><span style="color: #c2c6cb;">/</span>
+      <span style="color: #16233a; font-weight: 600;">Reno type triggers</span>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; margin-bottom: 6px;">
+      <div>
+        <h1 style="font-family: Newsreader, serif; font-size: 24px; font-weight: 600; color: #16233a; margin: 0 0 4px;">Unit reno type triggers</h1>
+        <p style="font-size: 13.5px; color: #6b7684; margin: 0; max-width: 620px; text-wrap: pretty;">The decision the walker makes at pre-walk. Steps run in order and the first one whose condition is met assigns the renovation type.</p>
+      </div>
+      <span style="padding: 7px 13px; font-size: 12.5px; font-weight: 600; color: #ffffff; background: #16233a; border-radius: 6px; white-space: nowrap;">Add step</span>
+    </div>
+
+    <p style="font-size: 12.5px; color: #8a94a2; margin: 0 0 18px;">Property-level, not per type — this is what decides between them. Answering it on a unit records why that unit got its type.</p>
+
+    <sc-for list="{{ steps }}" as="s" hint-placeholder-count="3">
+      <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #f1f3f5;">
+          <div style="display: flex; align-items: center; gap: 11px;">
+            <span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; color: #16233a; background: #edf1f5; border: 1px solid #dde3ea;">{{ s.n }}</span>
+            <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">{{ s.rule }}</span>
+            <span style="font-size: 13.5px; color: #4a5158;">then assign</span>
+            <span style="{{ s.pillStyle }}">{{ s.tier }}</span>
+          </div>
+          <span style="color: #a7adb4;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+          </span>
+        </div>
+        <sc-for list="{{ s.conditions }}" as="c" hint-placeholder-count="3">
+          <div style="{{ c.rowStyle }}">
+            <span style="display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; border: 1px solid #dde3ea; background: #ffffff;"></span>
+            <span style="font-size: 13.5px; color: #26303a;">{{ c.text }}</span>
+          </div>
+        </sc-for>
+        <div style="padding: 9px 16px; border-top: 1px solid #f1f3f5;">
+          <span style="font-size: 12.5px; font-weight: 500; color: #4a5158;">+ Add condition</span>
+        </div>
+      </div>
+    </sc-for>
+
+    <!-- Where this pays off: the walker's answer is what the unit page shows -->
+    <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); padding: 16px; margin-top: 4px;">
+      <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-bottom: 8px;">On a unit, this becomes</div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+        <span style="font-family: Newsreader, serif; font-size: 17px; font-weight: 600; color: #16233a;">Unit 002 Interior</span>
+        <span style="display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #1b3a6b; background: #dde6f5; border: 1px solid #c3d3ec;">Signature</span>
+        <span style="font-size: 12.5px; color: #6b7684; border-bottom: 1px solid #dde3ea; padding-bottom: 1px;">Why Signature?</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; row-gap: 2px;">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f3f5;">
+          <span style="display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; background: #2e6f4e; border: 1px solid #2e6f4e; color: #ffffff; font-size: 10px; font-weight: 700;">✓</span>
+          <span style="font-size: 12.5px; color: #16233a;">Cabinet fronts require replacement</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f3f5;">
+          <span style="display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; background: #2e6f4e; border: 1px solid #2e6f4e; color: #ffffff; font-size: 10px; font-weight: 700;">✓</span>
+          <span style="font-size: 12.5px; color: #16233a;">Wood flooring requires replacement</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f3f5;">
+          <span style="display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; border: 1px solid #dde3ea; background: #ffffff;"></span>
+          <span style="font-size: 12.5px; color: #8a94a2;">Significant tile in base floor plan</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f3f5;">
+          <span style="display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 4px; flex: 0 0 auto; border: 1px solid #dde3ea; background: #ffffff;"></span>
+          <span style="font-size: 12.5px; color: #8a94a2;">Major appliance needs replacement</span>
+        </div>
+      </div>
+      <p style="font-size: 12px; color: #8a94a2; margin: 10px 0 0;">Recorded at pre-walk by D. Alvarez · Mar 12</p>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1080,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const bluePill = {
+      display: "inline-block", padding: "3px 10px", borderRadius: "999px",
+      fontSize: "11px", fontWeight: 600, color: "#1b3a6b",
+      background: "#dde6f5", border: "1px solid #c3d3ec", whiteSpace: "nowrap",
+    };
+    const goldPill = {
+      display: "inline-block", padding: "3px 10px", borderRadius: "999px",
+      fontSize: "11px", fontWeight: 600, color: "#7a5a11",
+      background: "#f7efd6", border: "1px solid #e6d6ae", whiteSpace: "nowrap",
+    };
+    const steps = [
+      {
+        n: "1", rule: "If any checked", tier: "Signature", pill: bluePill,
+        conditions: [
+          "Significant tile in base floor plan",
+          "Wood flooring requires replacement",
+          "Material failure or active damage",
+          "Cabinet fronts or boxes require replacement",
+          "Major appliance needs replacement",
+        ],
+      },
+      {
+        n: "2", rule: "If any checked", tier: "Enhanced", pill: goldPill,
+        conditions: [
+          "Countertop condition acceptable, no major issues",
+          "Flooring in acceptable condition",
+          "Cabinets in acceptable condition",
+        ],
+      },
+      {
+        n: "3", rule: "If both checked", tier: "Enhanced Light", pill: goldPill,
+        conditions: [
+          "Countertop color and material still current",
+          "Flooring within wear tolerance",
+        ],
+      },
+    ];
+    return {
+      steps: steps.map((s) => ({
+        n: s.n, rule: s.rule, tier: s.tier, pillStyle: s.pill,
+        conditions: s.conditions.map((text, i) => ({
+          text,
+          rowStyle: {
+            display: "flex", alignItems: "center", gap: "10px",
+            padding: "8px 16px",
+            borderBottom: i === s.conditions.length - 1 ? "none" : "1px solid #f1f3f5",
+          },
+        })),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

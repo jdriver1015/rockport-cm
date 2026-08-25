@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #fafafa; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4a5158; text-decoration: none; }
+    a:hover { color: #16233a; }
+  </style>
+</helmet>
+
+<div style="width: 1280px; background: #fafafa; font-family: Inter, system-ui, sans-serif;">
+
+  <!-- App header -->
+  <div style="display: flex; align-items: center; gap: 32px; height: 64px; padding: 0 24px; background: #16233a;">
+    <div style="display: flex; align-items: baseline; gap: 12px;">
+      <span style="font-family: Newsreader, serif; font-size: 22px; font-weight: 600; color: #ffffff; line-height: 1;">Rockport</span>
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #8d9aae;">construction manager</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 24px; margin-left: auto; font-size: 14px; color: #8d9aae;">
+      <span style="color: #ffffff; font-weight: 600;">Portfolio</span>
+      <span>Schedule</span>
+      <span>Vendors</span>
+      <span>Settings</span>
+      <span style="font-size: 12px;">Jimmy Driver · Admin</span>
+      <span style="padding: 8px 16px; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; color: #16233a; background: #c9a227; border-radius: 6px;">SIGN OUT</span>
+    </div>
+  </div>
+
+  <div style="max-width: 1216px; margin: 0 auto; padding: 32px 24px;">
+
+    <!-- Breadcrumbs: the ask. Replaces the single "← Interiors" back link. -->
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6b7684; margin-bottom: 10px;">
+      <span>Portfolio</span>
+      <span style="color: #c2c6cb;">/</span>
+      <span>Aston Post Oak</span>
+      <span style="color: #c2c6cb;">/</span>
+      <span>Unit Upgrades</span>
+      <span style="color: #c2c6cb;">/</span>
+      <span style="color: #16233a; font-weight: 600;">Enhanced</span>
+    </div>
+
+    <!-- Page header -->
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; margin-bottom: 20px;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+          <span style="display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #1b3a6b; background: #dde6f5; border: 1px solid #c3d3ec;">Renovation type</span>
+          <span style="display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #2e6f4e; background: #eaf1ed;">Scope complete</span>
+        </div>
+        <h1 style="font-family: Newsreader, serif; font-size: 26px; font-weight: 600; color: #16233a; margin: 0 0 4px;">Enhanced</h1>
+        <p style="font-size: 13.5px; color: #6b7684; margin: 0;">Mid-tier interior turn · 6 priced items · 148 units planned · target trade-out $185/mo</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="padding: 7px 13px; font-size: 12.5px; font-weight: 500; color: #26303a; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px;">Duplicate</span>
+        <span style="padding: 7px 13px; font-size: 12.5px; font-weight: 600; color: #ffffff; background: #16233a; border-radius: 6px;">Export bid sheet</span>
+      </div>
+    </div>
+
+    <!-- Section nav: one page, five sections. Tier switch sits on the right. -->
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #dde3ea; margin-bottom: 20px;">
+      <div style="display: flex; gap: 4px;">
+        <span style="margin-bottom: -1px; border-bottom: 2px solid #16233a; padding: 8px 16px; font-size: 14px; font-weight: 700; color: #16233a;">Pricing</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Trade scope</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Finish specs</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Fixture kit</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Bid sheet</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 6px;">
+        <span style="font-size: 12px; color: #8a94a2;">Type</span>
+        <span style="padding: 5px 11px; font-size: 12.5px; font-weight: 600; color: #ffffff; background: #16233a; border-radius: 6px;">Enhanced</span>
+        <span style="padding: 5px 11px; font-size: 12.5px; font-weight: 500; color: #4a5158; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px;">Signature</span>
+      </div>
+    </div>
+
+    <!-- Default pricing: the popup's content, now the page's first section -->
+    <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden; margin-bottom: 16px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 16px;">
+        <div>
+          <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0 0 3px;">Default pricing</h2>
+          <p style="font-size: 13px; color: #6b7684; margin: 0;">Every floorplan planned into Enhanced inherits these, except cells with a custom override.</p>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #16233a; white-space: nowrap; font-variant-numeric: tabular-nums;">$9,962 / unit</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.6fr 200px 150px 130px 44px; column-gap: 16px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+        <div>Item</div>
+        <div>Basis</div>
+        <div style="text-align: right;">Amount</div>
+        <div style="text-align: right;">Per unit</div>
+        <div></div>
+      </div>
+
+      <sc-for list="{{ lines }}" as="ln" hint-placeholder-count="6">
+        <div style="{{ ln.rowStyle }}">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600; color: #16233a;">{{ ln.item }}</div>
+            <div style="font-size: 11.5px; color: #8a94a2; margin-top: 2px;">{{ ln.code }}</div>
+          </div>
+          <div>
+            <span style="display: inline-flex; align-items: center; justify-content: space-between; width: 100%; height: 32px; padding: 0 9px; font-size: 12.5px; color: #4a5158; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px; box-sizing: border-box;">
+              <span>{{ ln.basis }}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8a94a2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
+          </div>
+          <div>
+            <span style="display: flex; align-items: center; justify-content: flex-end; height: 32px; padding: 0 9px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #16233a; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px; box-sizing: border-box; font-variant-numeric: tabular-nums;">{{ ln.amount }}</span>
+          </div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a5158; text-align: right; align-self: center; font-variant-numeric: tabular-nums;">{{ ln.perUnit }}</div>
+          <div style="align-self: center; text-align: right; color: #a7adb4;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+          </div>
+        </div>
+      </sc-for>
+
+      <div style="display: grid; grid-template-columns: 1.6fr 200px 150px 130px 44px; column-gap: 16px; padding: 10px 16px; background: #f7f8fa; border-top: 1px solid #dde3ea;">
+        <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Total</div>
+        <div></div>
+        <div></div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: #16233a; text-align: right; font-variant-numeric: tabular-nums;">$9,962</div>
+        <div></div>
+      </div>
+
+      <div style="padding: 10px 16px; border-top: 1px solid #f1f3f5;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #4a5158;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add item
+        </span>
+      </div>
+    </div>
+
+    <!-- Uplift posting, unchanged from the popup but no longer buried in a disclosure -->
+    <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); padding: 16px;">
+      <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0 0 3px;">Where uplift dollars post</h2>
+      <p style="font-size: 13px; color: #6b7684; margin: 0 0 14px;">Construction management and contingency are added on top of the priced items above.</p>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+        <div>
+          <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-bottom: 6px;">CM fee</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: flex; align-items: center; height: 32px; width: 72px; padding: 0 9px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #16233a; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px; box-sizing: border-box;">4.0%</span>
+            <span style="font-size: 12.5px; color: #6b7684;">4000-0011 — CM Fee</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-bottom: 6px;">Contingency</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: flex; align-items: center; height: 32px; width: 72px; padding: 0 9px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #16233a; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px; box-sizing: border-box;">5.0%</span>
+            <span style="font-size: 12.5px; color: #6b7684;">4000-0012 — Contingency</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-bottom: 6px;">All-in per unit</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; color: #16233a; font-variant-numeric: tabular-nums;">$10,858</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1280,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      { item: "Paint", code: "4000-0001 — Paint", basis: "Per square foot", amount: "1.85", perUnit: "$1,628" },
+      { item: "Flooring", code: "4000-0002 — Flooring", basis: "Per square foot", amount: "3.25", perUnit: "$2,860" },
+      { item: "Appliances", code: "4000-0003 — Appliances", basis: "Whole dollars", amount: "2,200", perUnit: "$2,200" },
+      { item: "Countertops", code: "4000-0004 — Countertops", basis: "Whole dollars", amount: "1,200", perUnit: "$1,200" },
+      { item: "Fixtures", code: "4000-0007 — Fixtures", basis: "Whole dollars", amount: "450", perUnit: "$450" },
+      { item: "Labor", code: "4000-0008 — Labor", basis: "Whole dollars", amount: "1,500", perUnit: "$1,500" },
+    ];
+    return {
+      lines: rows.map((r, i) => ({
+        ...r,
+        rowStyle: {
+          display: "grid",
+          gridTemplateColumns: "1.6fr 200px 150px 130px 44px",
+          columnGap: "16px",
+          alignItems: "center",
+          padding: "10px 16px",
+          borderBottom: i === rows.length - 1 ? "none" : "1px solid #f1f3f5",
+        },
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

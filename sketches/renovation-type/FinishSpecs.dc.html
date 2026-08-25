@@ -1,0 +1,226 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #fafafa; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4a5158; text-decoration: none; }
+    a:hover { color: #16233a; }
+  </style>
+</helmet>
+
+<div style="width: 1280px; background: #fafafa; font-family: Inter, system-ui, sans-serif;">
+  <div style="max-width: 1216px; margin: 0 auto; padding: 28px 24px;">
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6b7684; margin-bottom: 10px;">
+      <span>Portfolio</span><span style="color: #c2c6cb;">/</span>
+      <span>Aston Post Oak</span><span style="color: #c2c6cb;">/</span>
+      <span>Unit Upgrades</span><span style="color: #c2c6cb;">/</span>
+      <span style="color: #16233a; font-weight: 600;">Enhanced</span>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #dde3ea; margin-bottom: 20px;">
+      <div style="display: flex; gap: 4px;">
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Pricing</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Trade scope</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid #16233a; padding: 8px 16px; font-size: 14px; font-weight: 700; color: #16233a;">Finish specs</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Fixture kit</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Bid sheet</span>
+      </div>
+    </div>
+
+    <!-- Paint finish scope: 5 columns, exactly the template's table -->
+    <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 16px;">
+        <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0;">Paint finish scope</h2>
+        <span style="font-size: 12px; color: #8a94a2;">9 areas · Sherwin-Williams</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 1.4fr 1.1fr 1fr 110px 130px; column-gap: 14px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+        <div>Area</div><div>Color</div><div>Paint type</div><div>SW #</div><div>Sheen</div>
+      </div>
+      <sc-for list="{{ paint }}" as="p" hint-placeholder-count="9">
+        <div style="{{ p.rowStyle }}">
+          <div style="font-size: 13.5px; font-weight: 500; color: #16233a;">{{ p.area }}</div>
+          <div style="font-size: 13px; color: #4a5158;">{{ p.color }}</div>
+          <div style="font-size: 13px; color: #4a5158;">{{ p.type }}</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a5158; font-variant-numeric: tabular-nums;">{{ p.sw }}</div>
+          <div style="font-size: 13px; color: #4a5158;">{{ p.sheen }}</div>
+        </div>
+      </sc-for>
+      <div style="padding: 9px 16px; border-top: 1px solid #f1f3f5;">
+        <span style="font-size: 12.5px; font-weight: 500; color: #4a5158;">+ Add area</span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+
+      <!-- Appliances -->
+      <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+        <div style="padding: 13px 16px;">
+          <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0;">Appliance scope</h2>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr; column-gap: 12px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+          <div>Item</div><div>Product</div><div>Model</div>
+        </div>
+        <sc-for list="{{ appliances }}" as="a" hint-placeholder-count="5">
+          <div style="{{ a.rowStyle }}">
+            <div style="font-size: 13px; font-weight: 500; color: #16233a;">{{ a.item }}</div>
+            <div style="font-size: 12.5px; color: #4a5158;">{{ a.product }}</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6b7684;">{{ a.model }}</div>
+          </div>
+        </sc-for>
+        <div style="padding: 10px 16px; background: #f7f8fa; border-top: 1px solid #dde3ea;">
+          <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; margin-bottom: 4px;">Note</div>
+          <p style="font-size: 12.5px; line-height: 1.6; color: #4a5158; margin: 0; text-wrap: pretty;">Black appliances always go to stainless. Replace the full set rather than a single component when two or more units are failing.</p>
+        </div>
+      </div>
+
+      <!-- Flooring + Misc stacked -->
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+          <div style="padding: 13px 16px;">
+            <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0;">Flooring</h2>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1.4fr; column-gap: 12px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+            <div>Area</div><div>Product / treatment</div>
+          </div>
+          <sc-for list="{{ flooring }}" as="f" hint-placeholder-count="3">
+            <div style="{{ f.rowStyle }}">
+              <div style="font-size: 13px; font-weight: 500; color: #16233a;">{{ f.area }}</div>
+              <div style="font-size: 12.5px; color: #4a5158;">{{ f.product }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+          <div style="padding: 13px 16px;">
+            <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0;">Miscellaneous scopes</h2>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1.3fr 1fr; column-gap: 12px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+            <div>Item</div><div>Spec / product</div><div>Model / link</div>
+          </div>
+          <sc-for list="{{ misc }}" as="m" hint-placeholder-count="5">
+            <div style="{{ m.rowStyle }}">
+              <div style="font-size: 13px; font-weight: 500; color: #16233a;">{{ m.item }}</div>
+              <div style="font-size: 12.5px; color: #4a5158;">{{ m.spec }}</div>
+              <div style="font-size: 12.5px; color: #4a5158;">{{ m.model }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fixture kit: the longest table in the template, its own section -->
+    <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 16px;">
+        <h2 style="font-family: Newsreader, serif; font-size: 16px; font-weight: 500; color: #16233a; margin: 0;">Fixture kit</h2>
+        <span style="font-size: 12px; color: #8a94a2;">18 items · contractor-supplied unless noted</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 1.1fr 1.5fr 1fr 1fr 1.2fr; column-gap: 14px; padding: 8px 16px; background: #f7f8fa; border-top: 1px solid #f1f3f5; border-bottom: 1px solid #dde3ea; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">
+        <div>Item</div><div>Product info</div><div>Vendor</div><div>SKU / model</div><div>Notes</div>
+      </div>
+      <sc-for list="{{ fixtures }}" as="f" hint-placeholder-count="6">
+        <div style="{{ f.rowStyle }}">
+          <div style="font-size: 13px; font-weight: 500; color: #16233a;">{{ f.item }}</div>
+          <div style="font-size: 12.5px; color: #4a5158;">{{ f.product }}</div>
+          <div style="font-size: 12.5px; color: #4a5158;">{{ f.vendor }}</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6b7684;">{{ f.sku }}</div>
+          <div style="font-size: 12.5px; color: #8a94a2;">{{ f.note }}</div>
+        </div>
+      </sc-for>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 16px; border-top: 1px solid #f1f3f5;">
+        <span style="font-size: 12.5px; font-weight: 500; color: #4a5158;">+ Add fixture</span>
+        <span style="font-size: 12px; color: #8a94a2;">12 more rows</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1280,"height":1240}}'>
+class Component extends DCLogic {
+  rowStyle(cols, i, len) {
+    return {
+      display: "grid",
+      gridTemplateColumns: cols,
+      columnGap: "14px",
+      alignItems: "center",
+      padding: "9px 16px",
+      borderBottom: i === len - 1 ? "none" : "1px solid #f1f3f5",
+    };
+  }
+  renderVals() {
+    const paint = [
+      ["Walls", "Agreeable Gray", "Latex, eggshell", "SW 7029", "Eggshell"],
+      ["Trim / crown molding", "Extra White", "Acrylic enamel", "SW 7006", "Semi-gloss"],
+      ["Baseboards", "Extra White", "Acrylic enamel", "SW 7006", "Semi-gloss"],
+      ["Ceilings", "Ceiling Bright White", "Flat ceiling", "SW 7007", "Flat"],
+      ["Interior doors", "Extra White", "Acrylic enamel", "SW 7006", "Semi-gloss"],
+      ["Upper cabinet boxes", "Pure White", "Cabinet enamel", "SW 7005", "Satin"],
+      ["Upper cabinet doors", "Pure White", "Cabinet enamel", "SW 7005", "Satin"],
+      ["Lower cabinet boxes", "Iron Ore", "Cabinet enamel", "SW 7069", "Satin"],
+      ["Lower cabinet doors", "Iron Ore", "Cabinet enamel", "SW 7069", "Satin"],
+    ];
+    const appliances = [
+      ["Refrigerator", "Whirlpool 18 cu ft top freezer", "WRT318FZDW"],
+      ["Range", "Whirlpool 30 in free-standing", "WFE320M0JS"],
+      ["Microwave", "Whirlpool over-the-range", "WMH31017HS"],
+      ["Dishwasher", "Whirlpool front control", "WDF520PADM"],
+      ["Range cord", "4-wire 40 amp", "PT400L"],
+    ];
+    const flooring = [
+      ["Living room", "LVP — 20 mil wear layer"],
+      ["Bedroom / closet", "Carpet — replace where worn"],
+      ["Kitchen / bath / misc", "LVP — waterproof core"],
+    ];
+    const misc = [
+      ["Quartz (kitchen + vanity)", "2 cm, eased edge", "Calacatta Laza"],
+      ["Kitchen sink", "Undermount, single bowl", "Elkay ELUH2115"],
+      ["Kitchen tile grout", "Unsanded, warm gray", "Mapei 5"],
+      ["Backsplash", "3x6 subway, stacked", "Daltile RE15"],
+      ["Cabinet fronts", "Shaker, soft-close", "Vendor spec sheet"],
+    ];
+    const fixtures = [
+      ["Towel bar", "24 in, matte black", "Build.com", "MB-TB24", ""],
+      ["Toilet paper holder", "Pivot, matte black", "Build.com", "MB-TP01", ""],
+      ["Towel ring", "Round, matte black", "Build.com", "MB-TR01", ""],
+      ["Robe hook", "Single, matte black", "Build.com", "MB-RH01", ""],
+      ["Mirror", "24x30 frameless", "Ferguson", "FGS-2430", "Replaces vanity mirror"],
+      ["Kitchen faucet", "Pull-down, matte black", "Ferguson", "KF-PD-MB", "Watertight install"],
+    ];
+    return {
+      paint: paint.map(([area, color, type, sw, sheen], i) => ({
+        area, color, type, sw, sheen,
+        rowStyle: this.rowStyle("1.4fr 1.1fr 1fr 110px 130px", i, paint.length),
+      })),
+      appliances: appliances.map(([item, product, model], i) => ({
+        item, product, model,
+        rowStyle: this.rowStyle("1fr 1.2fr 1fr", i, appliances.length),
+      })),
+      flooring: flooring.map(([area, product], i) => ({
+        area, product,
+        rowStyle: this.rowStyle("1fr 1.4fr", i, flooring.length),
+      })),
+      misc: misc.map(([item, spec, model], i) => ({
+        item, spec, model,
+        rowStyle: this.rowStyle("1fr 1.3fr 1fr", i, misc.length),
+      })),
+      fixtures: fixtures.map(([item, product, vendor, sku, note], i) => ({
+        item, product, vendor, sku, note: note || "—",
+        rowStyle: this.rowStyle("1.1fr 1.5fr 1fr 1fr 1.2fr", i, fixtures.length),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

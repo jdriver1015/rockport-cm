@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Variant B — Tool-First</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;1,14..32,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink-900: #16233a;
+      --ink-700: #26303a;
+      --ink-500: #4a5158;
+      --ink-400: #6b7684;
+      --ink-300: #8a94a2;
+      --ink-200: #a7adb4;
+      --ink-100: #c2c6cb;
+      --background: #fafafa;
+      --card: #ffffff;
+      --border: #dde3ea;
+      --band: #e4e7ea;
+      --divider: #f1f3f5;
+      --muted: #f7f8fa;
+      --positive: #2e6f4e;
+      --positive-bg: #eaf1ed;
+      --alert: #b23b3b;
+      --alert-bg: #fbecec;
+      --pending: #6b7684;
+      --pending-bg: #f1f3f5;
+      --gold: #c9a227;
+      --radius: 0.5rem;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: var(--background);
+      color: var(--ink-500);
+      line-height: 1.5;
+    }
+    .font-serif { font-family: "Newsreader", Georgia, serif; }
+    .text-body { color: var(--ink-500); }
+    .text-muted { color: var(--ink-400); }
+    .text-faint { color: var(--ink-300); }
+    .border-default { border-color: var(--border); }
+    .bg-card { background: var(--card); }
+    .bg-muted { background: var(--muted); }
+    .bg-band { background: var(--band); }
+    .bg-positive { background: var(--positive-bg); }
+    .bg-alert { background: var(--alert-bg); }
+    .text-positive { color: var(--positive); }
+    .text-alert { color: var(--alert); }
+    .text-navy { color: var(--ink-900); }
+
+    /* Layout */
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 260px; flex-shrink: 0;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      display: flex; flex-direction: column; gap: 20px;
+      overflow-y: auto;
+    }
+    .main { flex: 1; padding: 24px 32px; overflow-y: auto; min-width: 0; }
+
+    /* KPI strip (compact on sidebar: header bar uses inline stats) */
+    .kpi-row { display: flex; gap: 16px; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+    .kpi-item { flex: 1; }
+    .kpi-item .label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-300); }
+    .kpi-item .value { font-size: 18px; font-weight: 600; color: var(--ink-900); font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 1px; }
+    .kpi-item .sub { font-size: 11px; color: var(--ink-400); }
+    .kpi-item.over .value { color: var(--alert); }
+
+    /* Phase sidebar card */
+    .phase-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+    .phase-row .dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+    .phase-row.done .dot { background: var(--positive); }
+    .phase-row.active .dot { background: var(--ink-900); }
+    .phase-row.todo .dot { background: var(--ink-200); }
+    .phase-row .phase-label { font-size: 13px; font-weight: 500; color: var(--ink-500); }
+    .phase-row.active .phase-label { color: var(--ink-900); font-weight: 600; }
+    .phase-row .gate-note { font-size: 11px; color: var(--ink-400); }
+
+    .sidebar-section h3 { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-300); margin-bottom: 6px; }
+
+    /* Table — inline editable */
+    .tbl { width: 100%; border-collapse: collapse; }
+    .tbl th { text-align: left; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-300); padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tbl td { font-size: 13px; padding: 8px 10px; border-bottom: 1px solid var(--divider); color: var(--ink-500); vertical-align: middle; }
+    .tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Inline input — compact, borderless on idle, border on focus */
+    .inline-input { border: none; background: transparent; padding: 3px 6px; font-size: 13px; font-family: inherit; color: var(--ink-500); border-radius: 4px; width: 100%; min-width: 40px; }
+    .inline-input:hover { background: var(--muted); }
+    .inline-input:focus { outline: 1px solid var(--ink-300); background: var(--card); }
+    .inline-input.num { text-align: right; }
+
+    .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); white-space: nowrap; }
+    .badge-open { background: var(--alert-bg); color: var(--alert); border-color: transparent; }
+    .badge-due { background: var(--pending-bg); color: var(--pending); border-color: transparent; }
+
+    .btn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--ink-700); cursor: pointer; transition: all 0.1s; white-space: nowrap; }
+    .btn:hover { background: var(--muted); }
+    .btn-primary { background: var(--ink-900); color: #fff; border-color: var(--ink-900); }
+    .btn-primary:hover { opacity: 0.92; }
+    .btn-sm { padding: 3px 8px; font-size: 11px; }
+    .btn-ghost { border-color: transparent; background: transparent; color: var(--ink-400); }
+    .btn-ghost:hover { background: var(--muted); color: var(--ink-700); }
+
+    .tab { font-size: 12px; font-weight: 500; padding: 8px 14px; color: var(--ink-400); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.12s; }
+    .tab:hover { color: var(--ink-700); }
+    .tab.active { color: var(--ink-900); border-bottom-color: var(--ink-900); }
+
+    .total-row td { font-weight: 600; color: var(--ink-700); border-top: 2px solid var(--ink-900) !important; border-bottom: none !important; padding-top: 10px; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+<!--- ─── SIDEBAR ─── ───>
+<div class="sidebar">
+  <!-- Back link -->
+  <p style="font-size:12px;">
+    <a href="#" style="color:var(--ink-400); text-decoration:none;">← Unit Upgrades</a>
+  </p>
+
+  <!-- Project title -->
+  <h1 class="font-serif" style="font-size:20px; font-weight:600; color:var(--ink-900); line-height:1.2;">Unit 312<br/>Interior Renovation</h1>
+
+  <!-- Phase progress -->
+  <div class="sidebar-section">
+    <h3>Phase</h3>
+    <div style="display:flex; flex-direction:column; gap:0;">
+      <div class="phase-row done">
+        <span class="dot" style="background:var(--positive);"></span>
+        <span class="phase-label" style="color:var(--ink-400);">Pre-Con</span>
+        <span style="font-size:10px; color:var(--positive); margin-left:auto;">✓</span>
+      </div>
+      <div class="phase-row active">
+        <span class="dot"></span>
+        <span class="phase-label">In Process</span>
+        <button class="btn btn-sm" style="margin-left:auto;" onclick="document.getElementById('gate-panel').classList.toggle('show')">Advance</button>
+      </div>
+      <div class="phase-row todo">
+        <span class="dot"></span>
+        <span class="phase-label" style="color:var(--ink-400);">Punch</span>
+      </div>
+      <div class="phase-row todo">
+        <span class="dot"></span>
+        <span class="phase-label" style="color:var(--ink-400);">Complete</span>
+      </div>
+    </div>
+    <!-- Inline gate panel (expandable) -->
+    <div id="gate-panel" style="display:none; margin-top:8px; background:var(--muted); border-radius:6px; padding:10px 12px; font-size:12px;">
+      <p style="font-weight:500; color:var(--ink-700); margin-bottom:6px;">Gate: All started</p>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <div style="display:flex; gap:6px;"><span style="color:var(--positive); line-height:1.3;">✓</span> <span>All scope lines started</span></div>
+        <div style="display:flex; gap:6px;"><span style="color:var(--alert); line-height:1.3;">●</span> <span>Start milestone recorded — no actual date</span></div>
+      </div>
+      <button class="btn btn-sm" style="margin-top:8px; width:100%; justify-content:center;">Advance anyway</button>
+    </div>
+  </div>
+
+  <!-- Milestones -->
+  <div class="sidebar-section">
+    <h3>Milestones</h3>
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <div style="display:flex; justify-content:space-between; font-size:12px;">
+        <span style="color:var(--ink-400);">Pre-con complete</span>
+        <span style="color:var(--positive); font-size:11px;">Jul 12</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:12px;">
+        <span style="color:var(--ink-400);">Construction start</span>
+        <span style="color:var(--positive); font-size:11px;">Jul 14</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:12px;">
+        <span style="color:var(--ink-400);">Target completion</span>
+        <span style="font-size:11px; color:var(--ink-500);">Sep 30</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:12px;">
+        <span style="color:var(--ink-400);">Actual complete</span>
+        <span style="font-size:11px; color:var(--ink-300);">—</span>
+      </div>
+    </div>
+    <div style="margin-top:6px; font-size:11px; display:flex; gap:8px;">
+      <span style="color:var(--positive);">−3d early</span>
+      <a href="#" style="color:var(--ink-400); text-decoration:none;">Manage →</a>
+    </div>
+  </div>
+
+  <!-- Unit economics -->
+  <div class="sidebar-section">
+    <h3>Unit economics</h3>
+    <div style="display:flex; flex-direction:column; gap:4px; font-size:13px;">
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:var(--ink-400);">Previous rent</span>
+        <span>$1,095</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-weight:500;">
+        <span style="color:var(--ink-400);">Trade-out rent</span>
+        <span style="color:var(--positive);">$1,395</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:var(--ink-400);">In-place rent</span>
+        <span>$1,395</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:var(--ink-400);">Leased</span>
+        <span>Oct 5, 2026</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; padding-top:4px; border-top:1px solid var(--divider); font-size:12px;">
+        <span style="color:var(--ink-400);">Lift</span>
+        <span style="color:var(--positive); font-weight:600;">+$300 (27.4%)</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:12px;">
+        <span style="color:var(--ink-400);">Payback</span>
+        <span style="font-weight:500;">2.8 yr</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key info -->
+  <div class="sidebar-section">
+    <h3>Details</h3>
+    <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+      <div><span style="color:var(--ink-400);">Unit</span> 312 · 1BR · 690 sqft</div>
+      <div><span style="color:var(--ink-400);">Vendor</span> Ace Construction Co.</div>
+      <div><span style="color:var(--ink-300); font-size:10px;">Budget group</span><br/>Enhanced (Signature Tier)</div>
+    </div>
+  </div>
+
+  <!-- Budget summary mini -->
+  <div class="sidebar-section">
+    <h3>Budget vs actual</h3>
+    <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+      <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-400);">UW budget</span><span style="font-weight:500;">$271,450</span></div>
+      <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-400);">Committed</span><span>$228,900</span></div>
+      <div style="display:flex; justify-content:space-between;"><span style="color:var(--ink-400);">Actual posted</span><span>$196,320</span></div>
+      <div style="display:flex; justify-content:space-between; border-top:1px solid var(--divider); padding-top:4px; margin-top:2px;">
+        <span style="color:var(--positive); font-weight:500;">Remaining</span>
+        <span style="color:var(--positive); font-weight:600;">$75,130</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Open items mini -->
+  <div>
+    <div style="display:flex; gap:4px; flex-wrap:wrap; font-size:11px;">
+      <span class="badge badge-open">3 overdue</span>
+      <span class="badge badge-due">2 due soon</span>
+      <span class="badge">5 upcoming</span>
+    </div>
+  </div>
+</div>
+
+<!--- ─── MAIN CONTENT ─── ───>
+<div class="main">
+  <!-- Compact header bar -->
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="display:inline-flex; align-items:center; gap:4px; background:var(--ink-900); color:#fff; font-size:11px; font-weight:500; padding:3px 10px; border-radius:999px;">
+        In Process <span style="opacity:0.6;">▾</span>
+      </span>
+      <span class="badge" style="font-size:11px;">Budget group: Enhanced</span>
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button class="btn btn-sm" onclick="alert('Edit')">Edit</button>
+      <button class="btn btn-sm btn-ghost" onclick="alert('Archive')">Archive</button>
+    </div>
+  </div>
+
+  <!-- KPI bar (compact horizontal) -->
+  <div class="kpi-row">
+    <div class="kpi-item"><div class="label">Budgeted</div><div class="value">$271,450</div></div>
+    <div class="kpi-item"><div class="label">Committed</div><div class="value">$228,900</div></div>
+    <div class="kpi-item"><div class="label">Actual</div><div class="value">$196,320</div></div>
+    <div class="kpi-item" style="border-left:1px solid var(--border); padding-left:16px;"><div class="label">Remaining</div><div class="value" style="color:var(--positive);">$75,130</div><div class="sub">Left to invoice</div></div>
+    <div class="kpi-item" style="border-left:1px solid var(--border); padding-left:16px;"><div class="label">Trade-out lift</div><div class="value" style="color:var(--positive);">+$300</div><div class="sub">27.4% · 2.8yr payback</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div style="display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px;">
+    <span class="tab active">Scope table</span>
+    <span class="tab" onclick="alert('Documents')">Documents</span>
+    <span class="tab" onclick="alert('Audits')">Site Audits</span>
+    <span class="tab" onclick="alert('Cost log')">Cost log</span>
+    <span class="tab" onclick="alert('Activity')">Activity</span>
+  </div>
+
+  <!-- Scope table (inline editing retained, fewer columns) -->
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:var(--radius);">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px 0;">
+      <span style="font-size:13px; font-weight:500; color:var(--ink-700);">5 items</span>
+      <button class="btn btn-sm" onclick="newRow()">+ Add scope item</button>
+    </div>
+    <div style="padding:4px 0; overflow-x:auto;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="min-width:140px;">Item</th>
+            <th>Cost code</th>
+            <th class="num" style="width:60px;">Qty</th>
+            <th class="num" style="width:80px;">Unit cost</th>
+            <th class="num" style="width:90px;">Total</th>
+            <th class="num" style="width:80px;">Actual</th>
+            <th style="width:28px;"></th>
+          </tr>
+        </thead>
+        <tbody id="scope-body">
+          <tr>
+            <td><input class="inline-input" value="Cabinets — upper & lower" /></td>
+            <td>
+              <select class="inline-input" style="min-width:110px;">
+                <option>4300-0001 Cabinets</option>
+                <option>4300-0002 Countertops</option>
+              </select>
+            </td>
+            <td><input class="inline-input num" type="number" value="1" /></td>
+            <td><input class="inline-input num" type="number" value="4200" /></td>
+            <td class="num">$4,200</td>
+            <td class="num" style="color:var(--positive);">$4,200</td>
+            <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+          </tr>
+          <tr>
+            <td><input class="inline-input" value="Quartz countertops 2cm" /></td>
+            <td><select class="inline-input"><option>4300-0002 Countertops</option></select></td>
+            <td><input class="inline-input num" type="number" value="40" /></td>
+            <td><input class="inline-input num" type="number" value="85" /></td>
+            <td class="num">$3,400</td>
+            <td class="num" style="color:var(--positive);">$3,400</td>
+            <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+          </tr>
+          <tr>
+            <td><input class="inline-input" value="LVP flooring — premium" /></td>
+            <td><select class="inline-input"><option>4300-0003 Flooring</option></select></td>
+            <td><input class="inline-input num" type="number" value="690" /></td>
+            <td><input class="inline-input num" type="number" value="6.5" /></td>
+            <td class="num">$4,485</td>
+            <td class="num" style="color:var(--positive);">$4,485</td>
+            <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+          </tr>
+          <tr>
+            <td><input class="inline-input" value="Paint — walls, trim, doors" /></td>
+            <td><select class="inline-input"><option>4300-0004 Paint</option></select></td>
+            <td><input class="inline-input num" type="number" value="1" /></td>
+            <td><input class="inline-input num" type="number" value="1850" /></td>
+            <td class="num">$1,850</td>
+            <td class="num" style="color:var(--positive);">$1,850</td>
+            <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+          </tr>
+          <tr>
+            <td><input class="inline-input" value="Appliances — stainless suite" /></td>
+            <td><select class="inline-input"><option>4300-0005 Appliances</option></select></td>
+            <td><input class="inline-input num" type="number" value="1" /></td>
+            <td><input class="inline-input num" type="number" value="3100" /></td>
+            <td class="num">$3,100</td>
+            <td class="num" style="color:var(--positive);">$3,100</td>
+            <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Inline cost detail (collapsed by default, toggle on click) -->
+  <div style="margin-top:12px;">
+    <button onclick="const e=document.getElementById('cost-detail'); e.style.display=e.style.display==='none'?'block':'none';" class="btn btn-sm" style="color:var(--ink-400);">
+      ⊕ 24 posted transactions
+    </button>
+    <div id="cost-detail" style="display:none; margin-top:8px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius);">
+      <table class="tbl">
+        <thead><tr><th>Date</th><th>Vendor</th><th>Description</th><th>Invoice</th><th>Cost code</th><th class="num">Amount</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--ink-300);">Sep 3</td><td>Ace Construction</td><td style="color:var(--ink-400);">Cabinets — install labor</td><td style="color:var(--ink-300);">INV-4421</td><td style="color:var(--ink-400);">4300-0001</td><td class="num">$2,100</td></tr>
+          <tr><td style="color:var(--ink-300);">Aug 28</td><td>StoneWorks Inc.</td><td style="color:var(--ink-400);">Countertop template + fab</td><td style="color:var(--ink-300);">SW-889</td><td style="color:var(--ink-400);">4300-0002</td><td class="num">$3,400</td></tr>
+          <tr><td style="color:var(--ink-300);">Aug 20</td><td>FloorCo</td><td style="color:var(--ink-400);">LVP materials — Unit 312</td><td style="color:var(--ink-300);">FC-312</td><td style="color:var(--ink-400);">4300-0003</td><td class="num">$4,485</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+  #gate-panel.show { display: block !important; }
+</style>
+
+<script>
+let rowCounter = 5;
+function newRow() {
+  const tbody = document.getElementById('scope-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="inline-input" placeholder="New item" value="" /></td>
+    <td><select class="inline-input"><option>Select code…</option><option>4300-0001 Cabinets</option></select></td>
+    <td><input class="inline-input num" type="number" value="1" /></td>
+    <td><input class="inline-input num" type="number" value="0" /></td>
+    <td class="num">$0</td>
+    <td class="num">—</td>
+    <td><button class="btn btn-ghost" style="padding:1px 4px; font-size:14px;" onclick="this.closest('tr').remove(); recalc();">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+function recalc() { /* no-op for mockup */ }
+</script>
+
+</div>
+
+<p style="position:fixed; bottom:0; left:0; right:0; text-align:center; padding:8px; font-size:11px; color:var(--ink-300); background:var(--card); border-top:1px solid var(--border); z-index:10;">
+  <strong>Variant B — Tool-First</strong> · Left sidebar with phase, milestones, unit economics · Main area: KPI bar + inline-editable scope table + collapsible cost log
+</p>
+</body>
+</html>

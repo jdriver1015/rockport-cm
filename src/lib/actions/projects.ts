@@ -4,11 +4,15 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { PROJECT_PHASES } from "@/lib/stages";
+import { PROJECT_PHASES, phaseLabel } from "@/lib/stages";
+import { requireUser } from "@/lib/auth";
+import { canWriteProperty } from "@/lib/auth-rules";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
 import { projectSlug } from "@/lib/slug";
 import { defaultMilestoneRows } from "@/lib/milestones";
+import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
+import { money, fmtDate } from "@/lib/format";
 
 /**
  * Creating takes a name and nothing else.
@@ -28,6 +32,9 @@ const createProjectSchema = z.object({
 export async function createProject(
   formData: FormData,
 ): Promise<ActionResult<{ projectId: number; slug: string }>> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const parsed = createProjectSchema.safeParse({
     propertyId: formData.get("propertyId"),
     kind: formData.get("kind"),
@@ -74,10 +81,13 @@ export async function createProject(
     })
     .returning();
 
-  await db().insert(schema.projectStageEvents).values({
+  await logFieldChange({
     projectId: project.id,
-    toStage: "planned",
-    toPhase: "precon",
+    userId: auth.profile.id,
+    field: "phase",
+    fieldLabel: "Phase",
+    from: null,
+    to: phaseLabel("precon"),
     note: "Project created",
   });
 
@@ -136,13 +146,19 @@ const updateProjectSchema = z.object({
   leaseDate: optDate,
 });
 
+/** Notes can run long in the edit form — cap what lands in a log table cell. */
+function truncate(s: string | null, max = 140): string | null {
+  if (s == null) return null;
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 export async function updateProject(formData: FormData): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const parsed = updateProjectSchema.safeParse({
     projectId: formData.get("projectId"),
     name: formData.get("name"),
-    // formData.get returns null for a field the form did not render, and these
-    // two are only rendered for common projects. A bare null fails the string
-    // schema, so editing any unit project would come back "Invalid input".
     costCodeId: formData.get("costCodeId") ?? undefined,
     budgetAmount: formData.get("budgetAmount") ?? undefined,
     startDate: formData.get("startDate"),
@@ -202,6 +218,40 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
     })
     .where(eq(schema.projects.id, d.projectId));
 
+  await logFieldChanges({
+    projectId: d.projectId,
+    userId: auth.profile.id,
+    changes: [
+      { field: "name", fieldLabel: "Name", from: project.name, to: d.name },
+      ...(project.kind === "common"
+        ? [
+            {
+              field: "costCodeId",
+              fieldLabel: "UW Line Item",
+              from: project.costCodeId == null ? null : String(project.costCodeId),
+              to: d.costCodeId == null ? null : String(d.costCodeId),
+            },
+            {
+              field: "budgetAmount",
+              fieldLabel: "Approved Budget",
+              from: money(project.budgetAmount),
+              to: money(budget),
+            },
+          ]
+        : []),
+      { field: "startDate", fieldLabel: "Start Date", from: fmtDate(project.startDate), to: fmtDate(d.startDate) },
+      { field: "completeDate", fieldLabel: "Complete Date", from: fmtDate(project.completeDate), to: fmtDate(d.completeDate) },
+      { field: "notes", fieldLabel: "Notes", from: truncate(project.notes), to: truncate(d.notes) },
+      ...(project.kind === "unit"
+        ? [
+            { field: "previousRent", fieldLabel: "Previous Rent", from: money(project.previousRent), to: money(d.previousRent) },
+            { field: "tradeOutRent", fieldLabel: "Trade-Out Rent", from: money(project.tradeOutRent), to: money(d.tradeOutRent) },
+            { field: "leaseDate", fieldLabel: "Lease Date", from: fmtDate(project.leaseDate), to: fmtDate(d.leaseDate) },
+          ]
+        : []),
+    ],
+  });
+
   const _base = await propertyPath(project.propertyId);
   if (_base) {
     revalidatePath(_base);
@@ -219,6 +269,9 @@ const setPhaseSchema = z.object({
 });
 
 export async function setProjectPhase(formData: FormData): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
   const parsed = setPhaseSchema.safeParse({
     projectId: formData.get("projectId"),
     toPhase: formData.get("toPhase"),
@@ -247,12 +300,14 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
     })
     .where(eq(schema.projects.id, parsed.data.projectId));
 
-  await db().insert(schema.projectStageEvents).values({
+  await logFieldChange({
     projectId: parsed.data.projectId,
-    toStage: project.stage,
-    fromPhase: project.phase,
-    toPhase,
-    note: parsed.data.note,
+    userId: auth.profile.id,
+    field: "phase",
+    fieldLabel: "Phase",
+    from: project.phase ? phaseLabel(project.phase) : null,
+    to: phaseLabel(toPhase),
+    note: parsed.data.note ?? null,
   });
 
   // Auto-stamp actual date on milestones tied to the new phase
@@ -281,6 +336,12 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
 const projectIdSchema = z.object({ projectId: z.coerce.number().int().positive() });
 
 export async function archiveProject(formData: FormData): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to archive projects" };
+  }
+
   const parsed = projectIdSchema.safeParse({ projectId: formData.get("projectId") });
   if (!parsed.success) return { ok: false, error: "Invalid project" };
 

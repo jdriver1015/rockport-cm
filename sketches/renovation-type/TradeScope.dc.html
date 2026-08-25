@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #fafafa; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4a5158; text-decoration: none; }
+    a:hover { color: #16233a; }
+  </style>
+</helmet>
+
+<div style="width: 1280px; background: #fafafa; font-family: Inter, system-ui, sans-serif;">
+  <div style="max-width: 1216px; margin: 0 auto; padding: 28px 24px;">
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6b7684; margin-bottom: 10px;">
+      <span>Portfolio</span><span style="color: #c2c6cb;">/</span>
+      <span>Aston Post Oak</span><span style="color: #c2c6cb;">/</span>
+      <span>Unit Upgrades</span><span style="color: #c2c6cb;">/</span>
+      <span style="color: #16233a; font-weight: 600;">Enhanced</span>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #dde3ea; margin-bottom: 20px;">
+      <div style="display: flex; gap: 4px;">
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Pricing</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid #16233a; padding: 8px 16px; font-size: 14px; font-weight: 700; color: #16233a;">Trade scope</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Finish specs</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Fixture kit</span>
+        <span style="margin-bottom: -1px; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #6b7684;">Bid sheet</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding-bottom: 6px; font-size: 12px; color: #8a94a2;">
+        <span>11 of 13 written</span>
+        <span style="padding: 5px 11px; font-size: 12.5px; font-weight: 500; color: #4a5158; background: #ffffff; border: 1px solid #dde3ea; border-radius: 6px;">Copy from Signature</span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 232px 1fr; gap: 20px; align-items: start;">
+
+      <!-- Trade rail: written / empty at a glance, because a GC bid needs all of them -->
+      <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+        <div style="padding: 9px 14px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2; background: #f7f8fa; border-bottom: 1px solid #dde3ea;">Trades</div>
+        <sc-for list="{{ trades }}" as="t" hint-placeholder-count="13">
+          <div style="{{ t.rowStyle }}">
+            <span style="{{ t.dotStyle }}"></span>
+            <span style="{{ t.labelStyle }}">{{ t.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- Narrative blocks. One card per trade, matching the Word template's headings. -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+
+        <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px; border-bottom: 1px solid #f1f3f5;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #16233a;">Paint</span>
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #2e6f4e; background: #eaf1ed;">Written</span>
+            </div>
+            <span style="font-size: 12px; color: #8a94a2;">Links to 9 paint spec rows</span>
+          </div>
+          <div style="padding: 14px 16px;">
+            <p style="font-size: 13.5px; line-height: 1.75; color: #4a5158; margin: 0 0 10px; text-wrap: pretty;">Contractor to provide necessary labor and equipment to prep, prime, and paint the interior of the unit. Finish paint plan is on the associated finish scope sheet.</p>
+            <p style="font-size: 13.5px; line-height: 1.75; color: #4a5158; margin: 0; text-wrap: pretty;">Patch and sand all nail holes and drywall damage prior to priming. Cut in cleanly at all trim, cabinet, and ceiling transitions.</p>
+          </div>
+        </div>
+
+        <div style="background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px; border-bottom: 1px solid #f1f3f5;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #16233a;">Plumbing fixtures</span>
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #2e6f4e; background: #eaf1ed;">Written</span>
+            </div>
+            <span style="font-size: 12px; color: #8a94a2;">Links to 4 fixture kit rows</span>
+          </div>
+          <div style="padding: 14px 16px;">
+            <p style="font-size: 13.5px; line-height: 1.75; color: #4a5158; margin: 0; text-wrap: pretty;">Contractor to provide labor and incidental materials for installation of contractor-supplied kitchen and bath fixtures. Contractor is responsible for watertight installation.</p>
+          </div>
+        </div>
+
+        <!-- The editing state: a plain textarea, saved on blur like the rest of the app -->
+        <div style="background: #ffffff; border: 1px solid #8a94a2; border-radius: 8px; box-shadow: 0 1px 2px rgba(22,35,58,0.05); overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px; border-bottom: 1px solid #f1f3f5;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #16233a;">Cabinets</span>
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #6b7684; background: #f1f3f5;">Editing</span>
+            </div>
+            <span style="font-size: 12px; color: #8a94a2;">Saves when you click away</span>
+          </div>
+          <div style="padding: 14px 16px;">
+            <div style="width: 100%; min-height: 84px; padding: 10px 12px; font-family: Inter, system-ui, sans-serif; font-size: 13.5px; line-height: 1.75; color: #16233a; background: #ffffff; border: 1px solid #8a94a2; border-radius: 6px; box-sizing: border-box;">Replace cabinet door and drawer fronts with shaker profile, soft-close hinges throughout. Retain existing boxes where structurally sound; prep and paint boxes per the finish scope. Hardware finish per the fixture kit.</div>
+          </div>
+        </div>
+
+        <div style="background: #ffffff; border: 1px dashed #dde3ea; border-radius: 8px; overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #8a94a2;">Electrical</span>
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #b23b3b; background: #fbecec;">Not written</span>
+            </div>
+            <span style="font-size: 12.5px; font-weight: 500; color: #4a5158;">Write scope</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1280,"height":880}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const trades = [
+      ["Demolition", "written"],
+      ["Paint", "active"],
+      ["Flooring", "written"],
+      ["Cabinets", "written"],
+      ["Countertops", "written"],
+      ["Kitchen backsplash", "written"],
+      ["Plumbing fixtures", "written"],
+      ["Bath accessories", "written"],
+      ["Light fixtures", "written"],
+      ["Electrical", "empty"],
+      ["Door hardware", "written"],
+      ["Appliances", "empty"],
+      ["Final clean", "written"],
+    ];
+    return {
+      trades: trades.map(([label, state], i) => ({
+        label,
+        rowStyle: {
+          display: "flex",
+          alignItems: "center",
+          gap: "9px",
+          padding: "8px 14px",
+          borderBottom: i === trades.length - 1 ? "none" : "1px solid #f1f3f5",
+          background: state === "active" ? "#f7f8fa" : "#ffffff",
+        },
+        dotStyle: {
+          width: "6px",
+          height: "6px",
+          borderRadius: "999px",
+          flex: "0 0 auto",
+          background: state === "empty" ? "#c2c6cb" : "#2e6f4e",
+        },
+        labelStyle: {
+          fontSize: "13px",
+          fontWeight: state === "active" ? 600 : 400,
+          color: state === "empty" ? "#8a94a2" : "#26303a",
+        },
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

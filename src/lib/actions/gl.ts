@@ -7,6 +7,10 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { suggestConstructionAccount, type ColumnOverride } from "@/lib/gl-import";
 import type { AccountSummary } from "@/lib/gl-import-pipeline";
+import { computeNextEditStatus, originalCostCodeAfterEdit } from "@/lib/gl-edit-rules";
+import { requireUser, type LoadedProfile } from "@/lib/auth";
+import { canWriteProperty } from "@/lib/auth-rules";
+import { normalizeVendorPattern, shouldLearnVendorRule } from "@/lib/vendor-rule-rules";
 import { propertyPath } from "@/lib/property-path";
 import {
   insertMappedTransactions,
@@ -25,14 +29,27 @@ async function revalidateProperty(propertyId: number) {
 }
 
 /**
- * Learn a vendor rule from a manual correction so the queue shrinks over time.
- * Only adds one when the vendor isn't already mapped, to avoid noise.
+ * Learn a vendor rule from a manual correction.
+ *
+ * Guards:
+ *  - The pattern must normalize to a usable string.
+ *  - The vendor must have hit at least MIN_VENDOR_HIT_COUNT_FOR_LEARN times in
+ *    the current batch hitting the same code, OR `forceLearn` is true (used
+ *    by programmatic callers that know what they're doing).
+ *  - No conflict with an existing rule for the same chart + pattern.
+ *  - The role permitted to write mapping rules is enforced upstream; this
+ *    helper trusts its caller. (See requireUser() in the action layer.)
+ *
+ * Provenance: `profile.id` is recorded as `createdBy` on insert and is
+ * sticky — the conflict-path update only writes priority + updatedAt, never
+ * overwrites createdBy. See src/lib/db/schema.ts:mappingRules.
  */
-async function learnVendorRule(vendorRaw: string | null, costCodeId: number) {
-  if (!vendorRaw) return;
-  const pattern = vendorRaw.toLowerCase().trim();
-  if (!pattern) return;
-
+async function learnVendorRule(
+  vendorRaw: string | null,
+  costCodeId: number,
+  profile: LoadedProfile,
+  hitCount: number,
+) {
   // The rule lives in the same chart as the code it maps to.
   const code = await db().query.costCodes.findFirst({
     where: eq(schema.costCodes.id, costCodeId),
@@ -40,21 +57,49 @@ async function learnVendorRule(vendorRaw: string | null, costCodeId: number) {
   });
   if (!code) return;
 
+  const normalized = normalizeVendorPattern(vendorRaw);
+  if (!normalized) return;
+
   const existing = await db()
-    .select({ id: schema.mappingRules.id })
+    .select({
+      id: schema.mappingRules.id,
+      costCodeId: schema.mappingRules.costCodeId,
+    })
     .from(schema.mappingRules)
     .where(
       and(
         eq(schema.mappingRules.chartId, code.chartId),
         eq(schema.mappingRules.matchType, "vendor"),
-        eq(schema.mappingRules.pattern, pattern),
+        eq(schema.mappingRules.pattern, normalized),
       ),
     )
     .limit(1);
-  if (existing.length > 0) return;
+
+  const existingRuleCostCodeId = existing[0]?.costCodeId ?? null;
+  const conflicting =
+    existingRuleCostCodeId !== null && existingRuleCostCodeId !== costCodeId;
+
+  if (
+    !shouldLearnVendorRule({
+      vendorRaw: normalized,
+      hitCount,
+      existingRuleCostCodeId,
+      existingRuleCostCodeIdDifferent: conflicting,
+    })
+  ) {
+    return;
+  }
+
   await db()
     .insert(schema.mappingRules)
-    .values({ chartId: code.chartId, matchType: "vendor", pattern, costCodeId, priority: 90 });
+    .values({
+      chartId: code.chartId,
+      matchType: "vendor",
+      pattern: normalized,
+      costCodeId,
+      priority: 90,
+      createdBy: profile.id,
+    });
 }
 
 const updateSchema = z.object({
@@ -68,6 +113,16 @@ export async function updateTransaction(input: {
   costCodeId?: number | null;
   projectId?: number | null;
 }): Promise<ActionResult> {
+  // Auth gate: every action that mutates GL data must require a signed-in
+  // user with write scope. (See src/lib/auth.ts for the helper and
+  // src/lib/auth-rules.ts for the matrix.)
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to edit transactions" };
+  }
+  const profile = auth.profile;
+
   const parsed = updateSchema.parse(input);
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, parsed.transactionId),
@@ -94,23 +149,72 @@ export async function updateTransaction(input: {
     }
   }
 
+  // Drive the status/postedAt/partition transitions through one testable
+  // helper — see src/lib/gl-edit-rules.ts and tests/gl-edit-rules.test.ts.
+  // A posted row's edit is treated as a correction that invalidates the
+  // posted actuals (regardless of whether the cost code actually changed)
+  // and the batch is reopened so re-review is required. Excluded rows are
+  // excluded-sticky; re-inclusion must go through restoreTransaction.
+  const decision = computeNextEditStatus({
+    currentStatus: txn.status,
+    willHaveCostCode: nextCostCode !== null,
+  });
+
+  // originalCostCodeId is sticky across corrections: once it has a value it
+  // stays put until something is posted again, so an un-post can restore it.
+  const originalDecision = originalCostCodeAfterEdit({
+    currentlyPostedCodeId: txn.status === "posted" ? txn.costCodeId : null,
+    newEditCodeId: nextCostCode,
+    existingOriginalCodeId: txn.originalCostCodeId ?? null,
+  });
+
   await db()
     .update(schema.glTransactions)
     .set({
       costCodeId: nextCostCode,
+      originalCostCodeId: originalDecision.nextOriginal,
       projectId: parsed.projectId ?? null,
-      // A mapped, non-excluded row becomes ready to post
-      status:
-        txn.status === "excluded"
-          ? "excluded"
-          : nextCostCode !== null
-            ? "staged"
-            : "needs_review",
+      status: decision.status,
+      ...(decision.shouldClearPostedAt ? { postedAt: null } : {}),
     })
     .where(eq(schema.glTransactions.id, parsed.transactionId));
 
+  if (decision.shouldReopenBatch && txn.batchId !== null) {
+    await db()
+      .update(schema.importBatches)
+      .set({ status: "in_review" })
+      .where(
+        and(
+          eq(schema.importBatches.id, txn.batchId),
+          eq(schema.importBatches.status, "posted"),
+        ),
+      );
+  }
+
   if (nextCostCode !== null && txn.costCodeId !== nextCostCode) {
-    await learnVendorRule(txn.vendorRaw, nextCostCode);
+    // Count how many OTHER rows in this batch's auto-mapped set share the
+    // same vendorRaw + same cost code — that's the signal for whether to
+    // learn a rule vs leaving the correction as a one-off. Count is bounded
+    // by the batch size in practice (rarely more than a few hundred).
+    //
+    // Skipped when batchId is null (the row isn't part of any batch) — the
+    // one-row-from-this-batch signal doesn't exist, so we err on the safe
+    // side and don't learn. A future correction against the same code
+    // will get another chance.
+    if (txn.batchId !== null) {
+      const normalized = normalizeVendorPattern(txn.vendorRaw) ?? "";
+      const sameCode = await db()
+        .select({ id: schema.glTransactions.id })
+        .from(schema.glTransactions)
+        .where(
+          and(
+            eq(schema.glTransactions.batchId, txn.batchId),
+            eq(schema.glTransactions.costCodeId, nextCostCode),
+            sql`lower(coalesce(${schema.glTransactions.vendorRaw}, '')) = ${normalized}`,
+          ),
+        );
+      await learnVendorRule(txn.vendorRaw, nextCostCode, profile, sameCode.length);
+    }
   }
 
   await revalidateProperty(txn.propertyId);
@@ -118,6 +222,12 @@ export async function updateTransaction(input: {
 }
 
 export async function excludeTransaction(transactionId: number, reason?: string): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to exclude transactions" };
+  }
+
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
@@ -132,6 +242,12 @@ export async function excludeTransaction(transactionId: number, reason?: string)
 
 /** Move an excluded row back into the review queue */
 export async function restoreTransaction(transactionId: number): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to restore transactions" };
+  }
+
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
@@ -169,14 +285,28 @@ async function recomputeGlThru(propertyId: number) {
 }
 
 export async function postTransaction(transactionId: number): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to post transactions" };
+  }
+
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
   if (!txn) return { ok: false, error: "Transaction not found" };
   if (txn.costCodeId === null) return { ok: false, error: "Assign a cost code before posting" };
+
+  // Stamp the cost code as the "original" so a future un-post + restore can
+  // put it back. If originalCostCodeId is already set (re-post of a corrected
+  // row), leave it pinned — see gl-edit-rules.ts:originalCostCodeAfterEdit.
   await db()
     .update(schema.glTransactions)
-    .set({ status: "posted", postedAt: new Date() })
+    .set({
+      status: "posted",
+      postedAt: new Date(),
+      originalCostCodeId: txn.originalCostCodeId ?? txn.costCodeId,
+    })
     .where(eq(schema.glTransactions.id, transactionId));
   await recomputeGlThru(txn.propertyId);
   await revalidateProperty(txn.propertyId);
@@ -184,22 +314,35 @@ export async function postTransaction(transactionId: number): Promise<ActionResu
 }
 
 /**
- * Un-post a posted transaction: move it back into the review queue (keeping its
- * cost code and project so re-posting is one click) and recompute the property's
- * GL-updated-thru so JTD reverts everywhere. Reopens its batch if it was closed.
+ * Un-post a posted transaction: move it back into the review queue, restore
+ * its cost code to the value it was POSTED AS (captured on originalCostCodeId
+ * at post time), and recompute the property's GL-updated-thru so JTD reverts
+ * everywhere. Reopens its batch if it was closed.
  */
 export async function unpostTransaction(transactionId: number): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to unpost transactions" };
+  }
+
   const txn = await db().query.glTransactions.findFirst({
     where: eq(schema.glTransactions.id, transactionId),
   });
   if (!txn) return { ok: false, error: "Transaction not found" };
   if (txn.status !== "posted") return { ok: true };
 
+  // Restore the cost code to the value originally posted. If originalCostCodeId
+  // is null (legacy rows from before the column was added), fall back to the
+  // current costCodeId so we don't blank the field — preserves accounting
+  // while the backfill script catches up.
+  const restoredCodeId = txn.originalCostCodeId ?? txn.costCodeId;
   await db()
     .update(schema.glTransactions)
     .set({
-      status: txn.costCodeId !== null ? "staged" : "needs_review",
+      status: restoredCodeId !== null ? "staged" : "needs_review",
       postedAt: null,
+      costCodeId: restoredCodeId,
     })
     .where(eq(schema.glTransactions.id, transactionId));
 
@@ -245,6 +388,12 @@ export async function postAllReady(propertyId: number): Promise<ActionResult<{ c
  * excluded rows are kept and restorable via restoreBatch.
  */
 export async function deleteBatch(batchId: number): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to delete imports" };
+  }
+
   const batch = await db().query.importBatches.findFirst({
     where: eq(schema.importBatches.id, batchId),
   });
@@ -273,6 +422,12 @@ export async function deleteBatch(batchId: number): Promise<ActionResult> {
 }
 
 export async function restoreBatch(batchId: number): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to restore imports" };
+  }
+
   const batch = await db().query.importBatches.findFirst({
     where: eq(schema.importBatches.id, batchId),
   });
@@ -494,14 +649,18 @@ export async function postBatch(batchId: number): Promise<ActionResult<{ count: 
     )
     .returning({ id: schema.glTransactions.id });
 
-  // Close the batch if nothing remains to review
+  // Close the batch when NO non-posted rows remain. Excluded rows count as
+  // "still open" — a batch full of exclusions was processed but not closed,
+  // and the user can restore rows from it. Counting only staged/needs_review
+  // would auto-mark a batch of all-exclusions "posted", silently swallowing
+  // the rejections.
   const [{ remaining }] = await db()
     .select({ remaining: sql<number>`count(*)::int` })
     .from(schema.glTransactions)
     .where(
       and(
         eq(schema.glTransactions.batchId, batchId),
-        sql`${schema.glTransactions.status} in ('staged','needs_review')`,
+        sql`${schema.glTransactions.status} <> 'posted'`,
       ),
     );
   if (remaining === 0) {
