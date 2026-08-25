@@ -36,15 +36,6 @@ export async function checkPhaseAdvance(
 ): Promise<GateVerdict> {
   if (!isForward(fromPhase, toPhase)) return { ok: true };
 
-  const [scopeCounts] = await db()
-    .select({
-      total: sql<number>`count(*)::int`,
-      notStarted: sql<number>`count(*) filter (where ${schema.scopeItems.status} = 'not_started')::int`,
-      complete: sql<number>`count(*) filter (where ${schema.scopeItems.status} = 'complete')::int`,
-    })
-    .from(schema.scopeItems)
-    .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
-
   const startMilestone = await db().query.projectMilestones.findFirst({
     where: and(
       eq(schema.projectMilestones.projectId, projectId),
@@ -78,9 +69,6 @@ export async function checkPhaseAdvance(
 
   const result = evaluateGates(fromPhase as ProjectPhaseKey, toPhase as ProjectPhaseKey, {
     ...precon,
-    scopeNotStartedCount: scopeCounts?.notStarted ?? 0,
-    scopeCompleteCount: scopeCounts?.complete ?? 0,
-    scopeTotalCount: scopeCounts?.total ?? 0,
     hasStartMilestoneActual: !!startMilestone?.actualDate,
     openFindingCount: findings?.open ?? 0,
     postedGlTotal: gl?.total ?? 0,

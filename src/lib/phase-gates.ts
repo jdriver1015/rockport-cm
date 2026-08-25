@@ -81,9 +81,6 @@ export type PreconGateState = {
 
 /** The rest of what the later transitions check. */
 export type ProgressGateState = {
-  scopeNotStartedCount: number;
-  scopeCompleteCount: number;
-  scopeTotalCount: number;
   hasStartMilestoneActual: boolean;
   openFindingCount: number;
   postedGlTotal: number;
@@ -289,14 +286,11 @@ export function evaluateGates(
     if (firstUnmet !== -1) checks[firstUnmet] = { ...checks[firstUnmet], next: true };
   } else if (fromPhase === "in_process" && toPhase === "punch") {
     checks = [
-      {
-        label: "All scope lines started",
-        met: data.scopeNotStartedCount === 0,
-        detail:
-          data.scopeNotStartedCount === 0
-            ? "All started"
-            : `${data.scopeNotStartedCount} not started`,
-      },
+      // "All scope lines started" used to sit here, off a per-line status field
+      // that has been removed — tracking each line's progress separately from the
+      // project's phase was two answers to one question. Left at one check rather
+      // than replaced with a stand-in: punch_items is the honest source for the
+      // later gate and has no UI yet.
       {
         label: "In Process date recorded",
         met: data.hasStartMilestoneActual,
@@ -313,14 +307,9 @@ export function evaluateGates(
             ? "All clear"
             : `${data.openFindingCount} open finding${data.openFindingCount === 1 ? "" : "s"}`,
       },
-      {
-        label: "All scope lines complete",
-        met: data.scopeCompleteCount === data.scopeTotalCount && data.scopeTotalCount > 0,
-        detail:
-          data.scopeTotalCount === 0
-            ? "No scope lines"
-            : `${data.scopeCompleteCount} of ${data.scopeTotalCount} complete`,
-      },
+      // "All scope lines complete" used to sit here. Same removal — and this is
+      // the gate stages.ts defines as "All punch items resolved", so that is what
+      // should take its place once punch items are built.
       {
         label: "GL actuals posted",
         met: data.postedGlTotal > 0,

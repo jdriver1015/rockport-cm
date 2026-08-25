@@ -5,7 +5,6 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
-import { SCOPE_STATUS_KEYS } from "@/lib/scope-status";
 import { propertyProjectPath } from "@/lib/property-path";
 import {
   checkScopeEditable,
@@ -51,7 +50,6 @@ const createSchema = z.object({
   costCodeId: z.number().int().positive().nullish(),
   startDate: optionalDate,
   endDate: optionalDate,
-  status: z.enum(SCOPE_STATUS_KEYS).optional(),
   specs: specsSchema.nullish(),
 });
 
@@ -82,7 +80,6 @@ export async function createScopeItem(
       costCodeId: d.costCodeId ?? null,
       startDate: d.startDate,
       endDate: d.endDate,
-      ...(d.status ? { status: d.status } : {}),
       specs: d.specs ?? null,
       sortOrder: maxOrder + 1,
     })
@@ -102,7 +99,6 @@ export async function updateScopeItem(input: {
   costCodeId?: number | null;
   startDate?: string | null;
   endDate?: string | null;
-  status?: string;
   specs?: { cols: string[]; rows: string[][] } | null;
 }): Promise<ActionResult> {
   const set: Partial<typeof schema.scopeItems.$inferInsert> = {};
@@ -142,11 +138,6 @@ export async function updateScopeItem(input: {
     const parsed = input.specs === null ? null : specsSchema.safeParse(input.specs);
     if (parsed && !parsed.success) return { ok: false, error: "Invalid specification grid" };
     set.specs = parsed ? parsed.data : null;
-  }
-  if (input.status !== undefined) {
-    const parsed = z.enum(SCOPE_STATUS_KEYS).safeParse(input.status);
-    if (!parsed.success) return { ok: false, error: "Invalid status" };
-    set.status = parsed.data;
   }
 
   if (Object.keys(set).length === 0) return { ok: true };
@@ -205,32 +196,4 @@ export async function restoreScopeItem(input: {
   return { ok: true };
 }
 
-const statusSchema = z.object({
-  id: z.coerce.number().int().positive(),
-  propertyId: z.coerce.number().int().positive(),
-  projectId: z.coerce.number().int().positive(),
-  status: z.enum(SCOPE_STATUS_KEYS),
-});
 
-/** Flip one scope line's progress — driven inline from the scope table. */
-export async function setScopeItemStatus(input: {
-  id: number;
-  propertyId: number;
-  projectId: number;
-  status: string;
-}): Promise<ActionResult> {
-  const parsed = statusSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid status" };
-  }
-  const { id, propertyId, projectId, status } = parsed.data;
-
-  const line = await db().query.scopeItems.findFirst({
-    where: eq(schema.scopeItems.id, id),
-  });
-  if (!line || line.projectId !== projectId) return { ok: false, error: "Scope item not found" };
-
-  await db().update(schema.scopeItems).set({ status }).where(eq(schema.scopeItems.id, id));
-  await revalidateProject(propertyId, projectId);
-  return { ok: true };
-}

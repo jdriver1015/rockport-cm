@@ -20,19 +20,69 @@ import {
 
 export type ConfirmResult = { ok: true } | { ok: false; error: string };
 
-/** Confirm the scope as ready to price. */
+/**
+ * Confirm the scope as ready to price.
+ *
+ * The preconditions are the point. Confirming is what unlocks sending the scope
+ * to vendors, and a vendor cannot price a line with no description or quote
+ * against a job with no approved budget — so the gate is called "Confirm Scope
+ * & Budget" and now actually checks both. It used to accept any project with at
+ * least one line, which let an unnamed, undescribed, unbudgeted draft go out.
+ */
 export async function confirmScopeRows(projectId: number): Promise<ConfirmResult> {
-  const [row] = await db()
-    .select({ n: sql<number>`count(*)::int` })
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+    columns: { budgetAmount: true, kind: true },
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+
+  if (Number(project.budgetAmount ?? 0) <= 0) {
+    return { ok: false, error: "Approve a budget before confirming the scope" };
+  }
+
+  const lines = await db()
+    .select({
+      id: schema.scopeItems.id,
+      item: schema.scopeItems.item,
+      description: schema.scopeItems.materialQuality,
+    })
     .from(schema.scopeItems)
     .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
-  if ((row?.n ?? 0) === 0) return { ok: false, error: "There is no scope to confirm" };
+
+  if (lines.length === 0) return { ok: false, error: "There is no scope to confirm" };
+
+  // Named individually rather than counted: "3 lines need a description" sends
+  // you hunting, and the whole reason to confirm is that somebody read them.
+  const unnamed = lines.filter((l) => !l.item?.trim());
+  if (unnamed.length > 0) {
+    return { ok: false, error: `${describeLines(unnamed.length)} still need a name` };
+  }
+
+  // Descriptions are required on common-area work, which goes out to vendors who
+  // price from a written scope. A unit turn's lines are generated from a budget
+  // group — the template item IS the specification, and there is no bid package
+  // to describe — so requiring prose there would block every turn in the
+  // portfolio on data the generator was never asked to write.
+  const undescribed =
+    project.kind === "unit" ? [] : lines.filter((l) => !l.description?.trim());
+  if (undescribed.length > 0) {
+    const names = undescribed.map((l) => l.item.trim()).slice(0, 3).join(", ");
+    const more = undescribed.length > 3 ? ` and ${undescribed.length - 3} more` : "";
+    return {
+      ok: false,
+      error: `${describeLines(undescribed.length)} still need a description: ${names}${more}`,
+    };
+  }
 
   await db()
     .update(schema.projects)
     .set({ scopeConfirmedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
   return { ok: true };
+}
+
+function describeLines(n: number): string {
+  return n === 1 ? "1 scope line" : `${n} scope lines`;
 }
 
 /**

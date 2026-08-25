@@ -286,6 +286,34 @@ export default async function ProjectDetailPage({
     )
     .orderBy(asc(schema.costCodes.code));
 
+  // What an awarded vendor is actually on the hook for, line by line. Only the
+  // approved bids: an unawarded quote is a number somebody offered, not a
+  // commitment. A direct award deliberately puts its whole amount on the first
+  // line (see directAwardRows), so on those projects this is lumpy by design —
+  // the scope table says so rather than pretending the split is real.
+  const committedLineRows = await db()
+    .select({
+      scopeItemId: schema.bidLineItems.scopeItemId,
+      amount: schema.bidLineItems.amount,
+      source: schema.bids.source,
+    })
+    .from(schema.bidLineItems)
+    .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
+    .where(
+      and(
+        eq(schema.bids.projectId, projectId),
+        eq(schema.bids.approved, true),
+        isNull(schema.bids.archivedAt),
+      ),
+    );
+
+  const committedByLine: Record<number, number> = {};
+  for (const r of committedLineRows) {
+    if (r.scopeItemId == null) continue;
+    committedByLine[r.scopeItemId] = (committedByLine[r.scopeItemId] ?? 0) + num(r.amount);
+  }
+  const awardIsDirect = committedLineRows.some((r) => r.source === "direct");
+
   const actualByCode: Record<number, number> = {};
   for (const r of glRows) {
     if (r.costCodeId == null) continue;
@@ -416,7 +444,8 @@ export default async function ProjectDetailPage({
   // The very function the guard uses, not a re-derivation from the bid list —
   // a direct award is status "received" with no RFP behind it, so counting
   // statuses here would freeze a scope nobody is pricing.
-  const scopeLocked = (await liveRfpCount(projectId)) > 0;
+  const liveRfps = await liveRfpCount(projectId);
+  const scopeLocked = liveRfps > 0;
 
   const clock = await readPhaseClock(projectId, project.phase);
   const daysInPhase = daysSince(clock.phaseEnteredAt);
@@ -431,9 +460,6 @@ export default async function ProjectDetailPage({
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
-        scopeNotStartedCount: scopeRows.filter((r) => r.status === "not_started").length,
-        scopeCompleteCount: scopeRows.filter((r) => r.status === "complete").length,
-        scopeTotalCount: scopeRows.length,
         hasStartMilestoneActual: !!startMilestone?.actualDate,
         openFindingCount: openFindings.length,
         postedGlTotal: spentAmt,
@@ -538,6 +564,11 @@ export default async function ProjectDetailPage({
             actualByCode={actualByCode}
             budgetByCode={budgetByCode}
             approvedBudget={budgetAmt}
+            committedByLine={committedByLine}
+            awardIsDirect={awardIsDirect}
+            scopeConfirmedAt={precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null}
+            scopeLocked={scopeLocked}
+            liveRfpCount={liveRfps}
           />
         }
         workflow={
