@@ -432,6 +432,8 @@ export const projects = pgTable("projects", {
   index("projects_cost_code_idx").on(t.costCodeId),
 ]);
 
+/** Legacy phase log — superseded by projectActivityLog below (2026-08-19); kept
+ *  read-only so history predating that change still shows in the Activity log. */
 export const projectStageEvents = pgTable("project_stage_events", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")
@@ -447,13 +449,17 @@ export const projectStageEvents = pgTable("project_stage_events", {
 }, (t) => [index("project_stage_events_project_idx").on(t.projectId)]);
 
 /**
- * Dated checkpoints on a project's timeline. Two dates carry the whole
- * mechanic: `plannedDate` is the target, `actualDate` is when it really
- * happened, and their difference is the schedule variance the dashboard shows.
- *
- * A milestone tied to a `phase` gets its `actualDate` stamped automatically the
- * first time the project enters that phase; untied milestones are set by hand.
+ * General-purpose field-change log for a project — one row per changed field
+ * (phase advances, name/date/budget edits, milestone edits, etc.), rather than
+ * the phase-only projectStageEvents above. `field` is a stable machine key
+ * ("name", "phase", "milestone:label:plannedDate", ...) for future filtering;
+ * `fieldLabel` is what's actually rendered, so the UI never needs a lookup
+ * table to turn a key back into English. from/toValue are pre-formatted
+ * display strings (already run through money()/fmtDate()/phaseLabel() etc.
+ * at write time) — this table is a display log, not a source of truth to
+ * recompute from, so it stores what the user actually saw change.
  */
+
 /**
  * The boilerplate a contract is built from.
  *
@@ -512,6 +518,28 @@ export const projectContracts = pgTable("project_contracts", {
   createdBy: uuid("created_by").references(() => profiles.id),
 }, (t) => [index("project_contracts_project_idx").on(t.projectId)]);
 
+export const projectActivityLog = pgTable("project_activity_log", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
+  userId: uuid("user_id").references(() => profiles.id),
+  field: text("field").notNull(),
+  fieldLabel: text("field_label").notNull(),
+  fromValue: text("from_value"),
+  toValue: text("to_value"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("project_activity_log_project_idx").on(t.projectId)]);
+
+/**
+ * Dated checkpoints on a project's timeline. Two dates carry the whole
+ * mechanic: `plannedDate` is the target, `actualDate` is when it really
+ * happened, and their difference is the schedule variance the dashboard shows.
+ *
+ * A milestone tied to a `phase` gets its `actualDate` stamped automatically the
+ * first time the project enters that phase; untied milestones are set by hand.
+ */
 export const projectMilestones = pgTable("project_milestones", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id")

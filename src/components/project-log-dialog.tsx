@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
@@ -11,49 +10,68 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { fmtDate } from "@/lib/format";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { ActivityLogRow } from "@/lib/actions/activity-log";
 
-export type LogEntry = {
-  id: number;
-  createdAt: string | Date | null;
-  fromPhase: string | null;
-  toPhase: string | null;
-  toPhaseLabel: string | null;
-  fromPhaseLabel: string | null;
-  note: string | null;
-};
+/** Date + time, local to the viewer — an audit trail needs more than the day. */
+function fmtDateTime(value: string | Date | null): string {
+  if (!value) return "—";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /** Phase history lives behind a header button rather than on the page. */
 export function ActivityLogDialogButton({
   entries,
   ...dialog
-}: { entries: LogEntry[] } & ControllableDialog) {
+}: { entries: ActivityLogRow[] } & ControllableDialog) {
   const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {hasTrigger && (
         <DialogTrigger render={<Button size="sm" variant="outline" />}>Activity log</DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Activity log</DialogTitle>
-          <DialogDescription>Every phase change recorded against this project.</DialogDescription>
+          <DialogDescription>Every field change recorded against this project.</DialogDescription>
         </DialogHeader>
         {entries.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">No activity yet.</p>
         ) : (
-          <ul className="max-h-[60vh] space-y-2 overflow-y-auto">
-            {entries.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 text-sm">
-                <span className="w-32 shrink-0 text-muted-foreground">{fmtDate(e.createdAt)}</span>
-                <Badge variant="secondary" className="border border-border">
-                  {e.fromPhaseLabel ? `${e.fromPhaseLabel} → ` : ""}
-                  {e.toPhaseLabel ?? (e.fromPhaseLabel ? "" : "Created")}
-                </Badge>
-                {e.note && <span className="text-muted-foreground">{e.note}</span>}
-              </li>
-            ))}
-          </ul>
+          <div className="max-h-[60vh] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Who</TableHead>
+                  <TableHead>Field</TableHead>
+                  <TableHead>Change</TableHead>
+                  <TableHead>Note</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((e) => (
+                  <TableRow key={e.id}>
+                    <TableCell className="text-muted-foreground">{fmtDateTime(e.createdAt)}</TableCell>
+                    <TableCell>{e.userName ?? "—"}</TableCell>
+                    <TableCell>{e.fieldLabel}</TableCell>
+                    <TableCell className="whitespace-normal">
+                      {e.fromValue ? `${e.fromValue} → ${e.toValue ?? "—"}` : (e.toValue ?? "—")}
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-muted-foreground">{e.note ?? ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </DialogContent>
     </Dialog>
