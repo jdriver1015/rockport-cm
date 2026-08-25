@@ -19,6 +19,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { BudgetInlineEditor } from "@/components/budget-inline-editor";
 import { ProjectPanelSwitch } from "@/components/project-work-panels";
+import {
+  DescriptionEditor,
+  OutForBidChip,
+  SpecsEditor,
+} from "@/components/scope-inline-editors";
 import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { fmtDate, initials, money } from "@/lib/format";
@@ -65,6 +70,8 @@ type Line = {
   actual: number;
   /** How many scope lines share this code — 1 means the figure is this line's. */
   sharing: number;
+  /** A vendor is currently pricing this line, so its priced fields are frozen. */
+  outForBid: boolean;
   budgeted: number | null;
   committed: number | null;
 };
@@ -83,6 +90,9 @@ export function ProjectScopeList({
   scopeConfirmedAt,
   scopeLocked,
   liveRfpCount,
+  outForBidLineIds,
+  perUnitBudgetByCode,
+  tierName,
 }: {
   propertyId: number;
   projectId: number;
@@ -99,6 +109,11 @@ export function ProjectScopeList({
   scopeConfirmedAt: string | null;
   scopeLocked: boolean;
   liveRfpCount: number;
+  /** Lines a vendor is holding right now. An RFP can cover a subset of the scope. */
+  outForBidLineIds: number[];
+  /** Per-unit tier allowance by code. Null on common-area projects. */
+  perUnitBudgetByCode: Record<number, number> | null;
+  tierName: string | null;
 }) {
   const costCodeOptions = useMemo(
     () => costCodes.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })),
@@ -112,6 +127,8 @@ export function ProjectScopeList({
   // created, which has no row in the table until it is saved.
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const editingRow = typeof editing === "number" ? items.find((i) => i.id === editing) ?? null : null;
+
+  const outForBid = useMemo(() => new Set(outForBidLineIds), [outForBidLineIds]);
 
   const lines = useMemo<Line[]>(() => {
     // Several scope lines may point at one cost code, and that is fine — but it
@@ -129,9 +146,17 @@ export function ProjectScopeList({
         row,
         vendor: row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null,
         code,
-        allowance: row.costCodeId != null ? (budgetByCode[row.costCodeId]?.budget ?? 0) : 0,
+        // On a unit turn the allowance is the tier's per-unit line; on a
+        // common-area project it is the property's underwritten figure.
+        allowance:
+          row.costCodeId == null
+            ? 0
+            : perUnitBudgetByCode
+              ? (perUnitBudgetByCode[row.costCodeId] ?? 0)
+              : (budgetByCode[row.costCodeId]?.budget ?? 0),
         actual: row.costCodeId != null ? (actualByCode[row.costCodeId] ?? 0) : 0,
         sharing: row.costCodeId != null ? (sharing.get(row.costCodeId) ?? 1) : 1,
+        outForBid: outForBid.has(row.id),
         budgeted: lineTotal(row),
         committed: committedByLine[row.id] ?? null,
       };
@@ -146,7 +171,7 @@ export function ProjectScopeList({
       if (!b.code) return -1;
       return a.code.code.localeCompare(b.code.code);
     });
-  }, [items, codeById, vendorById, budgetByCode, actualByCode, committedByLine]);
+  }, [items, codeById, vendorById, budgetByCode, actualByCode, committedByLine, outForBid, perUnitBudgetByCode]);
 
   const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
   const pricedCount = lines.filter((l) => l.budgeted != null).length;
@@ -230,6 +255,11 @@ export function ProjectScopeList({
               key={line.row.id}
               line={line}
               awardIsDirect={awardIsDirect}
+              propertyId={propertyId}
+              projectId={projectId}
+              perUnit={perUnitBudgetByCode != null}
+              tierName={tierName}
+              liveRfpCount={liveRfpCount}
               onOpen={() => setEditing(line.row.id)}
             />
           ))}
@@ -294,10 +324,21 @@ export function ProjectScopeList({
 function ScopeLineRow({
   line,
   awardIsDirect,
+  propertyId,
+  projectId,
+  perUnit,
+  tierName,
+  liveRfpCount,
   onOpen,
 }: {
   line: Line;
   awardIsDirect: boolean;
+  propertyId: number;
+  projectId: number;
+  /** True on a unit turn, where the allowance is per unit rather than property-wide. */
+  perUnit: boolean;
+  tierName: string | null;
+  liveRfpCount: number;
   onOpen: () => void;
 }) {
   const { row, vendor, code, allowance, actual, sharing, budgeted, committed } = line;
@@ -315,6 +356,7 @@ function ScopeLineRow({
   // the only line on the code; otherwise the comparison belongs to the code.
   const remaining = allowance > 0 && budgeted != null && sharing === 1 ? allowance - budgeted : null;
   const unbudgeted = code != null && allowance === 0 && budgeted != null && budgeted > 0;
+  const frozen = line.outForBid;
 
   const specRows = row.specs?.rows.filter((r) => r.some((c) => c.trim())) ?? [];
   const description = row.materialQuality?.trim() ?? "";
@@ -337,9 +379,15 @@ function ScopeLineRow({
                 <span className="font-plex-mono">{code.code}</span>
                 <span className="text-ink-400"> · {code.name} · </span>
                 {allowance > 0 ? (
-                  <span>{money(allowance)} allowance</span>
+                  <span>
+                    {money(allowance)} {perUnit ? "per unit" : "allowance"}
+                  </span>
                 ) : (
-                  <span className="font-bold text-gold">no allowance on this code</span>
+                  <span className="font-bold text-gold">
+                    {perUnit
+                      ? `not in the ${tierName ?? "tier"} tier`
+                      : "no allowance on this code"}
+                  </span>
                 )}
                 {sharing > 1 && <span className="text-ink-300"> · {sharing} lines on this code</span>}
               </>
@@ -348,8 +396,11 @@ function ScopeLineRow({
             )}
           </div>
 
-          <div className="mt-0.5 truncate text-sm font-semibold leading-snug text-navy">
-            {row.item || "Untitled item"}
+          <div className="mt-0.5 flex items-center gap-2">
+            <span className="truncate text-sm font-semibold leading-snug text-navy">
+              {row.item || "Untitled item"}
+            </span>
+            {frozen && <OutForBidChip vendors={liveRfpCount} />}
           </div>
 
           {vendor ? (
@@ -386,10 +437,14 @@ function ScopeLineRow({
               )}
             >
               {remaining < 0
-                ? `${money(-remaining)} over`
+                ? `${money(-remaining)} over${perUnit ? " tier" : ""}`
                 : remaining === 0
-                  ? "fully allocated"
-                  : `${money(remaining)} left`}
+                  ? perUnit
+                    ? "on tier"
+                    : "fully allocated"
+                  : perUnit
+                    ? `${money(remaining)} under tier`
+                    : `${money(remaining)} left`}
             </div>
           ) : (
             qty != null &&
@@ -439,32 +494,80 @@ function ScopeLineRow({
       </div>
 
       {description && (
-        <p className="mt-2 max-w-[68ch] text-[12.5px] leading-relaxed text-ink-500">{description}</p>
+        <DescriptionEditor
+          scopeItemId={row.id}
+          propertyId={propertyId}
+          projectId={projectId}
+          value={description}
+          outForBid={frozen}
+          vendorsPricing={liveRfpCount}
+        >
+          <p className="mt-2 max-w-[68ch] px-1 text-[12.5px] leading-relaxed text-ink-500">
+            {description}
+          </p>
+        </DescriptionEditor>
       )}
 
       {specRows.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {specRows.slice(0, 4).map((cells, i) => (
-            <span
-              key={i}
-              className="inline-flex max-w-full items-baseline gap-1.5 rounded-[5px] border border-border bg-card px-[7px] py-0.5 text-[11px]"
-            >
-              <span className="font-semibold text-ink-400">{cells[0] || "—"}</span>
-              <span className="truncate text-ink-700">
-                {cells.slice(1).filter(Boolean).join(" · ")}
+        <SpecsEditor
+          scopeItemId={row.id}
+          propertyId={propertyId}
+          projectId={projectId}
+          specs={row.specs}
+          outForBid={frozen}
+          vendorsPricing={liveRfpCount}
+        >
+          <span className="mt-2 flex flex-wrap items-center gap-1.5">
+            {specRows.slice(0, 4).map((cells, i) => (
+              <span
+                key={i}
+                className="inline-flex max-w-full items-baseline gap-1.5 rounded-[5px] border border-border bg-card px-[7px] py-0.5 text-[11px] transition-colors hover:border-ink-200"
+              >
+                <span className="font-semibold text-ink-400">{cells[0] || "—"}</span>
+                <span className="truncate text-ink-700">
+                  {cells.slice(1).filter(Boolean).join(" · ")}
+                </span>
               </span>
-            </span>
-          ))}
-          {specRows.length > 4 && (
-            <span className="text-[11px] text-ink-400">+{specRows.length - 4} more</span>
-          )}
-        </div>
+            ))}
+            {specRows.length > 4 && (
+              <span className="text-[11px] text-ink-400">+{specRows.length - 4} more</span>
+            )}
+          </span>
+        </SpecsEditor>
       )}
 
-      {bare && (
+      {/* Whichever half is missing gets its own way in, so a line is never one
+          click from the dialog just to add a sentence. */}
+      {(bare || (!description && specRows.length > 0) || (description && specRows.length === 0)) && (
         <div className="mt-1.5 flex gap-3 text-[11.5px] text-ink-200">
-          <span className="underline underline-offset-[3px]">Add description</span>
-          <span className="underline underline-offset-[3px]">Add specs</span>
+          {!description && (
+            <DescriptionEditor
+              scopeItemId={row.id}
+              propertyId={propertyId}
+              projectId={projectId}
+              value=""
+              outForBid={frozen}
+              vendorsPricing={liveRfpCount}
+            >
+              <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
+                Add description
+              </span>
+            </DescriptionEditor>
+          )}
+          {specRows.length === 0 && (
+            <SpecsEditor
+              scopeItemId={row.id}
+              propertyId={propertyId}
+              projectId={projectId}
+              specs={row.specs}
+              outForBid={frozen}
+              vendorsPricing={liveRfpCount}
+            >
+              <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
+                Add specs
+              </span>
+            </SpecsEditor>
+          )}
         </div>
       )}
     </button>

@@ -5,7 +5,7 @@ import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { readContracts } from "@/lib/contracts";
-import { liveRfpCount } from "@/lib/scope-lock";
+import { liveRfpCount, liveRfpLineIds } from "@/lib/scope-lock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
 import {
@@ -284,6 +284,36 @@ export default async function ProjectDetailPage({
       ),
     );
 
+  // Which lines a vendor is currently holding. RFPs go out for a SUBSET of the
+  // scope, so this is per line — the project-wide lock froze a whole table when
+  // two of its six lines were out. Read through the same function the server
+  // guard uses, so what the row shows and what an edit is allowed to do cannot
+  // drift apart. Null means an unscoped request, which holds the whole scope.
+  const heldLineIds = await liveRfpLineIds(projectId);
+  const outForBidLineIds = heldLineIds ? [...heldLineIds] : scope.map((r) => r.id);
+
+  // A unit turn's allowance is its tier's PER-UNIT line, not the property's
+  // whole underwritten figure for the code. Comparing one unit's $1,850 floor
+  // against the property's $340,000 flooring budget is true and useless.
+  const perUnitBudgetByCode: Record<number, number> = {};
+  if (project.kind === "unit" && project.budgetGroupId != null) {
+    const tierLines = await db()
+      .select({
+        costCodeId: schema.budgetGroupLines.costCodeId,
+        unitPrice: schema.budgetGroupLines.unitPrice,
+        pricingMethod: schema.budgetGroupLines.pricingMethod,
+      })
+      .from(schema.budgetGroupLines)
+      .where(eq(schema.budgetGroupLines.budgetGroupId, project.budgetGroupId));
+
+    for (const l of tierLines) {
+      // The rule interior-budget.ts uses: a sqft-priced line is a rate, so the
+      // unit's own square footage turns it into money.
+      perUnitBudgetByCode[l.costCodeId] =
+        l.pricingMethod === "sqft" ? num(l.unitPrice) * (unit?.sqft ?? 0) : num(l.unitPrice);
+    }
+  }
+
   const committedByLine: Record<number, number> = {};
   for (const r of committedLineRows) {
     if (r.scopeItemId == null) continue;
@@ -494,6 +524,9 @@ export default async function ProjectDetailPage({
             approvedBudget={budgetAmt}
             committedByLine={committedByLine}
             awardIsDirect={awardIsDirect}
+            outForBidLineIds={outForBidLineIds}
+            perUnitBudgetByCode={project.kind === "unit" ? perUnitBudgetByCode : null}
+            tierName={tierName ?? null}
             scopeConfirmedAt={precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null}
             scopeLocked={scopeLocked}
             liveRfpCount={liveRfps}

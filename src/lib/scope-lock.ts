@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +67,13 @@ export async function liveRfpCount(projectId: number): Promise<number> {
 export async function checkScopeEditable(
   projectId: number,
   changing: readonly string[],
+  /**
+   * The line being changed. Given one, only that line's own requests freeze it —
+   * a request covering two of six lines has nothing to say about the other four.
+   * Omitted, any live request freezes everything, which is what a change to the
+   * scope's shape deserves.
+   */
+  scopeItemId?: number,
 ): Promise<string | null> {
   const touchesPrice = changing.some((f) => (PRICED_FIELDS as readonly string[]).includes(f));
   if (!touchesPrice) return null;
@@ -74,9 +81,54 @@ export async function checkScopeEditable(
   const live = await liveRfpCount(projectId);
   if (live === 0) return null;
 
-  return `${live} vendor${live === 1 ? " is" : "s are"} pricing this scope. Withdraw the ${
+  if (scopeItemId != null) {
+    const held = await liveRfpLineIds(projectId);
+    // `null` means a request went out with no line tied to a scope item — a
+    // whole-job quote, which holds everything.
+    if (held !== null && !held.has(scopeItemId)) return null;
+  }
+
+  return `${live} vendor${live === 1 ? " is" : "s are"} pricing this line. Withdraw the ${
     live === 1 ? "request" : "requests"
   } before changing what they were asked to quote.`;
+}
+
+/**
+ * Scope lines a vendor is currently holding.
+ *
+ * Null when a live request has no scope lines on it at all — an unscoped quote
+ * is for the whole job, so everything is frozen and there is no subset to name.
+ */
+export async function liveRfpLineIds(projectId: number): Promise<Set<number> | null> {
+  const rows = await db()
+    .select({
+      bidId: schema.bids.id,
+      scopeItemId: schema.bidLineItems.scopeItemId,
+    })
+    .from(schema.bids)
+    .leftJoin(schema.bidLineItems, eq(schema.bidLineItems.bidId, schema.bids.id))
+    .where(
+      and(
+        eq(schema.bids.projectId, projectId),
+        isNull(schema.bids.archivedAt),
+        eq(schema.bids.source, "rfp"),
+        inArray(schema.bids.status, [...LIVE_RFP_STATUSES]),
+      ),
+    );
+
+  const byBid = new Map<number, number[]>();
+  for (const r of rows) {
+    const list = byBid.get(r.bidId) ?? [];
+    if (r.scopeItemId != null) list.push(r.scopeItemId);
+    byBid.set(r.bidId, list);
+  }
+
+  const held = new Set<number>();
+  for (const [, lineIds] of byBid) {
+    if (lineIds.length === 0) return null;
+    for (const id of lineIds) held.add(id);
+  }
+  return held;
 }
 
 /** Adding or removing a line always changes what was quoted. */

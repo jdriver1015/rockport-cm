@@ -148,7 +148,7 @@ export async function updateScopeItem(input: {
   const owner = await scopeItemProjectId(input.id);
   if (owner == null) return { ok: false, error: "Scope item not found" };
 
-  const locked = await checkScopeEditable(owner, Object.keys(set));
+  const locked = await checkScopeEditable(owner, Object.keys(set), input.id);
   if (locked) return { ok: false, error: locked };
 
   await db()
