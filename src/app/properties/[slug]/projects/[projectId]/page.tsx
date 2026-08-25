@@ -4,8 +4,6 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { daysSince } from "@/lib/duration";
-import { readPhaseClock } from "@/lib/phase-clock";
 import { readContracts } from "@/lib/contracts";
 import { liveRfpCount } from "@/lib/scope-lock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
@@ -18,7 +16,6 @@ import {
   type CostCodeBudget,
 } from "@/components/project-scope-list";
 import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
-import { ProjectStatCards, type VendorSummary } from "@/components/project-stat-cards";
 import { ProjectWorkPanels, ProjectPanelSwitch } from "@/components/project-work-panels";
 import { evaluateGates } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
@@ -28,8 +25,7 @@ import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-s
 import { fetchActivityLog } from "@/lib/actions/activity-log";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { fmtDate, num } from "@/lib/format";
-import { scopeLineTotal } from "@/lib/scope-total";
-import { nextPhase, phaseLabel } from "@/lib/stages";
+import { nextPhase } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
 
@@ -85,7 +81,7 @@ export default async function ProjectDetailPage({
 
   const data = row[0];
   if (!data || data.project.propertyId !== propertyId) notFound();
-  const { project, costCode, unit, vendor } = data;
+  const { project, costCode, unit } = data;
 
   // Canonicalize: legacy bare-id links and stale name suffixes (after a
   // rename) both redirect to the current id-prefixed slug.
@@ -363,31 +359,6 @@ export default async function ProjectDetailPage({
       : undefined;
   const tierIndex = project.budgetGroupId != null ? tierIndexById.get(project.budgetGroupId) ?? 0 : 0;
 
-  const pricedCount = scopeRows.filter((r) => scopeLineTotal(r) != null).length;
-  const scopeTotal = scopeRows.reduce((sum, r) => sum + (scopeLineTotal(r) ?? 0), 0);
-
-  // Who is doing the work. The project may carry a vendor of its own; if not,
-  // the scope table usually answers it, and a single distinct vendor across the
-  // lines is the same fact by another route. More than one is a count, because
-  // naming any one of them would be a guess about which matters.
-  const scopeVendorIds = [...new Set(scopeRows.map((r) => r.vendorId).filter((v) => v != null))];
-  const soleScopeVendor =
-    scopeVendorIds.length === 1
-      ? (vendorOptions.find((v) => v.id === scopeVendorIds[0]) ?? null)
-      : null;
-  const scopeVendorNote = `${scopeVendorIds.length} vendor${scopeVendorIds.length === 1 ? "" : "s"} across scope`;
-  const vendorSummary: VendorSummary = vendor
-    ? {
-        label: vendor.name,
-        showAvatar: true,
-        note: scopeVendorIds.length > 0 ? scopeVendorNote : "Assigned to the project",
-      }
-    : soleScopeVendor
-      ? { label: soleScopeVendor.name, showAvatar: true, note: "From the scope table" }
-      : scopeVendorIds.length > 1
-        ? { label: `${scopeVendorIds.length} vendors`, showAvatar: false, note: "Across the scope table" }
-        : { label: "Not assigned", showAvatar: false, note: "No vendor on the project or its scope" };
-
   const phaseRows: PhaseRow[] = milestones.map((m) => ({
     id: m.id,
     label: m.label,
@@ -447,16 +418,7 @@ export default async function ProjectDetailPage({
   const liveRfps = await liveRfpCount(projectId);
   const scopeLocked = liveRfps > 0;
 
-  const clock = await readPhaseClock(projectId, project.phase);
-  const daysInPhase = daysSince(clock.phaseEnteredAt);
 
-  // What the bids say the job costs, for the pre-con state where no budget has
-  // been approved yet. That is the live money question during pre-con, and the
-  // header could not answer it at all.
-  const bidTotals = bidPackage.bids.filter((b) => b.total > 0).map((b) => b.total);
-  const bidRange = bidTotals.length
-    ? { low: Math.min(...bidTotals), high: Math.max(...bidTotals) }
-    : null;
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
@@ -534,19 +496,6 @@ export default async function ProjectDetailPage({
         </CardContent>
       </Card>
 
-      <ProjectStatCards
-        projectId={projectId}
-        approved={budgetAmt}
-        actual={spentAmt}
-        bidRange={bidRange}
-        scopeCount={scopeRows.length}
-        pricedCount={pricedCount}
-        scopeTotal={scopeTotal}
-        phaseLabel={phaseLabel(project.phase)}
-        daysInPhase={daysInPhase}
-        gate={gate ? { met: gate.metCount, total: gate.checks.length } : null}
-        vendor={vendorSummary}
-      />
 
       <OpenItemsStrip items={openItemsSummary} />
 

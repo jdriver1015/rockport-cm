@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { BudgetInlineEditor } from "@/components/budget-inline-editor";
 import { ProjectPanelSwitch } from "@/components/project-work-panels";
 import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
@@ -121,7 +122,6 @@ export function ProjectScopeList({
   const pricedCount = items.filter((i) => lineTotal(i) != null).length;
   const total = items.reduce((sum, i) => sum + (lineTotal(i) ?? 0), 0);
   const committedTotal = items.reduce((sum, i) => sum + (committedByLine[i.id] ?? 0), 0);
-  const overApproved = approvedBudget > 0 && total > approvedBudget;
 
   const groups = useMemo<Group[]>(() => {
     const byCode = new Map<number | null, ScopeRow[]>();
@@ -138,7 +138,7 @@ export function ProjectScopeList({
       out.push({
         costCodeId,
         code: code?.code ?? "",
-        name: code?.name ?? "Not coded to a budget line",
+        name: code?.name ?? "No budget line yet",
         allowance: costCodeId != null ? (budgetByCode[costCodeId]?.budget ?? 0) : 0,
         actual: costCodeId != null ? (actualByCode[costCodeId] ?? 0) : 0,
         rows,
@@ -171,9 +171,18 @@ export function ProjectScopeList({
   return (
     <Card className="gap-0 overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between pb-(--card-spacing)">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <ProjectPanelSwitch />
           <span className="text-sm text-muted-foreground">{summary}</span>
+          {/* The budget lived on a stat card above this table. That card is gone
+              and confirming now requires a budget, so the control belongs where
+              the requirement is felt rather than two clicks away in Manage. */}
+          <span className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">
+              {approvedBudget > 0 ? `of ${money(approvedBudget)} approved` : "no budget approved"}
+            </span>
+            <BudgetInlineEditor projectId={projectId} approved={approvedBudget} />
+          </span>
         </div>
         <Button size="sm" disabled={scopeLocked} onClick={() => setEditing("new")}>
           Add scope item
@@ -203,88 +212,120 @@ export function ProjectScopeList({
           {groups.map((group) => {
             const groupBudgeted = group.rows.reduce((s, r) => s + (lineTotal(r) ?? 0), 0);
             const groupCommitted = group.rows.reduce((s, r) => s + (committedByLine[r.id] ?? 0), 0);
-            const overAllowance = group.allowance > 0 && groupBudgeted > group.allowance;
+            const remaining = group.allowance - groupBudgeted;
+            const overAllowance = group.allowance > 0 && remaining < 0;
 
             return (
-              <div key={group.costCodeId ?? "uncoded"} className="border-b border-border">
-                <div className={cn(GRID, "items-baseline bg-surface-sub/25 px-5 py-2.5")}>
+              <div key={group.costCodeId ?? "uncoded"}>
+                {/* Cue 1: a filled band spanning the full width. Cue 2: the name
+                    in the serif the app uses for titles, so a cost code reads as
+                    a different KIND of thing than a line, not a bigger one.
+                    Cue 3: figures a step up in size and weight, in navy. */}
+                <div
+                  className={cn(GRID, "border-t border-border-2 bg-surface-sub px-5 py-3")}
+                >
                   <div className="min-w-0">
                     <div
                       className={cn(
-                        "font-plex-mono text-[11px] font-bold tracking-[0.04em]",
+                        "font-plex-mono text-[10px] font-bold tracking-[0.06em]",
                         group.costCodeId == null ? "text-alert" : "text-ink-400",
                       )}
                     >
-                      {group.costCodeId == null ? "NO BUDGET LINE" : group.code}
+                      {group.costCodeId == null ? "NOT CODED" : group.code}
                     </div>
-                    <div className="truncate text-sm font-semibold text-navy">{group.name}</div>
+                    <div className="mt-0.5 truncate font-heading text-base leading-tight font-semibold text-navy">
+                      {group.name}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-ink-400">
+                      {group.rows.length} item{group.rows.length === 1 ? "" : "s"}
+                      {group.costCodeId == null
+                        ? " · code these so the spend can reconcile"
+                        : group.allowance > 0
+                          ? ` · ${money(group.allowance)} allowance`
+                          : " · no allowance on this code"}
+                    </div>
                   </div>
-                  <div className="text-right text-[11px] text-muted-foreground">
-                    {group.allowance > 0 ? (
-                      <>
-                        <span className="tabular-nums">{money(group.allowance)}</span>
-                        <br />
-                        allowance
-                      </>
-                    ) : (
-                      "—"
+
+                  <div className="text-right">
+                    <div
+                      className={cn(
+                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
+                        groupBudgeted > 0 ? (overAllowance ? "text-alert" : "text-navy") : "text-ink-200",
+                      )}
+                    >
+                      {groupBudgeted > 0 ? money(groupBudgeted) : "—"}
+                    </div>
+                    {group.allowance > 0 && groupBudgeted > 0 && (
+                      <div
+                        className={cn(
+                          "mt-0.5 text-[10.5px] tabular-nums",
+                          overAllowance ? "text-alert" : remaining === 0 ? "text-positive" : "text-ink-400",
+                        )}
+                      >
+                        {overAllowance
+                          ? `${money(-remaining)} over`
+                          : remaining === 0
+                            ? "fully allocated"
+                            : `${money(remaining)} left`}
+                      </div>
                     )}
                   </div>
-                  <div />
-                  <div />
+
+                  <div className="text-right">
+                    <div
+                      className={cn(
+                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
+                        groupCommitted > 0 ? "text-navy" : "text-ink-200",
+                      )}
+                    >
+                      {groupCommitted > 0 ? money(groupCommitted) : "—"}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div
+                      className={cn(
+                        "text-[15.5px] font-bold tracking-[-0.01em] tabular-nums",
+                        group.actual > 0 ? "text-navy" : "text-ink-200",
+                      )}
+                    >
+                      {group.actual > 0 ? money(group.actual) : group.costCodeId == null ? "—" : "$0"}
+                    </div>
+                  </div>
                 </div>
 
-                {group.rows.map((row) => (
-                  <ScopeLineRow
-                    key={row.id}
-                    row={row}
-                    vendor={row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null}
-                    committed={committedByLine[row.id] ?? null}
-                    awardIsDirect={awardIsDirect}
-                    onOpen={() => setEditing(row.id)}
-                  />
-                ))}
-
-                <div className={cn(GRID, "items-baseline bg-surface-sub/25 px-5 py-2")}>
-                  <div className={LABEL}>
-                    {group.name} subtotal · {group.rows.length} item
-                    {group.rows.length === 1 ? "" : "s"}
-                  </div>
-                  <div
-                    className={cn(
-                      "text-right text-[12.5px] font-semibold tabular-nums",
-                      overAllowance ? "text-alert" : "text-navy",
-                    )}
-                  >
-                    {groupBudgeted > 0 ? money(groupBudgeted) : "—"}
-                  </div>
-                  <div className="text-right text-[12.5px] font-medium tabular-nums text-ink-500">
-                    {groupCommitted > 0 ? money(groupCommitted) : "—"}
-                  </div>
-                  <div className="text-right text-[12.5px] font-semibold tabular-nums text-navy">
-                    {group.actual > 0 ? money(group.actual) : group.costCodeId == null ? "—" : "$0"}
-                  </div>
+                {/* Cue 4: the lines hang off their code, indented behind a rail.
+                    Nothing at code level is ever indented. */}
+                <div className="relative before:absolute before:top-0 before:bottom-0 before:left-[26px] before:w-0.5 before:bg-hairline">
+                  {group.rows.map((row) => (
+                    <ScopeLineRow
+                      key={row.id}
+                      row={row}
+                      vendor={row.vendorId != null ? vendorById.get(row.vendorId) ?? null : null}
+                      committed={committedByLine[row.id] ?? null}
+                      awardIsDirect={awardIsDirect}
+                      onOpen={() => setEditing(row.id)}
+                    />
+                  ))}
                 </div>
               </div>
             );
           })}
 
-          <div className={cn(GRID, "items-baseline bg-muted/60 px-5 py-3.5")}>
-            <div className="text-[11px] font-bold uppercase tracking-[0.09em] text-ink-500">
-              Total · {items.length} item{items.length === 1 ? "" : "s"} · {pricedCount} priced
+          {/* The bottom line is the one row that is not a section, so it does not
+              look like one. */}
+          <div className={cn(GRID, "items-baseline bg-navy px-5 py-3.5")}>
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-on-navy-muted">
+              Project total · {items.length} item{items.length === 1 ? "" : "s"} · {pricedCount}{" "}
+              priced
             </div>
-            <div
-              className={cn(
-                "text-right text-[15px] font-semibold tabular-nums",
-                overApproved ? "text-alert" : "text-navy",
-              )}
-            >
-              {money(total)}
+            <div className="text-right text-base font-bold tabular-nums text-white">
+              {total > 0 ? money(total) : "—"}
             </div>
-            <div className="text-right text-[15px] font-semibold tabular-nums text-navy">
+            <div className="text-right text-base font-bold tabular-nums text-white">
               {committedTotal > 0 ? money(committedTotal) : "—"}
             </div>
-            <div className="text-right text-[15px] font-semibold tabular-nums text-navy">
+            <div className="text-right text-base font-bold tabular-nums text-white">
               {actualInScope > 0 ? money(actualInScope) : "$0"}
             </div>
           </div>
@@ -364,100 +405,106 @@ function ScopeLineRow({
       : null;
 
   const specRows = row.specs?.rows.filter((r) => r.some((c) => c.trim())) ?? [];
+  const description = row.materialQuality?.trim() ?? "";
+  // A row with nothing to say should not cost a full sentence of placeholder and
+  // an empty spec band. Most lines start empty, so paying three bands for every
+  // one of them is what made a 30-item scope unreadable.
+  const bare = !description && specRows.length === 0;
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="w-full cursor-pointer border-b border-hairline px-5 py-3.5 text-left transition-colors last:border-b-0 hover:bg-hover"
+      className="w-full cursor-pointer border-t border-hairline py-2.5 pr-5 pl-10 text-left transition-colors first:border-t-0 hover:bg-hover"
     >
       <div className={GRID}>
         <div className="min-w-0">
-          <div className="truncate text-[14.5px] font-semibold leading-snug text-navy">
+          <div className="truncate text-[13.5px] font-semibold leading-snug text-ink-900">
             {row.item || "Untitled item"}
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            {vendor ? (
-              <>
-                <span className="flex size-[21px] shrink-0 items-center justify-center rounded-[5px] border border-[#c3d3ec] bg-[#dde6f5] text-[9.5px] font-bold text-[#1b3a6b]">
-                  {initialsOf(vendor.name)}
-                </span>
-                <span className="truncate text-[12.5px] text-ink-500">
-                  {vendor.name}
-                  {vendor.trade ? ` · ${vendor.trade}` : ""}
-                </span>
-              </>
-            ) : (
-              <span className="text-xs text-ink-300">Awaiting award</span>
-            )}
-          </div>
+          {vendor ? (
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border border-[#c3d3ec] bg-[#dde6f5] text-[8.5px] font-bold text-[#1b3a6b]">
+                {initialsOf(vendor.name)}
+              </span>
+              <span className="truncate text-[11.5px] text-ink-400">
+                {vendor.name}
+                {vendor.trade ? ` · ${vendor.trade}` : ""}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-0.5 text-[11.5px] text-ink-300">Awaiting award</div>
+          )}
         </div>
 
+        {/* Detail figures are a step DOWN from the group's — quieting the detail
+            opens a wider gap than shouting the totals would. */}
         <div className="text-right">
           <div
             className={cn(
-              "text-sm font-semibold tabular-nums",
-              budgeted != null ? "text-navy" : "text-ink-200",
+              "text-[13px] tabular-nums",
+              budgeted != null ? "font-medium text-ink-700" : "text-ink-300",
             )}
           >
             {budgeted != null ? money(budgeted) : "Not priced"}
           </div>
           {qty != null && unit != null && (
-            <div className="text-[11px] tabular-nums text-muted-foreground">
+            <div className="mt-px text-[10.5px] tabular-nums text-ink-300">
               {qty.toLocaleString()} × {money(unit)}
             </div>
           )}
         </div>
 
         <div className="text-right">
-          <div
-            className={cn(
-              "text-sm tabular-nums",
-              committed != null && committed > 0 ? "font-medium text-ink-500" : "text-ink-200",
-            )}
-          >
-            {committed != null && committed > 0 ? money(committed) : "—"}
-          </div>
-          {over != null && (
-            <div className="text-[11px] tabular-nums text-alert">{money(over)} over</div>
+          {committed != null && committed > 0 ? (
+            <>
+              <div className="text-[13px] font-medium tabular-nums text-ink-700">
+                {money(committed)}
+              </div>
+              {over != null && (
+                <div className="mt-px text-[10.5px] tabular-nums text-alert">{money(over)} over</div>
+              )}
+            </>
+          ) : (
+            <span className="text-[12px] text-ink-100">·</span>
           )}
         </div>
 
-        {/* Actual is a cost-code fact, reported on the group row. */}
-        <div className="text-right text-sm text-ink-200">—</div>
+        {/* Actual is a cost-code fact, reported on the group row above. */}
+        <div className="text-right text-[12px] text-ink-100">·</div>
       </div>
 
-      <p
-        className={cn(
-          "mt-2.5 max-w-[62ch] text-[13px] leading-relaxed",
-          row.materialQuality?.trim() ? "text-ink-500" : "italic text-ink-300",
-        )}
-      >
-        {row.materialQuality?.trim() ||
-          "No description yet — say what the contractor is responsible for on this line."}
-      </p>
+      {description && (
+        <p className="mt-1.5 max-w-[66ch] text-[12.5px] leading-relaxed text-ink-500">
+          {description}
+        </p>
+      )}
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <span className={cn(LABEL, "mr-0.5")}>Specs</span>
-        {specRows.length === 0 ? (
-          <span className="text-[11.5px] text-ink-300 underline underline-offset-[3px]">
-            Add spec
-          </span>
-        ) : (
-          specRows.slice(0, 4).map((cells, i) => (
+      {specRows.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {specRows.slice(0, 4).map((cells, i) => (
             <span
               key={i}
-              className="inline-flex max-w-full items-baseline gap-1.5 rounded-[5px] border border-border bg-card px-2 py-[3px] text-[11.5px]"
+              className="inline-flex max-w-full items-baseline gap-1.5 rounded-[5px] border border-border bg-card px-[7px] py-0.5 text-[11px]"
             >
               <span className="font-semibold text-ink-400">{cells[0] || "—"}</span>
-              <span className="truncate text-ink-700">{cells.slice(1).filter(Boolean).join(" · ")}</span>
+              <span className="truncate text-ink-700">
+                {cells.slice(1).filter(Boolean).join(" · ")}
+              </span>
             </span>
-          ))
-        )}
-        {specRows.length > 4 && (
-          <span className="text-[11.5px] text-ink-400">+{specRows.length - 4} more</span>
-        )}
-      </div>
+          ))}
+          {specRows.length > 4 && (
+            <span className="text-[11px] text-ink-400">+{specRows.length - 4} more</span>
+          )}
+        </div>
+      )}
+
+      {bare && (
+        <div className="mt-1 flex gap-3 text-[11.5px] text-ink-300">
+          <span className="underline underline-offset-[3px]">Add description</span>
+          <span className="underline underline-offset-[3px]">Add specs</span>
+        </div>
+      )}
     </button>
   );
 }
