@@ -3,8 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { ProjectCostBar } from "@/components/project-cost-bar";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { daysSince } from "@/lib/duration";
 import { readPhaseClock } from "@/lib/phase-clock";
 import { readContract } from "@/lib/contracts";
@@ -19,19 +18,20 @@ import {
   type CostCodeBudget,
 } from "@/components/project-scope-list";
 import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
+import { ProjectStatCards, type VendorSummary } from "@/components/project-stat-cards";
+import { ProjectWorkPanels, ProjectPanelSwitch } from "@/components/project-work-panels";
 import { evaluateGates } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
 import { listPreWalkFindings } from "@/lib/pre-walk-findings";
 import { readBidPackage } from "@/lib/bid-package";
 import { OpenItemsStrip, type OpenItemsSummary } from "@/components/open-items-strip";
-import { ActivityLogDialogButton, type LogEntry } from "@/components/project-log-dialog";
+import { fetchActivityLog } from "@/lib/actions/activity-log";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { fmtDate, num } from "@/lib/format";
-import { nextPhase } from "@/lib/stages";
-import { phaseLabel } from "@/lib/stages";
+import { scopeLineTotal } from "@/lib/scope-total";
+import { nextPhase, phaseLabel } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
-import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -51,38 +51,17 @@ async function optional<T>(query: PromiseLike<T[]>, label: string): Promise<T[]>
   }
 }
 
-function HeaderKpi({
-  label,
-  value,
-  note,
-  valueClassName,
-  noteClassName,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  valueClassName?: string;
-  noteClassName?: string;
-}) {
-  return (
-    <div>
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">{label}</div>
-      <div className={cn("mt-1 truncate tabular-nums text-sm font-semibold text-navy", valueClassName)}>
-        {value}
-      </div>
-      {note && (
-        <div className={cn("mt-1 truncate text-[10.5px] text-muted-foreground", noteClassName)}>{note}</div>
-      )}
-    </div>
-  );
-}
-
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; projectId: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { slug, projectId: pid } = await params;
+  // Which panel the switch opens on. Anything but "workflow" — including a
+  // stale or hand-typed value — falls back to the scope table.
+  const initialTab = (await searchParams).tab === "workflow" ? "workflow" : "scope";
   const projectId = parseProjectId(pid);
   if (!Number.isInteger(projectId)) notFound();
 
@@ -133,12 +112,7 @@ export default async function ProjectDetailPage({
       )
       .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id)),
     optional(
-      db()
-        .select()
-        .from(schema.projectStageEvents)
-        .where(eq(schema.projectStageEvents.projectId, projectId))
-        .orderBy(desc(schema.projectStageEvents.createdAt))
-        .limit(100),
+      fetchActivityLog(projectId),
       "activity log",
     ),
     optional(
@@ -352,7 +326,6 @@ export default async function ProjectDetailPage({
 
   // --- Header KPIs ---
   const budgetAmt = num(project.budgetAmount);
-  const committedAmt = num(project.committedCost);
   const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
 
   const tierIndexById = new Map(budgetGroups.map((g, i) => [g.id, i]));
@@ -361,6 +334,31 @@ export default async function ProjectDetailPage({
       ? budgetGroups.find((g) => g.id === project.budgetGroupId)?.name
       : undefined;
   const tierIndex = project.budgetGroupId != null ? tierIndexById.get(project.budgetGroupId) ?? 0 : 0;
+
+  const pricedCount = scopeRows.filter((r) => scopeLineTotal(r) != null).length;
+  const scopeTotal = scopeRows.reduce((sum, r) => sum + (scopeLineTotal(r) ?? 0), 0);
+
+  // Who is doing the work. The project may carry a vendor of its own; if not,
+  // the scope table usually answers it, and a single distinct vendor across the
+  // lines is the same fact by another route. More than one is a count, because
+  // naming any one of them would be a guess about which matters.
+  const scopeVendorIds = [...new Set(scopeRows.map((r) => r.vendorId).filter((v) => v != null))];
+  const soleScopeVendor =
+    scopeVendorIds.length === 1
+      ? (vendorOptions.find((v) => v.id === scopeVendorIds[0]) ?? null)
+      : null;
+  const scopeVendorNote = `${scopeVendorIds.length} vendor${scopeVendorIds.length === 1 ? "" : "s"} across scope`;
+  const vendorSummary: VendorSummary = vendor
+    ? {
+        label: vendor.name,
+        showAvatar: true,
+        note: scopeVendorIds.length > 0 ? scopeVendorNote : "Assigned to the project",
+      }
+    : soleScopeVendor
+      ? { label: soleScopeVendor.name, showAvatar: true, note: "From the scope table" }
+      : scopeVendorIds.length > 1
+        ? { label: `${scopeVendorIds.length} vendors`, showAvatar: false, note: "Across the scope table" }
+        : { label: "Not assigned", showAvatar: false, note: "No vendor on the project or its scope" };
 
   const phaseRows: PhaseRow[] = milestones.map((m) => ({
     id: m.id,
@@ -374,23 +372,6 @@ export default async function ProjectDetailPage({
 
 
 
-  const slips = milestones
-    .map((m) => {
-      if (!m.plannedDate || !m.actualDate) return null;
-      const p = new Date(m.plannedDate + "T00:00:00");
-      const a = new Date(m.actualDate + "T00:00:00");
-      return Math.round((a.getTime() - p.getTime()) / 86_400_000);
-    })
-    .filter((d): d is number => d !== null);
-  const worstSlipEntry = milestones.reduce<{ days: number; label: string } | null>((worst, m) => {
-    if (!m.plannedDate || !m.actualDate) return worst;
-    const p = new Date(m.plannedDate + "T00:00:00");
-    const a = new Date(m.actualDate + "T00:00:00");
-    const d = Math.round((a.getTime() - p.getTime()) / 86_400_000);
-    return worst == null || d > worst.days ? { days: d, label: m.label } : worst;
-  }, null);
-  const worstSlip = slips.length ? Math.max(...slips) : null;
-
   // The next phase is the one after the phase the project is IN, not the first
   // row with no actual date. On a project in Complete that read "next
   // Pre-Construction", because the Pre-Construction row is stamped by hand and
@@ -403,14 +384,6 @@ export default async function ProjectDetailPage({
   // Drives the "Over budget" pill beside the title. The cost bar owns the rest
   // of the money story now, including the amount and the share of approved.
   const isOverBudget = budgetAmt > 0 && spentAmt > budgetAmt;
-
-  const scheduleNote =
-    worstSlipEntry && worstSlipEntry.days > 0
-      ? `Worst slip: ${worstSlipEntry.label}`
-      : milestones.length > 0
-        ? "No slippage recorded"
-        : undefined;
-
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
 
@@ -438,15 +411,14 @@ export default async function ProjectDetailPage({
   // The bid the contract is for. Read off the package rather than queried again
   // so the dialog names exactly the bid the Select Bid screen shows as awarded.
   const awardedBid = bidPackage.bids.find((b) => b.approved) ?? null;
-
   const liveContract = await readContract(projectId);
   // The very function the guard uses, not a re-derivation from the bid list —
   // a direct award is status "received" with no RFP behind it, so counting
   // statuses here would freeze a scope nobody is pricing.
   const scopeLocked = (await liveRfpCount(projectId)) > 0;
+
   const clock = await readPhaseClock(projectId, project.phase);
   const daysInPhase = daysSince(clock.phaseEnteredAt);
-  const daysInTurn = daysSince(project.startDate ?? clock.startedAt);
 
   // What the bids say the job costs, for the pre-con state where no budget has
   // been approved yet. That is the live money question during pre-con, and the
@@ -466,17 +438,6 @@ export default async function ProjectDetailPage({
         postedGlTotal: spentAmt,
       })
     : null;
-  // Phase labels resolve here so the log dialog stays a presentational client component.
-  const logEntries: LogEntry[] = auditLog.map((e) => ({
-    id: e.id,
-    createdAt: e.createdAt,
-    fromPhase: e.fromPhase,
-    toPhase: e.toPhase,
-    fromPhaseLabel: e.fromPhase ? phaseLabel(e.fromPhase) : null,
-    toPhaseLabel: e.toPhase ? phaseLabel(e.toPhase) : null,
-    note: e.note,
-  }));
-
   return (
     <div className="space-y-6">
       <p className="text-sm">
@@ -512,7 +473,6 @@ export default async function ProjectDetailPage({
                   <span className="text-alert">Not coded to a UW line item yet</span>
                 )}
                 {unit ? ` · Unit ${unit.unitNumber}` : ""}
-                {vendor ? ` · ${vendor.name}` : ""}
               </p>
             </div>
             <ProjectManageMenu
@@ -523,7 +483,7 @@ export default async function ProjectDetailPage({
               projectKind={project.kind}
               archived={project.archivedAt != null}
               documents={documentRows}
-              activityLog={logEntries}
+              activityLog={auditLog}
               editData={{
                 id: project.id,
                 name: project.name,
@@ -544,91 +504,96 @@ export default async function ProjectDetailPage({
               defaultAuditor={profile?.fullName ?? null}
             />
           </div>
+        </CardContent>
+      </Card>
 
-          <div className="mx-[calc(var(--card-spacing)*-1)] grid grid-cols-2 border-y border-border sm:grid-cols-5 [&>*]:border-border [&>*]:px-[var(--card-spacing)] [&>*]:py-3.5 sm:[&>*:not(:first-child)]:border-l">
-            <div className="col-span-2 sm:col-span-3">
-              <ProjectCostBar
-                projectId={projectId}
-                approved={budgetAmt}
-                committed={committedAmt}
-                actual={spentAmt}
-                bidRange={bidRange}
-              />
-            </div>
-            <HeaderKpi
-              label="In this phase"
-              value={daysInPhase == null ? "\u2014" : `${daysInPhase}d`}
-              note={scheduleNote}
-              noteClassName={worstSlip != null && worstSlip > 0 ? "text-alert" : undefined}
-            />
-            <HeaderKpi label="Turn to date" value={daysInTurn == null ? "\u2014" : `${daysInTurn}d`} />
-          </div>
+      <ProjectStatCards
+        projectId={projectId}
+        approved={budgetAmt}
+        actual={spentAmt}
+        bidRange={bidRange}
+        scopeCount={scopeRows.length}
+        pricedCount={pricedCount}
+        scopeTotal={scopeTotal}
+        phaseLabel={phaseLabel(project.phase)}
+        daysInPhase={daysInPhase}
+        gate={gate ? { met: gate.metCount, total: gate.checks.length } : null}
+        vendor={vendorSummary}
+      />
 
-          <div className="pt-1">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-base font-semibold text-navy">Project phases</h2>
+      <OpenItemsStrip items={openItemsSummary} />
+
+      <ProjectWorkPanels
+        initialTab={initialTab}
+        scopeCount={scopeRows.length}
+        gate={gate ? { met: gate.metCount, total: gate.checks.length } : null}
+        scope={
+          <ProjectScopeList
+            propertyId={propertyId}
+            projectId={projectId}
+            items={scopeRows}
+            costCodes={activeCostCodes}
+            vendors={scopeVendors}
+            actualByCode={actualByCode}
+            budgetByCode={budgetByCode}
+            approvedBudget={budgetAmt}
+          />
+        }
+        workflow={
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <ProjectPanelSwitch />
               <span className="text-sm text-muted-foreground">
                 {nextMilestone
                   ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
                   : "Final phase"}
               </span>
-            </div>
-            <ProjectPhases
-              projectId={projectId}
-              phases={phaseRows}
-              currentPhase={project.phase}
-              gateContext={{
-                propertyId,
-                propertySlug: slug,
-                scopeLineCount: scopeRows.length,
-                scopeLines: scopeRows.map((r) => ({
-                  id: r.id,
-                  item: r.item,
-                  materialQuality: r.materialQuality,
-                  quantity: r.quantity,
-                  unitPrice: r.unitPrice,
-                  costCodeName:
-                    activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
-                })),
-                scopeLocked,
-                budget: { approved: budgetAmt },
-                scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
-                preWalkFindings,
-                bidPackage,
-                preWalkDate: precon.preWalkDate,
-                preWalkTime: precon.preWalkTime,
-                preWalkAuditId: precon.preWalkAuditId,
-                preWalkAuditStatus: precon.preWalkAuditStatus,
-                contract: liveContract
-                  ? {
-                      ...liveContract,
-                      sentAt: liveContract.sentAt?.toISOString() ?? null,
-                      vendorSignedAt: liveContract.vendorSignedAt?.toISOString() ?? null,
-                      executedAt: liveContract.executedAt?.toISOString() ?? null,
-                    }
-                  : null,
-                award: awardedBid
-                  ? { vendorName: awardedBid.vendorName, total: awardedBid.total }
-                  : null,
-              }}
-              gate={gate}
-              nextPhaseLabel={upcoming?.label ?? null}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <OpenItemsStrip items={openItemsSummary} />
-
-      <ProjectScopeList
-        propertyId={propertyId}
-        projectId={projectId}
-        items={scopeRows}
-        costCodes={activeCostCodes}
-        vendors={scopeVendors}
-        actualByCode={actualByCode}
-        budgetByCode={budgetByCode}
-        approvedBudget={budgetAmt}
+            </CardHeader>
+            <CardContent>
+              <ProjectPhases
+                projectId={projectId}
+                phases={phaseRows}
+                currentPhase={project.phase}
+                gateContext={{
+                  propertyId,
+                  propertySlug: slug,
+                  scopeLineCount: scopeRows.length,
+                  scopeLines: scopeRows.map((r) => ({
+                    id: r.id,
+                    item: r.item,
+                    materialQuality: r.materialQuality,
+                    quantity: r.quantity,
+                    unitPrice: r.unitPrice,
+                    costCodeName:
+                      activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
+                  })),
+                  scopeLocked,
+                  budget: { approved: budgetAmt },
+                  scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
+                  preWalkFindings,
+                  bidPackage,
+                  preWalkDate: precon.preWalkDate,
+                  preWalkTime: precon.preWalkTime,
+                  preWalkAuditId: precon.preWalkAuditId,
+                  preWalkAuditStatus: precon.preWalkAuditStatus,
+                  contract: liveContract
+                    ? {
+                        ...liveContract,
+                        sentAt: liveContract.sentAt?.toISOString() ?? null,
+                        vendorSignedAt: liveContract.vendorSignedAt?.toISOString() ?? null,
+                        executedAt: liveContract.executedAt?.toISOString() ?? null,
+                      }
+                    : null,
+                  award: awardedBid
+                    ? { vendorName: awardedBid.vendorName, total: awardedBid.total }
+                    : null,
+                }}
+                gate={gate}
+                nextPhaseLabel={upcoming?.label ?? null}
+              />
+            </CardContent>
+          </Card>
+        }
       />
     </div>
   );

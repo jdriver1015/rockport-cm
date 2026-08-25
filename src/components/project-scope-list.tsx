@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ComboboxSelect } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -16,8 +16,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ProjectPanelSwitch } from "@/components/project-work-panels";
 import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
-import { fmtDate, money } from "@/lib/format";
+import { fmtDate, initials, money } from "@/lib/format";
 import { SCOPE_STATUSES, type ScopeStatusKey } from "@/lib/scope-status";
 import { cn } from "@/lib/utils";
 import { scopeLineTotal as lineTotal } from "@/lib/scope-total";
@@ -60,16 +61,6 @@ const LABEL = "text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-
 
 function statusLabel(key: string): string {
   return SCOPE_STATUSES.find((s) => s.key === key)?.label ?? key;
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter((w) => /^[A-Za-z]/.test(w))
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
 }
 
 export function ProjectScopeList({
@@ -120,8 +111,8 @@ export function ProjectScopeList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <CardTitle className="text-base text-navy">Scope items</CardTitle>
+        <div className="flex flex-wrap items-center gap-3">
+          <ProjectPanelSwitch />
           <span className="text-sm text-muted-foreground">{summary}</span>
         </div>
         <Button size="sm" onClick={() => setEditing("new")}>

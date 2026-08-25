@@ -35,3 +35,17 @@ export function num(value: number | string | null | undefined): number {
   const n = typeof value === "string" ? parseFloat(value) : value;
   return n == null || Number.isNaN(n) ? 0 : n;
 }
+
+/**
+ * Two-letter monogram for a vendor avatar. Words that do not start with a
+ * letter are skipped, so "3M Roofing" reads MR rather than 3R.
+ */
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter((w) => /^[A-Za-z]/.test(w))
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+}
