@@ -414,7 +414,7 @@ export default async function ProjectDetailPage({
   // gate, and the project has to open even if the bid read fails.
   const bidPackage = (await readBidPackage(propertyId, projectId).catch((err) => {
     console.error("project detail: bid package failed to load", err);
-    return { scopeItems: [], vendors: [], bids: [] };
+    return { scopeItems: [], vendors: [], bids: [], lineAmounts: [] };
   }))!;
   // The bids the contracts are for. Read off the package rather than queried
   // again so the dialog names exactly what the Select Bid screen shows as

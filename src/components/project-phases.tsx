@@ -688,6 +688,7 @@ function GateRow({
         <SelectBidDialog
           open={openGate === "bid" || openGate === "rfp"}
           onOpenChange={(o) => !o && setOpenGate(null)}
+          propertyId={context.propertyId}
           projectId={projectId}
           data={context.bidPackage}
         />

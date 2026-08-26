@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { scopeLineTotal } from "@/lib/scope-total";
 
 // ---------------------------------------------------------------------------
 // Sending a scope out for pricing.
@@ -20,7 +21,13 @@ import { db, schema } from "@/db";
 const OPEN_STATUSES = ["draft", "sent"] as const;
 
 export type BidPackageOption = {
-  scopeItems: { id: number; item: string; costCodeName: string | null }[];
+  scopeItems: {
+    id: number;
+    item: string;
+    costCodeName: string | null;
+    /** What the scope itself says this line should cost, for comparison. */
+    budgeted: number | null;
+  }[];
   vendors: { id: number; name: string; trade: string | null; contactCount: number }[];
   bids: {
     id: number;
@@ -37,6 +44,15 @@ export type BidPackageOption = {
     token: string | null;
     tokenExpiresAt: Date | null;
   }[];
+  /**
+   * What each vendor put against each scope line.
+   *
+   * A total per bid tells you Ace was cheaper overall; it cannot tell you Ace
+   * was cheaper on countertops and dearer on cabinets, which is the whole
+   * question when several vendors price the same scope. Absent means that
+   * vendor was never asked to price that line, which is different from zero.
+   */
+  lineAmounts: { bidId: number; scopeItemId: number; amount: number }[];
 };
 
 /** Everything the Select Bid dialog needs, in one read. */
@@ -44,12 +60,14 @@ export async function readBidPackage(
   propertyId: number,
   projectId: number,
 ): Promise<BidPackageOption> {
-  const [scopeItems, vendors, bids, tokens] = await Promise.all([
+  const [scopeItems, vendors, bids, tokens, lineRows] = await Promise.all([
     db()
       .select({
         id: schema.scopeItems.id,
         item: schema.scopeItems.item,
         costCodeName: schema.costCodes.name,
+        quantity: schema.scopeItems.quantity,
+        unitPrice: schema.scopeItems.unitPrice,
       })
       .from(schema.scopeItems)
       .leftJoin(schema.costCodes, eq(schema.costCodes.id, schema.scopeItems.costCodeId))
@@ -118,19 +136,43 @@ export async function readBidPackage(
           sql`${schema.bidAccessTokens.expiresAt} > now()`,
         ),
       ),
+    // Every priced line on every live bid, for the comparison matrix. Manual
+    // lines carry no scope item and are left out — they belong to a bid's total,
+    // not to a row anybody can compare across vendors.
+    db()
+      .select({
+        bidId: schema.bidLineItems.bidId,
+        scopeItemId: schema.bidLineItems.scopeItemId,
+        amount: schema.bidLineItems.amount,
+      })
+      .from(schema.bidLineItems)
+      .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
+      .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
   ]);
 
   const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
 
   void propertyId;
   return {
-    scopeItems,
+    scopeItems: scopeItems.map((s) => ({
+      id: s.id,
+      item: s.item,
+      costCodeName: s.costCodeName,
+      budgeted: scopeLineTotal(s),
+    })),
     vendors,
     bids: bids.map((b) => ({
       ...b,
       token: tokenByBid.get(b.id)?.token ?? null,
       tokenExpiresAt: tokenByBid.get(b.id)?.expiresAt ?? null,
     })),
+    lineAmounts: lineRows
+      .filter((r): r is typeof r & { scopeItemId: number } => r.scopeItemId != null)
+      .map((r) => ({
+        bidId: r.bidId,
+        scopeItemId: r.scopeItemId,
+        amount: Number(r.amount),
+      })),
   };
 }
 

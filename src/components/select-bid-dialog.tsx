@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { sendBidPackage } from "@/lib/actions/bid-package";
 import { createVendor } from "@/lib/actions/vendors";
 import { issueLink, revokeLink } from "@/lib/actions/bid-portal";
 import type { BidPackageOption } from "@/lib/bid-package";
+import { setBidWinner } from "@/lib/actions/bids";
 
 /**
  * The vendor's link for one bid.
@@ -119,6 +120,8 @@ function BidLink({
 /** Which statuses mean the request is still with the vendor. */
 const LIVE = new Set(["draft", "sent"]);
 
+const LABEL = "text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300";
+
 /**
  * Resolve the Select Bid gate: send the scope out, and see what has come back.
  *
@@ -129,11 +132,14 @@ const LIVE = new Set(["draft", "sent"]);
 export function SelectBidDialog({
   open,
   onOpenChange,
+  propertyId,
   projectId,
   data,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Awarding revalidates the property's pages, not just this project's. */
+  propertyId: number;
   projectId: number;
   data: BidPackageOption;
 }) {
@@ -151,6 +157,20 @@ export function SelectBidDialog({
     data.bids.filter((b) => LIVE.has(b.status)).map((b) => b.vendorId).filter((v): v is number => v != null),
   );
   const sendable = data.vendors.filter((v) => !outAlready.has(v.id));
+
+  function award(bidId: number, vendorName: string) {
+    startTransition(async () => {
+      const res = await setBidWinner({ id: bidId, propertyId, projectId });
+      if (!res.ok) {
+        // Overlap is the interesting refusal: another award already holds some
+        // of these lines, and the message names who.
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Awarded to ${vendorName}`);
+      router.refresh();
+    });
+  }
 
   function send() {
     startTransition(async () => {
@@ -203,45 +223,26 @@ export function SelectBidDialog({
 
         <div className="max-h-[70vh] space-y-5 overflow-y-auto">
           {/* ---------- what has come back ---------- */}
+          <BidMatrix data={data} pending={pending} onAward={award} />
+
+          {/* The portal links stay a list: they are per vendor and have nothing
+              to compare against each other. */}
           {data.bids.length > 0 && (
             <div className="space-y-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-                Out and returned
-              </span>
+              <span className={LABEL}>Vendor links</span>
               <div className="divide-y divide-hairline rounded-card border border-border">
                 {data.bids.map((b) => (
                   <div key={b.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                    <span className="min-w-0 flex-1 text-[13px] font-medium text-navy">
+                    <span className="min-w-0 flex-1 text-[13px] text-ink-700">
                       {b.vendorName ?? "Vendor removed"}
-                    </span>
-                    <span
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.09em]",
-                        b.approved
-                          ? "bg-positive/10 text-positive"
-                          : LIVE.has(b.status)
-                            ? "bg-pending/10 text-pending"
-                            : "bg-muted text-ink-500",
-                      )}
-                    >
-                      {b.approved ? "awarded" : b.status}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
                       {b.sentAt ? `sent ${fmtDate(b.sentAt)}` : "not sent"}
-                      {b.receivedDate ? ` · back ${fmtDate(b.receivedDate)}` : ""}
-                      {` · ${b.lineCount} line${b.lineCount === 1 ? "" : "s"}`}
-                    </span>
-                    <span className="w-24 text-right text-[13px] font-semibold tabular-nums text-navy">
-                      {b.total > 0 ? money(b.total) : "—"}
                     </span>
                     <BidLink projectId={projectId} bid={b} disabled={pending} />
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                A request with every line at zero is still out for pricing. Comparing and awarding
-                comes next.
-              </p>
             </div>
           )}
 
@@ -422,5 +423,242 @@ export function SelectBidDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Every vendor's price against every scope line.
+ *
+ * The comparison used to be a list of bids with one total each: you could see
+ * that Ace was cheaper overall and nothing about where. Which line each vendor
+ * is actually good at is the whole question when several price the same scope,
+ * and it is also what makes a split award possible — Ace for the countertops,
+ * Bolt for the millwork.
+ */
+function BidMatrix({
+  data,
+  pending,
+  onAward,
+}: {
+  data: BidPackageOption;
+  pending: boolean;
+  /** Awarding is the parent's job — it owns the transition and the refresh. */
+  onAward: (bidId: number, vendorName: string) => void;
+}) {
+  // Only bids that carry a price. A request still out is shown as a column so
+  // you can see who has not answered, but it has nothing to compare.
+  const columns = data.bids.filter((b) => b.status !== "withdrawn");
+
+  const priceOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of data.lineAmounts) m.set(`${l.bidId}:${l.scopeItemId}`, l.amount);
+    return m;
+  }, [data.lineAmounts]);
+
+  // A price of zero is a request that went out unpriced, not a free line.
+  const priced = (bidId: number, lineId: number): number | null => {
+    const v = priceOf.get(`${bidId}:${lineId}`);
+    return v == null || v <= 0 ? null : v;
+  };
+
+  const linesPricedBy = (bidId: number) =>
+    data.scopeItems.filter((s) => priced(bidId, s.id) != null).length;
+
+  const totalFor = (bidId: number) =>
+    data.scopeItems.reduce((sum, s) => sum + (priced(bidId, s.id) ?? 0), 0);
+
+  const estimateTotal = data.scopeItems.reduce((s, i) => s + (i.budgeted ?? 0), 0);
+
+  // The cheapest total is only meaningful among vendors who priced the WHOLE
+  // scope. A vendor asked for one line will always look cheapest, and marking
+  // it would be recommending less work rather than a better price.
+  const fullCoverageBids = columns.filter(
+    (b) => linesPricedBy(b.id) === data.scopeItems.length && data.scopeItems.length > 0,
+  );
+  const bestTotalBidId =
+    fullCoverageBids.length > 1
+      ? fullCoverageBids.reduce((best, b) => (totalFor(b.id) < totalFor(best.id) ? b : best)).id
+      : null;
+
+  if (columns.length === 0 || data.scopeItems.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <span className={LABEL}>Priced by line · {data.scopeItems.length} items</span>
+
+      <div className="overflow-x-auto rounded-card border border-border">
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr>
+              <th className={cn(LABEL, "border-b border-border px-3 py-2 text-left")}>Scope item</th>
+              <th className={cn(LABEL, "border-b border-border px-3 py-2 text-right")}>
+                Our estimate
+              </th>
+              {columns.map((b) => (
+                <th
+                  key={b.id}
+                  className="min-w-[124px] border-b border-border border-l border-hairline px-3 py-2 text-left align-bottom"
+                >
+                  <div className="text-[13px] font-semibold text-navy">
+                    {b.vendorName ?? "Vendor removed"}
+                  </div>
+                  <span
+                    className={cn(
+                      "mt-1 inline-block rounded px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.07em]",
+                      b.approved
+                        ? "bg-positive/10 text-positive"
+                        : b.receivedDate
+                          ? "bg-positive-bg text-positive"
+                          : LIVE.has(b.status)
+                            ? "bg-track text-ink-400"
+                            : "bg-muted text-ink-500",
+                    )}
+                  >
+                    {b.approved
+                      ? "awarded"
+                      : b.receivedDate
+                        ? `back ${fmtDate(b.receivedDate)}`
+                        : b.status}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {data.scopeItems.map((line) => {
+              const prices = columns
+                .map((b) => ({ bidId: b.id, amount: priced(b.id, line.id) }))
+                .filter((p): p is { bidId: number; amount: number } => p.amount != null);
+              const low = prices.length > 1 ? Math.min(...prices.map((p) => p.amount)) : null;
+
+              return (
+                <tr key={line.id}>
+                  <td className="border-b border-hairline px-3 py-2">
+                    <div className="text-[13px] font-semibold text-navy">{line.item}</div>
+                    <div className="text-[10.5px] text-ink-300">
+                      {line.costCodeName ?? "No budget category"}
+                    </div>
+                  </td>
+                  <td className="border-b border-hairline px-3 py-2 text-right text-[12px] tabular-nums text-ink-400">
+                    {line.budgeted != null ? money(line.budgeted) : "—"}
+                  </td>
+                  {columns.map((b) => {
+                    const amount = priced(b.id, line.id);
+                    const isLow = low != null && amount === low;
+                    const delta =
+                      amount != null && line.budgeted != null ? amount - line.budgeted : null;
+                    return (
+                      <td
+                        key={b.id}
+                        className={cn(
+                          "border-b border-hairline border-l border-hairline px-3 py-2 text-right tabular-nums",
+                          isLow && "bg-positive-bg",
+                        )}
+                      >
+                        {amount == null ? (
+                          // Never asked, which is not the same as quoted at zero.
+                          <span className="text-[11px] text-ink-200 italic">not asked</span>
+                        ) : (
+                          <>
+                            <div
+                              className={cn(
+                                "text-[13px]",
+                                isLow ? "font-bold text-positive" : "text-ink-700",
+                              )}
+                            >
+                              {money(amount)}
+                            </div>
+                            {delta != null && delta !== 0 && (
+                              <div
+                                className={cn(
+                                  "text-[10px]",
+                                  isLow ? "text-positive" : delta > 0 ? "text-alert" : "text-ink-300",
+                                )}
+                              >
+                                {money(Math.abs(delta))} {delta > 0 ? "over" : "under"}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+
+            <tr className="bg-band">
+              <td className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.09em] text-ink-500">
+                Total priced
+              </td>
+              <td className="px-3 py-2.5 text-right text-[13px] font-bold tabular-nums text-ink-900">
+                {estimateTotal > 0 ? money(estimateTotal) : "—"}
+              </td>
+              {columns.map((b) => {
+                const total = totalFor(b.id);
+                const covered = linesPricedBy(b.id);
+                const isBest = b.id === bestTotalBidId;
+                return (
+                  <td
+                    key={b.id}
+                    className={cn(
+                      "px-3 py-2.5 text-right tabular-nums",
+                      isBest ? "bg-positive/15" : "",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "text-[14px] font-bold",
+                        isBest ? "text-positive" : "text-ink-900",
+                      )}
+                    >
+                      {total > 0 ? money(total) : "—"}
+                    </div>
+                    <div className="text-[10px] text-ink-400">
+                      {covered} of {data.scopeItems.length} lines
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+
+            <tr className="bg-band">
+              <td colSpan={2} className="px-3 pb-3" />
+              {columns.map((b) => {
+                const covered = linesPricedBy(b.id);
+                return (
+                  <td key={b.id} className="px-3 pb-3 text-center">
+                    {b.approved ? (
+                      <span className="text-[11px] font-bold uppercase tracking-[0.07em] text-positive">
+                        ✓ Awarded
+                      </span>
+                    ) : covered === 0 ? (
+                      <span className="text-[11px] text-ink-300">Still out</span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pending}
+                        className="w-full"
+                        onClick={() => onAward(b.id, b.vendorName ?? "this vendor")}
+                      >
+                        Award {b.vendorName?.split(" ")[0] ?? "bid"}
+                      </Button>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Awarding covers every line that vendor priced. Two vendors can both be awarded when their
+        lines do not overlap — the cheapest total is only marked among vendors who priced the whole
+        scope, because a smaller number for fewer lines is not a better price.
+      </p>
+    </div>
   );
 }
