@@ -3,9 +3,17 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckIcon, LockIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, EllipsisIcon, LockIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ComboboxSelect } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -55,7 +63,7 @@ export type CostCodeBudget = { budget: number; allocated: number };
 const DEFAULT_SPEC_COLS = ["Item", "Product", "Notes"];
 
 /** Shared grid so the column header, every row, and the total line up. */
-const GRID = "grid grid-cols-[minmax(0,1fr)_120px_120px_120px] items-baseline gap-3.5";
+const GRID = "grid grid-cols-[minmax(0,1fr)_120px_120px_120px_28px] items-baseline gap-3.5";
 
 const LABEL = "text-[9.5px] font-bold uppercase tracking-[0.1em] text-ink-300";
 
@@ -127,6 +135,7 @@ export function ProjectScopeList({
   // Editing happens in a dialog rather than an inline panel, so one line is open
   // at a time. `null` = closed, a number = that row, "new" = a line being
   // created, which has no row in the table until it is saved.
+  const router = useRouter();
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const editingRow = typeof editing === "number" ? items.find((i) => i.id === editing) ?? null : null;
 
@@ -180,6 +189,68 @@ export function ProjectScopeList({
       return a.code.code.localeCompare(b.code.code);
     });
   }, [items, codeById, vendorById, budgetByCode, actualByCode, committedByLine, outForBid, perUnitBudgetByCode]);
+
+  const [rowPending, startRowTransition] = useTransition();
+
+  /**
+   * Copy a line, priced and categorised, with " (copy)" on the name.
+   *
+   * Most scope lines are near-duplicates of one another — the same flashing on
+   * four buildings, the same finish in nine units — and retyping the category,
+   * the units and the price each time is how a scope ends up half filled in.
+   */
+  function duplicate(row: ScopeRow) {
+    startRowTransition(async () => {
+      const res = await createScopeItem({
+        propertyId,
+        projectId,
+        item: `${row.item} (copy)`,
+        materialQuality: row.materialQuality,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        costCodeId: row.costCodeId,
+        startDate: row.startDate,
+        endDate: row.endDate,
+        specs: row.specs,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Line duplicated");
+      router.refresh();
+    });
+  }
+
+  /**
+   * Delete from the row itself.
+   *
+   * Safe to offer inline because it has always been undoable — deleteScopeItem
+   * archives and restoreScopeItem brings it back, and the toast carries the way
+   * out. Pruning a list of thirty is a different job from editing one line, and
+   * making it a trip through a dialog is why bad lines linger.
+   */
+  function remove(id: number) {
+    startRowTransition(async () => {
+      const res = await deleteScopeItem({ id, propertyId, projectId });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Scope item deleted", {
+        action: {
+          label: "Undo",
+          onClick: () =>
+            startRowTransition(async () => {
+              const undo = await restoreScopeItem({ id, propertyId, projectId });
+              if (!undo.ok) toast.error(undo.error);
+              router.refresh();
+            }),
+        },
+      });
+      router.refresh();
+    });
+  }
 
   const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
   const pricedCount = lines.filter((l) => l.budgeted != null).length;
@@ -256,6 +327,7 @@ export function ProjectScopeList({
             <div className="text-right">Budgeted</div>
             <div className="text-right">Committed</div>
             <div className="text-right">Actual</div>
+            <div />
           </div>
 
           {lines.map((line) => (
@@ -268,7 +340,11 @@ export function ProjectScopeList({
               perUnit={perUnitBudgetByCode != null}
               tierName={tierName}
               liveRfpCount={liveRfpCount}
+              scopeLocked={scopeLocked}
+              pending={rowPending}
               onOpen={() => setEditing(line.row.id)}
+              onDuplicate={() => duplicate(line.row)}
+              onDelete={() => remove(line.row.id)}
             />
           ))}
 
@@ -290,6 +366,7 @@ export function ProjectScopeList({
             <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
               {actualInScope > 0 ? money(actualInScope) : "$0"}
             </div>
+            <div />
           </div>
 
           {actualOutsideScope > 0 && (
@@ -339,7 +416,11 @@ function ScopeLineRow({
   perUnit,
   tierName,
   liveRfpCount,
+  scopeLocked,
+  pending,
   onOpen,
+  onDuplicate,
+  onDelete,
 }: {
   line: Line;
   awardIsDirect: boolean;
@@ -349,7 +430,13 @@ function ScopeLineRow({
   perUnit: boolean;
   tierName: string | null;
   liveRfpCount: number;
+  /** Adding or removing lines changes the shape of what vendors were asked to quote. */
+  scopeLocked: boolean;
+  /** A duplicate or delete is in flight; the menu should not fire twice. */
+  pending: boolean;
   onOpen: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
 }) {
   const { row, vendor, code, allowance, actual, allocated, sharing, budgeted, committed } = line;
 
@@ -382,10 +469,21 @@ function ScopeLineRow({
   const bare = !description && specRows.length === 0;
 
   return (
-    <button
-      type="button"
+    // A div rather than a button. The row opens the dialog, but it now also holds
+    // a real <button> for its menu, and a button inside a button is invalid HTML
+    // — browsers drop one of them and the click targets fight.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="w-full cursor-pointer border-b border-hairline px-5 py-3 text-left transition-colors hover:bg-hover"
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="group/row w-full cursor-pointer border-b border-hairline px-5 py-3 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
     >
       <div className={GRID}>
         <div className="min-w-0">
@@ -506,6 +604,53 @@ function ScopeLineRow({
             </>
           )}
         </div>
+
+        {/* Revealed on hover, and always present for keyboard and touch. */}
+        <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              disabled={pending}
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-ink-300 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+                />
+              }
+            >
+              <EllipsisIcon />
+              <span className="sr-only">{row.item || "Scope item"} actions</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onOpen}>
+                <PencilIcon />
+                Edit line
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={scopeLocked} onClick={onDuplicate}>
+                <CopyIcon />
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={scopeLocked}
+                onClick={onDelete}
+                className="text-alert data-highlighted:text-alert"
+              >
+                <Trash2Icon />
+                Delete
+              </DropdownMenuItem>
+              {scopeLocked && (
+                // Disabled without a reason is just a dead control. Adding or
+                // removing a line changes the shape of the scope vendors were
+                // asked to quote, which is why the whole project is held.
+                <DropdownMenuLabel className="max-w-[190px] text-[10.5px] leading-snug font-normal text-ink-300">
+                  {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this scope.
+                  Withdraw the request{liveRfpCount === 1 ? "" : "s"} to add or remove lines.
+                </DropdownMenuLabel>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {description && (
@@ -585,7 +730,7 @@ function ScopeLineRow({
           )}
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
