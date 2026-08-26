@@ -5,8 +5,9 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
-import { PRICING_METHODS, roundMoney } from "@/lib/pricing";
+import { PRICING_METHODS } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
+import { recomputeProjectBudget } from "@/lib/project-budget-derive";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 
@@ -115,10 +116,6 @@ export async function createInteriorProject(
     }
   }
 
-  const budget = roundMoney(
-    d.lines.reduce((sum, l) => sum + roundMoney(l.quantity * l.unitPrice), 0),
-  );
-
   // Wrapped because the pre-check inside is check-then-insert: under READ
   // COMMITTED two concurrent submits both see no clash, and the loser trips the
   // partial unique index instead. Same expected answer either way.
@@ -180,7 +177,9 @@ export async function createInteriorProject(
           unitId,
           vendorId: d.vendorId ?? undefined,
           budgetGroupId: d.budgetGroupId,
-          budgetAmount: budget.toFixed(2),
+          // No budgetAmount here: it is derived from the scope lines seeded
+          // below, so writing it as well would be a second answer that only
+          // agrees until somebody edits a line.
           preWalkDate: d.preWalkDate,
           startDate: d.startDate,
           targetCompletionDate: d.targetCompletionDate,
@@ -271,6 +270,10 @@ export async function createInteriorProject(
   // Refused inside the transaction, so nothing was written. Returned as a value
   // rather than thrown — a taken unit is an expected answer, not a fault.
   if (!result.ok) return result;
+
+  // The seeded scope lines decide the budget, so it is read back off them once
+  // they are committed rather than written alongside them.
+  await recomputeProjectBudget(result.projectId);
 
   const base = await propertyPath(d.propertyId);
   if (base) {

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyProjectPath } from "@/lib/property-path";
+import { recomputeProjectBudget } from "@/lib/project-budget-derive";
 import {
   checkScopeEditable,
   checkScopeStructureEditable,
@@ -84,6 +85,9 @@ export async function createScopeItem(
       sortOrder: maxOrder + 1,
     })
     .returning({ id: schema.scopeItems.id });
+  // The budget follows the scope, so anything that changes what a line
+  // costs — or whether it exists — moves it.
+  await recomputeProjectBudget(d.projectId);
   await revalidateProject(d.propertyId, d.projectId);
   return { ok: true, id: row.id };
 }
@@ -155,6 +159,7 @@ export async function updateScopeItem(input: {
     .update(schema.scopeItems)
     .set(set)
     .where(and(eq(schema.scopeItems.id, input.id), eq(schema.scopeItems.projectId, owner)));
+  await recomputeProjectBudget(input.projectId);
   await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
@@ -173,6 +178,7 @@ export async function deleteScopeItem(input: {
     .update(schema.scopeItems)
     .set({ archivedAt: new Date() })
     .where(eq(schema.scopeItems.id, input.id));
+  await recomputeProjectBudget(input.projectId);
   await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }
@@ -192,6 +198,7 @@ export async function restoreScopeItem(input: {
     .update(schema.scopeItems)
     .set({ archivedAt: null })
     .where(eq(schema.scopeItems.id, input.id));
+  await recomputeProjectBudget(input.projectId);
   await revalidateProject(input.propertyId, input.projectId);
   return { ok: true };
 }

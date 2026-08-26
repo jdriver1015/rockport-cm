@@ -25,7 +25,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { BudgetInlineEditor } from "@/components/budget-inline-editor";
 import { ProjectPanelSwitch } from "@/components/project-work-panels";
 import {
   DescriptionEditor,
@@ -94,7 +93,6 @@ export function ProjectScopeList({
   vendors,
   actualByCode,
   budgetByCode,
-  approvedBudget,
   committedByLine,
   awardIsDirect,
   scopeConfirmedAt,
@@ -111,7 +109,6 @@ export function ProjectScopeList({
   vendors: ScopeVendorOption[];
   actualByCode: Record<number, number>;
   budgetByCode: Record<number, CostCodeBudget>;
-  approvedBudget: number;
   /** What an awarded vendor is on the hook for, per scope line. */
   committedByLine: Record<number, number>;
   /** A direct award puts its whole amount on one line, so committed is lumpy. */
@@ -254,6 +251,7 @@ export function ProjectScopeList({
 
   const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
   const pricedCount = lines.filter((l) => l.budgeted != null).length;
+  const unpricedCount = lines.length - pricedCount;
   const budgetedTotal = lines.reduce((s, l) => s + (l.budgeted ?? 0), 0);
   const committedTotal = lines.reduce((s, l) => s + (l.committed ?? 0), 0);
 
@@ -272,7 +270,6 @@ export function ProjectScopeList({
 
   const actualEverywhere = Object.values(actualByCode).reduce((s, v) => s + v, 0);
   const actualOutsideScope = Math.max(0, actualEverywhere - actualInScope);
-  const overApproved = approvedBudget > 0 && budgetedTotal > approvedBudget;
 
   return (
     <Card className="gap-0 overflow-hidden">
@@ -282,26 +279,26 @@ export function ProjectScopeList({
         <span className="text-[13px] text-ink-400">
           {items.length} item{items.length === 1 ? "" : "s"}
           {vendorCount > 0 && ` · ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`}
-          {budgetedTotal > 0 && (
+          {" · "}
+          {/* One number, because there is only one. The budget IS what the priced
+              lines add up to, so there is nothing to type and nothing to
+              reconcile against. Unpriced lines contribute nothing and say so
+              rather than reporting a zero nobody decided. */}
+          {budgetedTotal > 0 ? (
             <>
-              {" · "}
               <span className="font-semibold text-ink-700 tabular-nums">{money(budgetedTotal)}</span>
               {" budgeted"}
-              {approvedBudget > 0 && ` of ${money(approvedBudget)} approved`}
+              {unpricedCount > 0 && (
+                <span className="text-gold">
+                  {" · "}
+                  {unpricedCount} line{unpricedCount === 1 ? "" : "s"} unpriced
+                </span>
+              )}
             </>
+          ) : (
+            <span className="text-ink-300">not priced yet</span>
           )}
         </span>
-
-        {/* The budget lived on a stat card above this table. That card is gone and
-            confirming requires a budget, so the control sits where the
-            requirement is felt rather than two clicks away in Manage. */}
-        <BudgetInlineEditor projectId={projectId} approved={approvedBudget} />
-
-        {overApproved && (
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-alert/10 px-2 py-0.5 text-[11.5px] font-semibold text-alert">
-            {money(budgetedTotal - approvedBudget)} over the approved budget
-          </span>
-        )}
 
         <div className="ml-auto flex items-center gap-2">
           <ScopeConfirmControl
@@ -352,12 +349,7 @@ export function ProjectScopeList({
             <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">
               Total · {items.length} item{items.length === 1 ? "" : "s"} · {pricedCount} priced
             </div>
-            <div
-              className={cn(
-                "text-right text-[15px] font-bold tabular-nums",
-                overApproved ? "text-alert" : "text-ink-900",
-              )}
-            >
+            <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
               {budgetedTotal > 0 ? money(budgetedTotal) : "—"}
             </div>
             <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">

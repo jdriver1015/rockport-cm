@@ -363,7 +363,6 @@ export default async function ProjectDetailPage({
   }
 
   // --- Header KPIs ---
-  const budgetAmt = num(project.budgetAmount);
   const spentAmt = glRows.reduce((s, r) => s + num(r.amount), 0);
 
   const tierIndexById = new Map(budgetGroups.map((g, i) => [g.id, i]));
@@ -531,7 +530,6 @@ export default async function ProjectDetailPage({
             vendors={scopeVendors}
             actualByCode={actualByCode}
             budgetByCode={budgetByCode}
-            approvedBudget={budgetAmt}
             committedByLine={committedByLine}
             awardIsDirect={awardIsDirect}
             outForBidLineIds={outForBidLineIds}
@@ -571,7 +569,6 @@ export default async function ProjectDetailPage({
                       activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
                   })),
                   scopeLocked,
-                  budget: { approved: budgetAmt },
                   scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
                   preWalkFindings,
                   bidPackage,

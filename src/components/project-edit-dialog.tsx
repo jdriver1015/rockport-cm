@@ -105,22 +105,6 @@ export function ProjectEditDialog({
                   ))}
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="project-budget">Approved budget ($)</Label>
-                <Input
-                  id="project-budget"
-                  name="budgetAmount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="25000"
-                  defaultValue={
-                    project.budgetAmount && Number(project.budgetAmount) > 0
-                      ? project.budgetAmount
-                      : ""
-                  }
-                />
-              </div>
             </div>
           )}
 

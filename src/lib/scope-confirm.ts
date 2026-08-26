@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { scopeLineTotal } from "@/lib/scope-total";
 import {
   applyAwardVendor,
   overlapMessage,
@@ -32,19 +33,17 @@ export type ConfirmResult = { ok: true } | { ok: false; error: string };
 export async function confirmScopeRows(projectId: number): Promise<ConfirmResult> {
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
-    columns: { budgetAmount: true, kind: true },
+    columns: { kind: true },
   });
   if (!project) return { ok: false, error: "Project not found" };
-
-  if (Number(project.budgetAmount ?? 0) <= 0) {
-    return { ok: false, error: "Approve a budget before confirming the scope" };
-  }
 
   const lines = await db()
     .select({
       id: schema.scopeItems.id,
       item: schema.scopeItems.item,
       description: schema.scopeItems.materialQuality,
+      quantity: schema.scopeItems.quantity,
+      unitPrice: schema.scopeItems.unitPrice,
     })
     .from(schema.scopeItems)
     .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
@@ -53,6 +52,20 @@ export async function confirmScopeRows(projectId: number): Promise<ConfirmResult
 
   // Named individually rather than counted: "3 lines need a description" sends
   // you hunting, and the whole reason to confirm is that somebody read them.
+  // The budget IS the scope now, so "is there an approved budget" is not a
+  // question any more — the real one is whether anybody has priced the work.
+  // A vendor cannot quote a line with no price, and the sum is what gets
+  // committed against.
+  const unpriced = lines.filter((l) => scopeLineTotal(l) == null);
+  if (unpriced.length > 0) {
+    const names = unpriced.map((l) => l.item.trim()).slice(0, 3).join(", ");
+    const more = unpriced.length > 3 ? ` and ${unpriced.length - 3} more` : "";
+    return {
+      ok: false,
+      error: `${describeLines(unpriced.length)} still need a price: ${names}${more}`,
+    };
+  }
+
   const unnamed = lines.filter((l) => !l.item?.trim());
   if (unnamed.length > 0) {
     return { ok: false, error: `${describeLines(unnamed.length)} still need a name` };

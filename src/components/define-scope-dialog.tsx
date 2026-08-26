@@ -18,7 +18,6 @@ import { fmtDate } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/pre-walk";
 import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
-import { setProjectBudget } from "@/lib/actions/project-budget";
 import { scopeLineTotal } from "@/lib/scope-total";
 
 export type PreWalkFinding = {
@@ -29,11 +28,6 @@ export type PreWalkFinding = {
   location: string | null;
   /** Already turned into a scope line. */
   inScope: boolean;
-};
-
-export type BudgetContext = {
-  /** The approved budget. Zero means none has been set. */
-  approved: number;
 };
 
 export type ScopeLine = {
@@ -72,7 +66,6 @@ export function DefineScopeDialog({
   propertyId,
   projectId,
   lines,
-  budget,
   scopeConfirmedAt,
   scopeLocked,
   findings,
@@ -82,7 +75,6 @@ export function DefineScopeDialog({
   propertyId: number;
   projectId: number;
   lines: ScopeLine[];
-  budget: BudgetContext;
   /** Set once the scope is agreed as ready to price — pre-con gate 2. */
   scopeConfirmedAt: string | null;
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
@@ -94,7 +86,6 @@ export function DefineScopeDialog({
 
   const scopeLineCount = lines.length;
   const missingCode = lines.filter((l) => !l.costCodeName).length;
-  const [approved, setApproved] = useState(budget.approved > 0 ? String(budget.approved) : "");
 
   // What the lines actually add up to. Null lines contribute nothing, so an
   // uncosted scope totals zero rather than guessing at a number.
@@ -102,15 +93,10 @@ export function DefineScopeDialog({
   const scopeTotal = costed.reduce((a, b) => a + b, 0);
   const uncostedCount = lines.length - costed.length;
 
-  const approvedValue = Number(approved);
-  const budgetOk = approved.trim() !== "" && Number.isFinite(approvedValue) && approvedValue > 0;
-  // Worth saying out loud when they disagree: one of the two is wrong, and
-  // which one is a judgement only the person can make.
-  const differs = budgetOk && scopeTotal > 0 && Math.abs(approvedValue - scopeTotal) >= 1;
-
-  function saveBudget() {
-    return setProjectBudget({ projectId, budgetAmount: approved.trim() });
-  }
+  // Confirming is gated on the scope being priced now, not on a number typed
+  // beside it — the budget is derived from these very lines.
+  const unpricedCount = lines.filter((l) => !l.quantity || !l.unitPrice).length;
+  const budgetOk = unpricedCount === 0;
 
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
@@ -136,20 +122,14 @@ export function DefineScopeDialog({
 
   function confirm() {
     startTransition(async () => {
-      // The budget is part of what is being confirmed, so it is saved by the
-      // same press rather than needing its own. Confirming a scope while the
-      // budget field still holds an unsaved number would confirm the wrong pair.
-      const saved = await saveBudget();
-      if (!saved.ok) {
-        toast.error(saved.error);
-        return;
-      }
+      // There is no budget to save alongside this any more — it is derived from
+      // the lines being confirmed, so confirming them settles it.
       const res = await confirmScope({ projectId });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success("Scope and budget confirmed — ready to send out for pricing");
+      toast.success("Scope confirmed — ready to send out for pricing");
       onOpenChange(false);
       router.refresh();
     });
@@ -271,45 +251,18 @@ export function DefineScopeDialog({
                     <span />
                   </div>
 
-                  <div className={cn(SCOPE_GRID, "mt-2 items-center")}>
-                    <span />
-                    <label
-                      htmlFor="confirm-budget"
-                      className="text-[13px] font-medium text-navy"
-                    >
-                      Approved budget
-                    </label>
-                    <span />
-                    <span />
-                    <Input
-                      id="confirm-budget"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      className="h-8 text-right text-[13px] tabular-nums"
-                      value={approved}
-                      disabled={pending || scopeLocked}
-                      onChange={(e) => setApproved(e.target.value)}
-                    />
-                    <span>
-                      {differs && !scopeLocked && (
-                        <button
-                          type="button"
-                          className="text-[11.5px] text-link hover:underline"
-                          onClick={() => setApproved(String(Math.round(scopeTotal * 100) / 100))}
-                        >
-                          Use scope total
-                        </button>
-                      )}
-                    </span>
-                    <span />
-                  </div>
-
-                  {differs && (
-                    <p className="mt-1.5 pl-8 text-[11.5px] text-alert">
-                      The approved budget is {usd(Math.abs(approvedValue - scopeTotal))}{" "}
-                      {approvedValue > scopeTotal ? "above" : "below"} what the lines add up to.
+                  {/*
+                    An "Approved budget" field sat here, with a note whenever it
+                    disagreed with the scope total and a button to copy one into
+                    the other. The disagreement cannot happen any more: the
+                    budget IS the scope total. What is left is whether every line
+                    has a price.
+                  */}
+                  {unpricedCount > 0 && (
+                    <p className="mt-2 pl-8 text-[11.5px] text-gold">
+                      {unpricedCount} line{unpricedCount === 1 ? "" : "s"} still need
+                      {unpricedCount === 1 ? "s" : ""} a price. A vendor cannot quote a line with
+                      no price on it.
                     </p>
                   )}
                 </div>
@@ -472,8 +425,8 @@ export function DefineScopeDialog({
                   {scopeLineCount === 0
                     ? "Add at least one line before confirming."
                     : !budgetOk
-                      ? "Set an approved budget — it is what the bids will be measured against."
-                      : "Confirm when these lines and this budget are what you want priced."}
+                      ? "Every line needs a price before this can go out — that sum is what the bids get measured against."
+                      : "Confirm when these lines are what you want priced."}
                 </p>
                 <Button
                   size="sm"

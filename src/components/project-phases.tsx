@@ -22,7 +22,6 @@ import { setProjectPhase } from "@/lib/actions/projects";
 import { PreWalkDialog } from "@/components/pre-walk-dialog";
 import {
   DefineScopeDialog,
-  type BudgetContext,
   type PreWalkFinding,
   type ScopeLine,
 } from "@/components/define-scope-dialog";
@@ -36,7 +35,6 @@ export type GateContext = {
   propertySlug: string;
   scopeLineCount: number;
   scopeLines: ScopeLine[];
-  budget: BudgetContext;
   scopeConfirmedAt: string | null;
   /** True once an RFP is out — the scope's priced fields are frozen. */
   scopeLocked: boolean;
@@ -707,13 +705,15 @@ function GateRow({
 
       {context && (
         <DefineScopeDialog
-          key={`scope-${context.budget.approved}`}
+          // Remount when the scope changes, so the dialog reflects the lines it is
+          // about to confirm. It used to key on the approved budget, which no
+          // longer exists as a separate number.
+          key={`scope-${context.scopeLineCount}`}
           open={openGate === "scope"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}
           projectId={projectId}
           lines={context.scopeLines}
-          budget={context.budget}
           scopeConfirmedAt={context.scopeConfirmedAt}
           scopeLocked={context.scopeLocked}
           findings={context.preWalkFindings}
