@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { FileTextIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { readContracts } from "@/lib/contracts";
 import { liveRfpCount, liveRfpLineIds } from "@/lib/scope-lock";
@@ -27,6 +29,7 @@ import { fmtDate, num } from "@/lib/format";
 import { nextPhase } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -469,7 +472,19 @@ export default async function ProjectDetailPage({
                 <p className="text-sm text-muted-foreground">Unit {unit.unitNumber}</p>
               )}
             </div>
-            <ProjectManageMenu
+            <div className="flex items-center gap-2">
+              {/* A link, not a button with an onClick: the route streams a PDF,
+                  so letting the browser open it is the whole behaviour. */}
+              <a
+                href={`/api/projects/${projectId}/export`}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
+              >
+                <FileTextIcon className="size-3.5" />
+                Export PDF
+              </a>
+              <ProjectManageMenu
               propertyId={propertyId}
               propertySlug={slug}
               projectId={projectId}
@@ -496,7 +511,8 @@ export default async function ProjectDetailPage({
               auditProjects={[{ id: projectId, name: project.name }, ...otherProjectOptions]}
               costCodes={activeCostCodes}
               defaultAuditor={profile?.fullName ?? null}
-            />
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
