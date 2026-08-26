@@ -68,6 +68,8 @@ type Line = {
   allowance: number;
   /** Posted spend on this line's code. */
   actual: number;
+  /** Everything already claimed against this category, property-wide. */
+  allocated: number;
   /** How many scope lines share this code — 1 means the figure is this line's. */
   sharing: number;
   /** A vendor is currently pricing this line, so its priced fields are frozen. */
@@ -155,6 +157,12 @@ export function ProjectScopeList({
               ? (perUnitBudgetByCode[row.costCodeId] ?? 0)
               : (budgetByCode[row.costCodeId]?.budget ?? 0),
         actual: row.costCodeId != null ? (actualByCode[row.costCodeId] ?? 0) : 0,
+        // A tier's per-unit figure is this unit's alone; a property allowance is
+        // shared with every other project's scope on the same category.
+        allocated:
+          row.costCodeId == null || perUnitBudgetByCode
+            ? 0
+            : (budgetByCode[row.costCodeId]?.allocated ?? 0),
         sharing: row.costCodeId != null ? (sharing.get(row.costCodeId) ?? 1) : 1,
         outForBid: outForBid.has(row.id),
         budgeted: lineTotal(row),
@@ -306,7 +314,9 @@ export function ProjectScopeList({
           costCodeOptions={costCodeOptions}
           vendorById={vendorById}
           budgetByCode={budgetByCode}
-          actualByCode={actualByCode}
+          perUnitBudgetByCode={perUnitBudgetByCode}
+          outForBid={typeof editing === "number" && outForBid.has(editing)}
+          liveRfpCount={liveRfpCount}
           onClose={() => setEditing(null)}
         />
       )}
@@ -341,7 +351,7 @@ function ScopeLineRow({
   liveRfpCount: number;
   onOpen: () => void;
 }) {
-  const { row, vendor, code, allowance, actual, sharing, budgeted, committed } = line;
+  const { row, vendor, code, allowance, actual, allocated, sharing, budgeted, committed } = line;
 
   const qty = row.quantity ? Number(row.quantity) : null;
   const unit = row.unitPrice ? Number(row.unitPrice) : null;
@@ -352,9 +362,15 @@ function ScopeLineRow({
       ? committed - budgeted
       : null;
 
-  // Against the code's allowance. Only this line's share is knowable when it is
-  // the only line on the code; otherwise the comparison belongs to the code.
-  const remaining = allowance > 0 && budgeted != null && sharing === 1 ? allowance - budgeted : null;
+  // Against the category's allowance, and the same arithmetic the dialog uses —
+  // `allocated` already includes this line, plus any other project's scope on the
+  // same category, which does consume the same underwritten dollars. Shown only
+  // when this line is the sole claim from this project, because otherwise the
+  // figure belongs to the category rather than to the row it is sitting on.
+  const remaining =
+    allowance > 0 && budgeted != null && sharing === 1
+      ? allowance - (allocated > 0 ? allocated : budgeted)
+      : null;
   const unbudgeted = code != null && allowance === 0 && budgeted != null && budgeted > 0;
   const frozen = line.outForBid;
 
@@ -655,7 +671,9 @@ function ScopeEditorDialog({
   costCodeOptions,
   vendorById,
   budgetByCode,
-  actualByCode,
+  perUnitBudgetByCode,
+  outForBid,
+  liveRfpCount,
   onClose,
 }: {
   row: ScopeRow | null;
@@ -664,7 +682,11 @@ function ScopeEditorDialog({
   costCodeOptions: { value: number; label: string }[];
   vendorById: Map<number, ScopeVendorOption>;
   budgetByCode: Record<number, CostCodeBudget>;
-  actualByCode: Record<number, number>;
+  /** Per-unit tier allowance by category. Null on common-area projects. */
+  perUnitBudgetByCode: Record<number, number> | null;
+  /** A vendor is pricing this line, so what they quoted cannot move. */
+  outForBid: boolean;
+  liveRfpCount: number;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -781,227 +803,276 @@ function ScopeEditorDialog({
   }
 
   const total = quantity && unitPrice ? Number(quantity) * Number(unitPrice) : null;
-  const actual = costCodeId != null ? actualByCode[costCodeId] ?? 0 : 0;
 
-  const budget = costCodeId != null ? budgetByCode[costCodeId] : undefined;
-  const ownOriginal = originalCostCodeId === costCodeId ? originalTotal : 0;
-  const remaining = budget ? budget.budget - (budget.allocated - ownOriginal) - (total ?? 0) : null;
-  const overBudget = remaining != null && remaining < 0;
+  // What this line's category allows. On a unit turn that is the tier's per-unit
+  // figure, not the property's whole underwritten line — a unit's $1,850 floor
+  // measured against the property's $340,000 flooring budget is true and useless.
+  const allowance =
+    costCodeId == null
+      ? 0
+      : perUnitBudgetByCode
+        ? (perUnitBudgetByCode[costCodeId] ?? 0)
+        : (budgetByCode[costCodeId]?.budget ?? 0);
+
+  // Everything already spoken for on this category, minus whatever this row was
+  // contributing before it was edited, so the figure never double-counts itself.
+  const allocatedElsewhere = perUnitBudgetByCode
+    ? 0
+    : costCodeId == null
+      ? 0
+      : (budgetByCode[costCodeId]?.allocated ?? 0) -
+        (originalCostCodeId === costCodeId ? originalTotal : 0);
+
+  const remaining = costCodeId == null ? null : allowance - allocatedElsewhere - (total ?? 0);
+  const overBudget = allowance > 0 && remaining != null && remaining < 0;
+  // A category with no allowance is a different problem from one that is over,
+  // and it is the one worth naming. money(0) renders an em-dash, so the old copy
+  // read "over its — allowance" whenever a code had no budget.
+  const unbudgeted = costCodeId != null && allowance === 0 && (total ?? 0) > 0;
+
   const vendor = vendorId != null ? vendorById.get(vendorId) ?? null : null;
+  const specRows = specs.rows.filter((r) => r.some((c) => c.trim()));
+
+  const budgetHelp = (() => {
+    if (costCodeId == null) return null;
+    if (unbudgeted) {
+      return (
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-gold">
+          <b className="font-semibold">No allowance on this category.</b> {money(total)} here is
+          unbudgeted — move it to a category with an allowance, or get the approval on record before
+          releasing a contract.
+        </p>
+      );
+    }
+    if (allowance === 0) return null;
+    if (overBudget) {
+      return (
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-alert">
+          <b className="font-semibold">{money(Math.abs(remaining!))} over</b> the{" "}
+          {money(allowance)} {perUnitBudgetByCode ? "per-unit tier budget" : "allowance"}. Confirm
+          the approval before releasing a contract.
+        </p>
+      );
+    }
+    return (
+      <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+        <b className="font-semibold text-positive">
+          {remaining === 0 ? "Fully allocated" : `${money(remaining ?? 0)} left`}
+        </b>{" "}
+        of the {money(allowance)} {perUnitBudgetByCode ? "per-unit tier budget" : "allowance"}.
+      </p>
+    );
+  })();
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{item || "New scope item"}</DialogTitle>
-          <DialogDescription>
-            {id == null
-              ? "Give the line a name to create it — changes save as you go."
-              : "Changes save as you go."}
+      <DialogContent className="max-h-[88vh] gap-0 overflow-y-auto p-0 sm:max-w-xl">
+        <DialogHeader className="px-5 pt-5 pb-3">
+          <DialogTitle className="sr-only">{item || "New scope item"}</DialogTitle>
+          {/*
+            The name was the dialog title AND a field below it. One of them had to
+            go, and the title is the one you can put a cursor in.
+          */}
+          <input
+            value={item}
+            autoFocus={id == null}
+            disabled={outForBid}
+            placeholder="Name this line"
+            onChange={(e) => setItem(e.target.value)}
+            onBlur={() => commit({ item })}
+            className="-ml-1.5 w-full rounded-control border border-transparent bg-transparent px-1.5 py-0.5 font-heading text-lg font-semibold text-navy outline-none hover:border-border focus-visible:border-ring disabled:cursor-not-allowed disabled:text-ink-400"
+          />
+          <DialogDescription className="text-[11.5px] text-ink-300">
+            {id == null ? "Give the line a name to create it — changes save as you go." : "Changes save as you go."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-          {/* Left column — narrative, fields, product specs */}
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className={LABEL}>Scope narrative</Label>
-              <Textarea
-                className="min-h-20 text-sm"
-                rows={3}
-                value={materialQuality}
-                placeholder="What the contractor is responsible for on this line."
-                onChange={(e) => setMaterialQuality(e.target.value)}
-                onBlur={() => commit({ materialQuality })}
+        {outForBid && (
+          <div className="mx-5 mb-3 flex gap-2.5 rounded-card border border-gold/35 bg-gold/8 px-3 py-2.5 text-[12px] leading-relaxed text-[#6d5a1f]">
+            <LockIcon className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              <b className="font-semibold">
+                {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this line.
+              </b>{" "}
+              Its price, category, description and specifications are what they were asked to quote,
+              so they are locked until the request{liveRfpCount === 1 ? " is" : "s are"} withdrawn.
+              Dates are still editable.
+            </span>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------------- cost */}
+        <section className="border-t border-hairline px-5 py-4">
+          <h3 className={cn(LABEL, "mb-2.5")}>Cost</h3>
+          <div className="grid grid-cols-[1fr_14px_1fr_14px_minmax(0,132px)] items-end gap-2">
+            <Field label="Units">
+              <Input
+                className="h-9 text-right text-sm tabular-nums"
+                type="number"
+                step="0.01"
+                disabled={outForBid}
+                value={quantity}
+                placeholder="1"
+                onChange={(e) => setQuantity(e.target.value)}
+                onBlur={() => commit({ quantity })}
               />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Item">
-                <Input
-                  className="h-8 text-xs"
-                  value={item}
-                  placeholder="Item name"
-                  onChange={(e) => setItem(e.target.value)}
-                  onBlur={() => commit({ item })}
-                />
-              </Field>
-              <Field label="Budget category">
-                <ComboboxSelect
-                  options={costCodeOptions}
-                  value={costCodeId}
-                  placeholder="Search codes…"
-                  emptyMessage="No matching cost codes"
-                  onValueChange={(next) => {
-                    setCostCodeId(next);
-                    commit({ costCodeId: next });
-                  }}
-                />
-              </Field>
-              <Field label="Start">
-                <Input
-                  className="h-8 text-xs"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  onBlur={() => commit({ startDate })}
-                />
-              </Field>
-              <Field label="Units">
-                <Input
-                  className="h-8 text-right text-xs"
-                  type="number"
-                  step="0.01"
-                  value={quantity}
-                  placeholder="1"
-                  onChange={(e) => setQuantity(e.target.value)}
-                  onBlur={() => commit({ quantity })}
-                />
-              </Field>
-              <Field label="Unit cost">
-                <Input
-                  className="h-8 text-right text-xs"
-                  type="number"
-                  step="0.01"
-                  value={unitPrice}
-                  placeholder="0.00"
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  onBlur={() => commit({ unitPrice })}
-                />
-              </Field>
-              <Field label="End">
-                <Input
-                  className="h-8 text-xs"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  onBlur={() => commit({ endDate })}
-                />
-              </Field>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className={LABEL}>Product specifications</Label>
-              <div className="overflow-hidden rounded-lg border border-border bg-card">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-muted/40">
-                      {specs.cols.map((c) => (
-                        <th key={c} className={cn("px-3 py-2 text-left", LABEL)}>
-                          {c}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {specs.rows.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={specs.cols.length}
-                          className="px-3 py-3 text-center text-xs text-muted-foreground"
-                        >
-                          No specifications yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      specs.rows.map((r, ri) => (
-                        <tr key={ri} className="border-t border-border">
-                          {specs.cols.map((c, ci) => (
-                            <td key={c} className="px-2 py-1.5">
-                              <Input
-                                className="h-7 border-transparent text-xs shadow-none hover:border-input"
-                                value={r[ci] ?? ""}
-                                placeholder={c}
-                                onChange={(e) => setSpecCell(ri, ci, e.target.value)}
-                                onBlur={() => commit({ specs })}
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            </Field>
+            <span className="pb-2.5 text-center text-sm text-ink-200">×</span>
+            <Field label="Unit cost">
+              <Input
+                className="h-9 text-right text-sm tabular-nums"
+                type="number"
+                step="0.01"
+                disabled={outForBid}
+                value={unitPrice}
+                placeholder="0.00"
+                onChange={(e) => setUnitPrice(e.target.value)}
+                onBlur={() => commit({ unitPrice })}
+              />
+            </Field>
+            <span className="pb-2.5 text-center text-sm text-ink-200">=</span>
+            <Field label="Total">
+              <div className="flex h-9 items-center justify-end rounded-control bg-band px-2.5 text-[15px] font-bold text-navy tabular-nums">
+                {total != null ? money(total) : "—"}
               </div>
-              <div className="flex items-center justify-between pt-1">
-                <Button size="sm" variant="ghost" onClick={addSpecRow}>
-                  Add spec row
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-alert hover:text-alert"
-                  disabled={pending}
-                  onClick={handleDelete}
-                >
-                  {id == null ? "Discard" : "Delete scope item"}
-                </Button>
-              </div>
-            </div>
+            </Field>
           </div>
 
-          {/* Right rail — money, budget check, vendor */}
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card">
-              <div className="border-r border-border px-3 py-2.5">
-                <div className={LABEL}>Total cost</div>
-                <div className="mt-1 text-sm font-semibold tabular-nums text-navy">
-                  {total != null ? money(total) : "—"}
-                </div>
-              </div>
-              <div className="px-3 py-2.5">
-                <div className={LABEL}>Reconciled</div>
-                <div className="mt-1 text-sm font-semibold tabular-nums text-navy">
-                  {actual > 0 ? money(actual) : "—"}
+          <div className="mt-3.5">
+            <Field label="Budget category">
+              <ComboboxSelect
+                options={costCodeOptions}
+                value={costCodeId}
+                disabled={outForBid}
+                placeholder="Search categories…"
+                emptyMessage="No matching categories"
+                onValueChange={(next) => {
+                  setCostCodeId(next);
+                  commit({ costCodeId: next });
+                }}
+              />
+            </Field>
+            {budgetHelp}
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------ schedule */}
+        <section className="border-t border-hairline px-5 py-4">
+          <h3 className={cn(LABEL, "mb-2.5")}>Schedule</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start">
+              <Input
+                className="h-9 text-sm"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onBlur={() => commit({ startDate })}
+              />
+            </Field>
+            <Field label="End">
+              <Input
+                className="h-9 text-sm"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                onBlur={() => commit({ endDate })}
+              />
+            </Field>
+          </div>
+        </section>
+
+        {/* -------------------------------------------------------- vendor */}
+        <section className="border-t border-hairline px-5 py-4">
+          <h3 className={cn(LABEL, "mb-2.5")}>Vendor</h3>
+          {vendor ? (
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#c3d3ec] bg-[#dde6f5] text-[11px] font-bold text-[#1b3a6b]">
+                {initials(vendor.name)}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-navy">{vendor.name}</div>
+                <div className="truncate text-[11.5px] text-ink-400">
+                  {vendor.trade ? `${vendor.trade} · ` : ""}from the award covering this line
                 </div>
               </div>
             </div>
+          ) : (
+            <p className="text-[12.5px] text-ink-400">
+              No vendor yet. One is set when a bid covering this line is awarded.
+            </p>
+          )}
+        </section>
 
-            {budget && (
-              <div
-                className={cn(
-                  "rounded-lg border px-3 py-2.5",
-                  overBudget ? "border-alert/30 bg-alert/5" : "border-border bg-card",
-                )}
-              >
-                <div className={cn(LABEL, overBudget && "text-alert")}>Budget check</div>
-                <p
-                  className={cn(
-                    "mt-1.5 text-xs leading-relaxed",
-                    overBudget ? "text-alert" : "text-muted-foreground",
-                  )}
-                >
-                  {overBudget
-                    ? `This line puts the budget code ${money(Math.abs(remaining!))} over its ${money(budget.budget)} allowance. Confirm the approval before releasing a contract.`
-                    : `${money(remaining ?? 0)} left of the ${money(budget.budget)} allowance on this code.`}
-                </p>
-              </div>
-            )}
+        {/* --------------------------------------------------- description */}
+        <section className="border-t border-hairline px-5 py-4">
+          <h3 className={cn(LABEL, "mb-2.5")}>Description</h3>
+          <Textarea
+            className="min-h-[70px] text-sm"
+            rows={3}
+            disabled={outForBid}
+            value={materialQuality}
+            placeholder="What the contractor is responsible for on this line."
+            onChange={(e) => setMaterialQuality(e.target.value)}
+            onBlur={() => commit({ materialQuality })}
+          />
+        </section>
 
-            {vendor ? (
-              <div className="space-y-3 rounded-lg border border-border bg-card p-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[#c3d3ec] bg-[#dde6f5] text-xs font-bold text-[#1b3a6b]">
-                    {initials(vendor.name)}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-navy">{vendor.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{vendor.trade ?? "Vendor"}</div>
+        {/* --------------------------------------------------------- specs */}
+        <section className="border-t border-hairline px-5 py-4">
+          <h3 className={cn(LABEL, "mb-2.5")}>Specifications</h3>
+          {specRows.length === 0 && !outForBid ? (
+            // Empty specs used to cost an entire bordered table saying "No
+            // specifications yet."
+            <Button size="sm" variant="outline" onClick={addSpecRow}>
+              Add a specification
+            </Button>
+          ) : specRows.length === 0 ? (
+            <p className="text-[12.5px] text-ink-300">None specified.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[1fr_1.3fr_1fr] gap-2">
+                {specs.cols.map((c) => (
+                  <div key={c} className={LABEL}>
+                    {c}
                   </div>
-                </div>
-                <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-                  Set by the award covering this line. To change it, award a different bid from the
-                  project&rsquo;s Workflow panel.
-                </p>
+                ))}
+                {specs.rows.map((r, ri) =>
+                  specs.cols.map((c, ci) => (
+                    <Input
+                      key={`${ri}-${c}`}
+                      className="h-8 text-xs"
+                      disabled={outForBid}
+                      value={r[ci] ?? ""}
+                      placeholder={c}
+                      onChange={(e) => setSpecCell(ri, ci, e.target.value)}
+                      onBlur={() => commit({ specs })}
+                    />
+                  )),
+                )}
               </div>
-            ) : (
-              <div className="space-y-2.5 rounded-lg border border-dashed border-border bg-card p-3">
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  No vendor yet. One is set when a bid covering this line is awarded.
-                </p>
-              </div>
-            )}
-          </div>
+              {!outForBid && (
+                <Button size="sm" variant="ghost" className="mt-2 -ml-2" onClick={addSpecRow}>
+                  Add another
+                </Button>
+              )}
+            </>
+          )}
+        </section>
+
+        <div className="flex items-center gap-3 border-t border-border bg-muted/60 px-5 py-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="-ml-2 text-alert hover:text-alert"
+            disabled={pending || outForBid}
+            title={outForBid ? "Vendors are pricing this scope — withdraw the requests first" : undefined}
+            onClick={handleDelete}
+          >
+            {id == null ? "Discard" : "Delete scope item"}
+          </Button>
+          <Button size="sm" className="ml-auto" onClick={onClose}>
+            Done
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
