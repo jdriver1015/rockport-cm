@@ -116,7 +116,7 @@ export function ProjectScopeList({
   tierName: string | null;
 }) {
   const costCodeOptions = useMemo(
-    () => costCodes.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` })),
+    () => costCodes.map((c) => ({ value: c.id, label: c.name })),
     [costCodes],
   );
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
@@ -376,8 +376,7 @@ function ScopeLineRow({
           <div className="truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300">
             {code ? (
               <>
-                <span className="font-plex-mono">{code.code}</span>
-                <span className="text-ink-400"> · {code.name} · </span>
+                <span className="text-ink-400">Budget category: {code.name} · </span>
                 {allowance > 0 ? (
                   <span>
                     {money(allowance)} {perUnit ? "per unit" : "allowance"}
@@ -392,7 +391,7 @@ function ScopeLineRow({
                 {sharing > 1 && <span className="text-ink-300"> · {sharing} lines on this code</span>}
               </>
             ) : (
-              <span className="font-bold text-alert">NOT CODED TO A BUDGET LINE</span>
+              <span className="font-bold text-alert">NO BUDGET CATEGORY</span>
             )}
           </div>
 
@@ -827,7 +826,7 @@ function ScopeEditorDialog({
                   onBlur={() => commit({ item })}
                 />
               </Field>
-              <Field label="Budget line">
+              <Field label="Budget category">
                 <ComboboxSelect
                   options={costCodeOptions}
                   value={costCodeId}

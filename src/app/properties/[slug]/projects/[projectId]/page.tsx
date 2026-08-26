@@ -80,7 +80,7 @@ export default async function ProjectDetailPage({
 
   const data = row[0];
   if (!data || data.project.propertyId !== propertyId) notFound();
-  const { project, costCode, unit } = data;
+  const { project, unit } = data;
 
   // Canonicalize: legacy bare-id links and stale name suffixes (after a
   // rename) both redirect to the current id-prefixed slug.
@@ -391,10 +391,6 @@ export default async function ProjectDetailPage({
     ? (milestones.find((m) => m.phase === upcoming.key) ?? null)
     : null;
 
-  // Drives the "Over budget" pill beside the title. The cost bar owns the rest
-  // of the money story now, including the amount and the share of approved.
-  const isOverBudget = budgetAmt > 0 && spentAmt > budgetAmt;
-
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
 
   // Gate checks for leaving the phase the project is in. Every input is state
@@ -453,27 +449,25 @@ export default async function ProjectDetailPage({
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="text-[10.5px] font-bold uppercase tracking-[0.09em]">
-                  {project.kind === "unit" ? "Unit" : "Common"}
-                </Badge>
-                {tierName && <TierBadge label={tierName} index={tierIndex} />}
-                {isOverBudget && (
-                  <Badge className="bg-alert/10 text-alert">Over budget</Badge>
-                )}
-                {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
-              </div>
+              {(tierName || project.archivedAt) && (
+                // The Unit/Common badge is gone: the breadcrumb above and the unit
+                // number below already say which you are in, and it was the first
+                // thing on a page whose subject is the project.
+                <div className="flex flex-wrap items-center gap-2">
+                  {tierName && <TierBadge label={tierName} index={tierIndex} />}
+                  {project.archivedAt && <Badge variant="secondary">Archived</Badge>}
+                </div>
+              )}
               <h1 className="font-serif text-2xl font-semibold text-navy">{project.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                {costCode ? (
-                  <>UW line item: {costCode.name}</>
-                ) : project.kind === "unit" ? (
-                  "Interior unit turn — spend across all interior codes"
-                ) : (
-                  <span className="text-alert">Not coded to a UW line item yet</span>
-                )}
-                {unit ? ` · Unit ${unit.unitNumber}` : ""}
-              </p>
+              {/*
+                The UW line item used to sit here. A project does not have one —
+                its scope lines do, and this project's four lines span four
+                different categories. Naming one of them at the top of the page
+                described the project as something it is not.
+              */}
+              {unit && (
+                <p className="text-sm text-muted-foreground">Unit {unit.unitNumber}</p>
+              )}
             </div>
             <ProjectManageMenu
               propertyId={propertyId}

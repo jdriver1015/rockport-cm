@@ -40,7 +40,7 @@ export default async function BudgetPage({
   // Wave 1: all independent queries in parallel. rentRollBatches, availableTiers,
   // and floorplan facts were previously sequential — pulling them in here saves
   // multiple network round-trips against the pooled Supabase connection.
-  const [categories, codes, lines, unattributedGlRows, projectRows, jtdRows, rentRollBatchRows, availableTiers, facts] =
+  const [categories, codes, lines, unattributedGlRows, projectRows, scopeRows, committedRows, jtdRows, rentRollBatchRows, availableTiers, facts] =
     await Promise.all([
       db()
         .select()
@@ -92,16 +92,59 @@ export default async function BudgetPage({
         // already filters them, and this page previously didn't.
         .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.projects.archivedAt)))
         .orderBy(asc(schema.projects.name)),
+      // What each project's scope puts against each category. A project is not
+      // one budget line — its scope lines are, and they can span several.
+      db()
+        .select({
+          projectId: schema.scopeItems.projectId,
+          costCodeId: schema.scopeItems.costCodeId,
+          quantity: schema.scopeItems.quantity,
+          unitPrice: schema.scopeItems.unitPrice,
+        })
+        .from(schema.scopeItems)
+        .innerJoin(schema.projects, eq(schema.projects.id, schema.scopeItems.projectId))
+        .where(
+          and(
+            eq(schema.projects.propertyId, propertyId),
+            isNull(schema.projects.archivedAt),
+            isNull(schema.scopeItems.archivedAt),
+          ),
+        ),
+      // Committed, per category: an awarded bid's line items resolved through the
+      // scope line they price.
+      db()
+        .select({
+          projectId: schema.scopeItems.projectId,
+          costCodeId: schema.scopeItems.costCodeId,
+          amount: schema.bidLineItems.amount,
+        })
+        .from(schema.bidLineItems)
+        .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
+        .innerJoin(schema.scopeItems, eq(schema.scopeItems.id, schema.bidLineItems.scopeItemId))
+        .innerJoin(schema.projects, eq(schema.projects.id, schema.scopeItems.projectId))
+        .where(
+          and(
+            eq(schema.projects.propertyId, propertyId),
+            eq(schema.bids.approved, true),
+            isNull(schema.bids.archivedAt),
+            isNull(schema.projects.archivedAt),
+            isNull(schema.scopeItems.archivedAt),
+          ),
+        ),
+      // Posted spend per project AND code. gl_transactions carries both, so a
+      // project spanning several categories reports its real split rather than
+      // a single total that has to be filed somewhere.
       db()
         .select({
           projectId: schema.glTransactions.projectId,
+          costCodeId: schema.glTransactions.costCodeId,
           total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
         })
         .from(schema.glTransactions)
         .where(
           sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
         )
-        .groupBy(schema.glTransactions.projectId),
+        .groupBy(schema.glTransactions.projectId, schema.glTransactions.costCodeId),
       db()
         .select({ status: schema.rentRollBatches.status })
         .from(schema.rentRollBatches)
@@ -125,7 +168,49 @@ export default async function BudgetPage({
       loadFloorplanFacts(propertyId),
     ]);
 
-  const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+  // Everything below keys on project AND code, because a project contributes to
+  // as many categories as its scope touches.
+  const key = (projectId: number, codeId: number) => `${projectId}:${codeId}`;
+
+  const budgetByProjectCode = new Map<string, number>();
+  const codesByProject = new Map<number, Set<number>>();
+  // A project whose scope is not fully priced cannot have its budget read off
+  // that scope: it would report only the part somebody has written down. One
+  // project here has $500,000 approved against $75,000 of scope, and letting
+  // the scope decide erased the other $425,000 from the property's budget.
+  const unpricedByProject = new Map<number, number>();
+  for (const r of scopeRows) {
+    if (r.projectId == null) continue;
+    if (!r.quantity || !r.unitPrice || r.costCodeId == null) {
+      unpricedByProject.set(r.projectId, (unpricedByProject.get(r.projectId) ?? 0) + 1);
+      continue;
+    }
+    const k = key(r.projectId, r.costCodeId);
+    budgetByProjectCode.set(k, (budgetByProjectCode.get(k) ?? 0) + Number(r.quantity) * Number(r.unitPrice));
+    const set = codesByProject.get(r.projectId) ?? new Set<number>();
+    set.add(r.costCodeId);
+    codesByProject.set(r.projectId, set);
+  }
+
+  const committedByProjectCode = new Map<string, number>();
+  for (const r of committedRows) {
+    if (r.projectId == null || r.costCodeId == null) continue;
+    const k = key(r.projectId, r.costCodeId);
+    committedByProjectCode.set(k, (committedByProjectCode.get(k) ?? 0) + num(r.amount));
+    const set = codesByProject.get(r.projectId) ?? new Set<number>();
+    set.add(r.costCodeId);
+    codesByProject.set(r.projectId, set);
+  }
+
+  const jtdByProjectCode = new Map<string, number>();
+  for (const r of jtdRows) {
+    if (r.projectId == null || r.costCodeId == null) continue;
+    const k = key(r.projectId, r.costCodeId);
+    jtdByProjectCode.set(k, (jtdByProjectCode.get(k) ?? 0) + num(r.total));
+    const set = codesByProject.get(r.projectId) ?? new Set<number>();
+    set.add(r.costCodeId);
+    codesByProject.set(r.projectId, set);
+  }
 
   // Bucket each cost code's dollars into Planned / In Process / Completed —
   // a project's committed cost or actual spend lands in exactly one bucket,
@@ -140,29 +225,61 @@ export default async function BudgetPage({
 
   const projectsByCode = new Map<number, BudgetCategory["lines"][number]["projects"]>();
   for (const p of projectRows) {
-    if (p.costCodeId == null) continue;
-    const completedAmount = jtdByProject.get(p.id) ?? 0;
-    const committedAmount = num(p.committedCost);
-    const list = projectsByCode.get(p.costCodeId) ?? [];
-    list.push({
-      id: p.id,
-      name: p.name,
-      phase: p.phase,
-      budget: num(p.budgetAmount),
-      committed: committedAmount,
-      completed: completedAmount,
-    });
-    projectsByCode.set(p.costCodeId, list);
+    // Which categories this project touches. Its scope decides — falling back to
+    // projects.cost_code_id only for a project with no scope at all, so a common
+    // job coded but not yet written out still shows somewhere.
+    // Scope decides only once every line is priced. Until then the approved
+    // figure is the better answer, and it files where it always did.
+    const fullyPriced = (unpricedByProject.get(p.id) ?? 0) === 0;
+    const touched = fullyPriced ? codesByProject.get(p.id) : undefined;
+    const codeIds =
+      touched && touched.size > 0
+        ? [...touched]
+        : p.costCodeId != null
+          ? [p.costCodeId]
+          : [];
 
-    // Never hide real spend: a project can have posted GL before its contract
-    // amount was ever recorded (or before it's formally marked complete), so
-    // Planned/In Process show whichever is larger — the committed figure or
-    // what's actually been spent so far.
-    const bucket = bucketForPhase(p.phase);
-    if (bucket === "planned") addToBucket(p.costCodeId, "planned", Math.max(committedAmount, completedAmount));
-    else if (bucket === "in_process")
-      addToBucket(p.costCodeId, "inProcess", Math.max(committedAmount, completedAmount));
-    else addToBucket(p.costCodeId, "completed", completedAmount);
+    // Sixteen unit turns had a null project code and were skipped entirely by
+    // the old `continue` — their budgets contributed to no category at all.
+    if (codeIds.length === 0) continue;
+
+    const usingFallback = !touched || touched.size === 0;
+
+    for (const codeId of codeIds) {
+      const k = key(p.id, codeId);
+      const completedAmount = usingFallback ? 0 : (jtdByProjectCode.get(k) ?? 0);
+      // Prefer what an award actually committed against this category; fall back
+      // to the project-level figure only when nothing is awarded per line.
+      const perCode = committedByProjectCode.get(k);
+      const committedAmount =
+        perCode != null ? perCode : usingFallback ? num(p.committedCost) : 0;
+      const budgetAmount = usingFallback
+        ? num(p.budgetAmount)
+        : (budgetByProjectCode.get(k) ?? 0);
+
+      if (budgetAmount === 0 && committedAmount === 0 && completedAmount === 0) continue;
+
+      const list = projectsByCode.get(codeId) ?? [];
+      list.push({
+        id: p.id,
+        name: p.name,
+        phase: p.phase,
+        budget: budgetAmount,
+        committed: committedAmount,
+        completed: completedAmount,
+      });
+      projectsByCode.set(codeId, list);
+
+      // Never hide real spend: a project can have posted GL before its contract
+      // amount was ever recorded (or before it's formally marked complete), so
+      // Planned/In Process show whichever is larger — the committed figure or
+      // what's actually been spent so far.
+      const bucket = bucketForPhase(p.phase);
+      if (bucket === "planned") addToBucket(codeId, "planned", Math.max(committedAmount, completedAmount));
+      else if (bucket === "in_process")
+        addToBucket(codeId, "inProcess", Math.max(committedAmount, completedAmount));
+      else addToBucket(codeId, "completed", completedAmount);
+    }
   }
   for (const r of unattributedGlRows) {
     if (r.costCodeId == null) continue;
