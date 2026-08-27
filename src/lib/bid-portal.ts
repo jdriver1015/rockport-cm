@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { recordBidEvent } from "@/lib/bid-events";
 
 // ---------------------------------------------------------------------------
 // The vendor portal's data layer.
@@ -137,6 +138,9 @@ export async function submitPortalBid(
   if (valid.length === 0) return { ok: false, error: "Nothing to submit." };
 
   const total = valid.reduce((n, a) => n + a.amount, 0);
+  // Priced then submitted, recorded as two things: a vendor who put numbers in
+  // and a vendor who sent them are different states to chase.
+  const pricedCount = valid.filter((a) => a.amount > 0).length;
 
   await db().transaction(async (tx) => {
     for (const a of valid) {
@@ -160,6 +164,12 @@ export async function submitPortalBid(
         ...(note ? { note } : {}),
       })
       .where(eq(schema.bids.id, found.bid.bidId));
+  });
+
+  await recordBidEvent(found.bid.bidId, "submitted", {
+    total,
+    lines: valid.length,
+    priced: pricedCount,
   });
 
   return { ok: true, total };
@@ -192,6 +202,7 @@ export async function issueBidToken(
 
 /** Kill a bid's link without issuing a new one. */
 export async function revokeBidToken(bidId: number): Promise<{ revoked: number }> {
+  await recordBidEvent(bidId, "revoked");
   const rows = await db()
     .update(schema.bidAccessTokens)
     .set({ revokedAt: new Date() })

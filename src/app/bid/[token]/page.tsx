@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { BidPortalForm } from "@/components/bid-portal-form";
 import { lookupPortalBid } from "@/lib/bid-portal";
+import { recordBidEvent } from "@/lib/bid-events";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,12 @@ export default async function BidPortalPage({
   }
 
   const bid = found.bid;
+
+  // A vendor actually opening the portal is far better evidence than a tracking
+  // pixel: images get blocked and proxies prefetch, but nobody lands here by
+  // accident. Recorded on render rather than on submit so a vendor who looks and
+  // walks away still shows as having looked.
+  await recordBidEvent(bid.bidId, "link_opened");
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">

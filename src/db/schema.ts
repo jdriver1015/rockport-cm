@@ -60,6 +60,23 @@ export const projectPhase = pgEnum("project_phase", [
 
 export const projectKind = pgEnum("project_kind", ["unit", "common"]);
 
+/**
+ * What happened to a bid request, in order.
+ *
+ * Sending one has always been a black hole: the row said "sent" and nothing
+ * afterwards said whether anybody opened it, looked at the scope, or started
+ * pricing. Chasing a vendor is the single most common thing somebody does with
+ * this screen, and it was being done blind.
+ */
+export const bidEventKind = pgEnum("bid_event_kind", [
+  "invited",
+  "email_opened",
+  "link_opened",
+  "priced",
+  "submitted",
+  "revoked",
+]);
+
 /** GL transaction state within the intake pipeline */
 export const txnStatus = pgEnum("txn_status", [
   "staged",
@@ -606,6 +623,8 @@ export const bids = pgTable("bids", {
   /** Why competition was skipped. Required on a direct award, null otherwise. */
   awardReason: text("award_reason"),
   sentAt: timestamp("sent_at", { withTimezone: true }),
+  /** When the vendor was asked to respond by. The first question they ask. */
+  dueDate: date("due_date"),
   note: text("note"),
   /** Soft-delete: hidden from the bids list but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -629,6 +648,26 @@ export const bidLineItems = pgTable("bid_line_items", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
 }, (t) => [index("bid_line_items_bid_idx").on(t.bidId)]);
+
+/**
+ * The trail of a bid request: invited, opened, looked at, priced, submitted.
+ *
+ * Append-only. Nothing here is authoritative about the bid itself — the amounts
+ * live on bid_line_items and the status on bids — this is only the record of
+ * what the other side did and when, so "have they even seen it" has an answer.
+ *
+ * `meta` is deliberately small: a recipient address we already store on the
+ * contact, or a count of lines changed. Not request bodies, not IP addresses.
+ */
+export const bidEvents = pgTable("bid_events", {
+  id: serial("id").primaryKey(),
+  bidId: integer("bid_id")
+    .notNull()
+    .references(() => bids.id, { onDelete: "cascade" }),
+  kind: bidEventKind("kind").notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  meta: jsonb("meta").$type<Record<string, string | number> | null>(),
+}, (t) => [index("bid_events_bid_idx").on(t.bidId, t.at)]);
 
 export const punchItems = pgTable("punch_items", {
   id: serial("id").primaryKey(),
