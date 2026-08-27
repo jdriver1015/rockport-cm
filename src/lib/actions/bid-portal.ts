@@ -7,7 +7,12 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { createClient } from "@/lib/supabase/server";
 import { propertyPath } from "@/lib/property-path";
-import { issueBidToken, revokeBidToken, submitPortalBid } from "@/lib/bid-portal";
+import {
+  issueBidToken,
+  revokeBidToken,
+  saveDraftPrices,
+  submitPortalBid,
+} from "@/lib/bid-portal";
 
 // ---------------------------------------------------------------------------
 // Two audiences in one file, which is worth being explicit about.
@@ -119,4 +124,25 @@ export async function revokeLink(input: z.input<typeof linkSchema>): Promise<Act
   await revokeBidToken(parsed.data.bidId);
   await revalidateProject(parsed.data.projectId);
   return { ok: true };
+}
+
+const draftSchema = z.object({
+  token: z.string().min(10),
+  amounts: z.array(z.object({ lineId: z.coerce.number().int().positive(), amount: z.coerce.number() })),
+});
+
+/**
+ * Save a vendor's working prices.
+ *
+ * No revalidatePath: the vendor is mid-typing, and re-rendering the page under
+ * them would move the cursor. Our side sees it on its next load.
+ */
+export async function saveBidDraft(
+  input: z.input<typeof draftSchema>,
+): Promise<ActionResult<{ saved: number }>> {
+  const parsed = draftSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+  const res = await saveDraftPrices(parsed.data.token, parsed.data.amounts);
+  if (!res.ok) return res;
+  return { ok: true, saved: res.saved };
 }

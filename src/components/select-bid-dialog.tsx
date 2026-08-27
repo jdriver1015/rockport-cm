@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
 import { issueLink, revokeLink } from "@/lib/actions/bid-portal";
 import type { BidPackageOption } from "@/lib/bid-package";
+import type { BidProgress } from "@/lib/bid-events";
 import { BidInviteWizard } from "@/components/bid-invite-wizard";
 import { setBidWinner } from "@/lib/actions/bids";
 
@@ -311,6 +312,7 @@ function BidMatrix({
                         ? `back ${fmtDate(b.receivedDate)}`
                         : b.status}
                   </span>
+                  <VendorTrail progress={b.progress} submitted={!!b.receivedDate} />
                 </th>
               ))}
             </tr>
@@ -452,4 +454,49 @@ function BidMatrix({
       </p>
     </div>
   );
+}
+
+
+/**
+ * How far one vendor has got, in a line.
+ *
+ * The question this screen is really asked is "who do I chase", and a status of
+ * "sent" answered it with silence. A vendor who has not opened the email and one
+ * who is halfway through pricing both read as "sent", and they need opposite
+ * treatment.
+ */
+function VendorTrail({ progress, submitted }: { progress: BidProgress; submitted: boolean }) {
+  // Once a bid is in, the trail that led to it is history — the number is the
+  // point, not how long they took to reach it.
+  if (submitted) return null;
+
+  const parts: string[] = [];
+
+  if (progress.startedPricing) parts.push("started pricing");
+  else if (progress.lastSeenAt) parts.push(progress.opens > 1 ? `opened ${progress.opens}×` : "opened");
+  else if (progress.invitedAt) parts.push("not opened");
+
+  if (progress.lastSeenAt) parts.push(ago(progress.lastSeenAt));
+
+  if (parts.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "mt-1 text-[10px] leading-tight",
+        progress.startedPricing ? "text-positive" : progress.lastSeenAt ? "text-ink-400" : "text-gold",
+      )}
+    >
+      {parts.join(" · ")}
+    </div>
+  );
+}
+
+/** Rough, and rough is what "have they looked at it" needs. */
+function ago(at: Date): string {
+  const mins = Math.max(0, Math.round((Date.now() - at.getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }

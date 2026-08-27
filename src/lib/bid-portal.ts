@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { recordBidEvent } from "@/lib/bid-events";
 
@@ -112,6 +112,60 @@ export type SubmitResult =
  * from anywhere else is ignored rather than erroring, since a stale form is not
  * the vendor's fault.
  */
+export type DraftResult = { ok: true; saved: number } | { ok: false; error: string };
+
+/**
+ * Save what a vendor has typed without submitting it.
+ *
+ * A bid used to be all or nothing: type every price and press submit, or lose
+ * the lot. A contractor pricing fifteen lines between site visits needs to come
+ * back to it, and on our side "they have started" is the difference between
+ * chasing somebody and leaving them alone.
+ *
+ * The bid stays at its current status — draft saving is not answering, so it
+ * must not look like one on the comparison.
+ */
+export async function saveDraftPrices(
+  token: string,
+  amounts: { lineId: number; amount: number }[],
+): Promise<DraftResult> {
+  const found = await lookupPortalBid(token);
+  if (!found.ok) return { ok: false, error: "This link is no longer valid." };
+  // A submitted bid is a statement, not a working copy.
+  if (found.bid.submitted) return { ok: false, error: "This bid has already been submitted." };
+
+  const mine = new Set(found.bid.lines.map((l) => l.id));
+  const valid = amounts.filter((a) => mine.has(a.lineId) && Number.isFinite(a.amount) && a.amount >= 0);
+  if (valid.length === 0) return { ok: true, saved: 0 };
+
+  await db().transaction(async (tx) => {
+    for (const a of valid) {
+      await tx
+        .update(schema.bidLineItems)
+        .set({ amount: a.amount.toFixed(2) })
+        .where(
+          and(eq(schema.bidLineItems.id, a.lineId), eq(schema.bidLineItems.bidId, found.bid.bidId)),
+        );
+    }
+  });
+
+  // De-duplicated the same way opens are: a keystroke is not a decision, and one
+  // "priced" per hour is enough to answer "have they started".
+  const [last] = await db()
+    .select({ at: schema.bidEvents.at })
+    .from(schema.bidEvents)
+    .where(and(eq(schema.bidEvents.bidId, found.bid.bidId), eq(schema.bidEvents.kind, "priced")))
+    .orderBy(desc(schema.bidEvents.at))
+    .limit(1);
+  if (!last || Date.now() - last.at.getTime() > 60 * 60 * 1000) {
+    await recordBidEvent(found.bid.bidId, "priced", {
+      lines: valid.filter((a) => a.amount > 0).length,
+    });
+  }
+
+  return { ok: true, saved: valid.length };
+}
+
 export async function submitPortalBid(
   token: string,
   amounts: { lineId: number; amount: number }[],

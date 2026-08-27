@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { submitBidPrices } from "@/lib/actions/bid-portal";
+import { saveBidDraft, submitBidPrices } from "@/lib/actions/bid-portal";
 import type { PortalBid } from "@/lib/bid-portal";
 
 const usd = (n: number) =>
@@ -26,8 +26,51 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
   );
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const parsed = bid.lines.map((l) => ({ id: l.id, value: Number(amounts[l.id] ?? "") }));
+
+  /**
+   * Keep what has been typed, without submitting it.
+   *
+   * A bid used to be all or nothing: fill in fifteen lines in one sitting or
+   * lose them. A contractor pricing between site visits needs to come back to
+   * it. Debounced rather than saved per keystroke, and it never submits — a
+   * draft must not look like an answer on our side.
+   */
+  const saveDraft = useCallback(
+    (next: Record<number, string>) => {
+      if (bid.submitted) return;
+      const payload = bid.lines
+        .map((l) => ({ lineId: l.id, amount: Number(next[l.id] ?? "") }))
+        .filter((a) => Number.isFinite(a.amount) && a.amount >= 0);
+      if (payload.length === 0) return;
+
+      setSaving(true);
+      void saveBidDraft({ token, amounts: payload })
+        .then((res) => {
+          if (res.ok) setSavedAt(new Date());
+        })
+        .finally(() => setSaving(false));
+    },
+    [bid.lines, bid.submitted, token],
+  );
+
+  // One timer for the whole form, reset on every change, so a vendor tabbing
+  // down fifteen boxes writes once rather than fifteen times.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  function setAmount(lineId: number, value: string) {
+    const next = { ...amounts, [lineId]: value };
+    setAmounts(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => saveDraft(next), 1200);
+  }
+
   const filled = parsed.filter((p) => Number.isFinite(p.value) && p.value > 0);
   const invalid = parsed.some((p) => amounts[p.id] !== "" && (!Number.isFinite(p.value) || p.value < 0));
   const total = filled.reduce((n, p) => n + p.value, 0);
@@ -100,7 +143,7 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
                 className="h-9 w-28 text-right tabular-nums"
                 value={amounts[l.id] ?? ""}
                 disabled={pending}
-                onChange={(e) => setAmounts((a) => ({ ...a, [l.id]: e.target.value }))}
+                onChange={(e) => setAmount(l.id, e.target.value)}
               />
             </div>
           </div>
@@ -136,6 +179,15 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
           )}
         </div>
         <div className="flex items-center gap-3">
+          {/* Says the work is safe without making a fuss of it. A vendor who
+              closes the tab mid-price should already know it was kept. */}
+          <span className="text-[11.5px] text-ink-300">
+            {saving
+              ? "Saving…"
+              : savedAt
+                ? `Saved ${savedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                : "Your prices are saved as you type"}
+          </span>
           <span className="text-[17px] font-semibold tabular-nums text-navy">{usd(total)}</span>
           {confirming ? (
             <>

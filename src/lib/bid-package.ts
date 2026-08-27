@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { scopeLineTotal } from "@/lib/scope-total";
+import { readBidEvents, summarise, type BidProgress } from "@/lib/bid-events";
 
 // ---------------------------------------------------------------------------
 // Sending a scope out for pricing.
@@ -51,6 +52,8 @@ export type BidPackageOption = {
     /** The live portal link for this bid, if one has been issued. */
     token: string | null;
     tokenExpiresAt: Date | null;
+    /** How far this vendor has got — see src/lib/bid-events.ts. */
+    progress: BidProgress;
   }[];
   /**
    * What each vendor put against each scope line.
@@ -165,6 +168,11 @@ export async function readBidPackage(
 
   const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
 
+  // What each vendor has actually done. Read after the bids because it needs
+  // their ids, and it is the difference between chasing somebody who has not
+  // looked and leaving alone somebody who is halfway through pricing.
+  const eventsByBid = await readBidEvents(bids.map((b) => b.id));
+
   void propertyId;
   return {
     scopeItems: scopeItems.map((s) => ({
@@ -178,6 +186,7 @@ export async function readBidPackage(
       ...b,
       token: tokenByBid.get(b.id)?.token ?? null,
       tokenExpiresAt: tokenByBid.get(b.id)?.expiresAt ?? null,
+      progress: summarise(eventsByBid.get(b.id) ?? []),
     })),
     lineAmounts: lineRows
       .filter((r): r is typeof r & { scopeItemId: number } => r.scopeItemId != null)
