@@ -28,7 +28,15 @@ export type BidPackageOption = {
     /** What the scope itself says this line should cost, for comparison. */
     budgeted: number | null;
   }[];
-  vendors: { id: number; name: string; trade: string | null; contactCount: number }[];
+  vendors: {
+    id: number;
+    name: string;
+    trade: string | null;
+    contactCount: number;
+    /** Where an invitation would go. Null means nobody can be written to. */
+    contactEmail: string | null;
+    contactName: string | null;
+  }[];
   bids: {
     id: number;
     bidNumber: number;
@@ -79,6 +87,11 @@ export async function readBidPackage(
         name: schema.vendors.name,
         trade: schema.vendors.trade,
         contactCount: sql<number>`count(${schema.vendorContacts.id})::int`,
+        // The address an invitation would actually use: the first active contact
+        // with one. Shown on the vendor step so a vendor nobody can write to is
+        // visibly un-sendable rather than quietly selectable.
+        contactEmail: sql<string | null>`min(${schema.vendorContacts.email})`,
+        contactName: sql<string | null>`min(${schema.vendorContacts.name})`,
       })
       .from(schema.vendors)
       .leftJoin(
@@ -177,7 +190,13 @@ export async function readBidPackage(
 }
 
 export type SendResult =
-  | { ok: true; sent: number; skipped: { vendorId: number; reason: string }[] }
+  | {
+      ok: true;
+      sent: number;
+      skipped: { vendorId: number; reason: string }[];
+      /** The rows just created, so the caller can mint a link and mail each one. */
+      created: { bidId: number; vendorId: number }[];
+    }
   | { ok: false; error: string };
 
 /**
@@ -197,6 +216,8 @@ export async function sendBidPackageRows(
   projectId: number,
   vendorIds: number[],
   scopeItemIds: number[],
+  /** When the vendor is asked to respond. Recorded on each bid. */
+  dueDate?: string | null,
 ): Promise<SendResult> {
   if (vendorIds.length === 0) return { ok: false, error: "Pick at least one vendor" };
   if (scopeItemIds.length === 0) return { ok: false, error: "Pick at least one scope item" };
@@ -252,12 +273,14 @@ export async function sendBidPackageRows(
     .filter((v) => alreadyOut.has(v.id))
     .map((v) => ({ vendorId: v.id, reason: "already has a live request" }));
   const targets = vendors.filter((v) => !alreadyOut.has(v.id));
-  if (targets.length === 0) return { ok: true, sent: 0, skipped };
+  if (targets.length === 0) return { ok: true, sent: 0, skipped, created: [] };
 
   const [{ maxNumber }] = await db()
     .select({ maxNumber: sql<number>`coalesce(max(${schema.bids.bidNumber}), 0)::int` })
     .from(schema.bids)
     .where(eq(schema.bids.projectId, projectId));
+
+  const created: { bidId: number; vendorId: number }[] = [];
 
   // One transaction: a half-sent package would leave a vendor holding a request
   // with no lines to price.
@@ -271,8 +294,10 @@ export async function sendBidPackageRows(
           bidNumber: maxNumber + 1 + i,
           status: "sent",
           sentAt: new Date(),
+          dueDate: dueDate ?? null,
         })
         .returning({ id: schema.bids.id });
+      created.push({ bidId: bid.id, vendorId: vendor.id });
 
       await tx.insert(schema.bidLineItems).values(
         items.map((it, n) => ({
@@ -286,5 +311,5 @@ export async function sendBidPackageRows(
     }
   });
 
-  return { ok: true, sent: targets.length, skipped };
+  return { ok: true, sent: targets.length, skipped, created };
 }

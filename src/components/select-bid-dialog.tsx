@@ -11,14 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
-import { sendBidPackage } from "@/lib/actions/bid-package";
-import { createVendor } from "@/lib/actions/vendors";
 import { issueLink, revokeLink } from "@/lib/actions/bid-portal";
 import type { BidPackageOption } from "@/lib/bid-package";
+import { BidInviteWizard } from "@/components/bid-invite-wizard";
 import { setBidWinner } from "@/lib/actions/bids";
 
 /**
@@ -145,18 +142,10 @@ export function SelectBidDialog({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [addingVendor, setAddingVendor] = useState(false);
-
-  // All scope items by default — sending a partial package is the exception.
-  const [items, setItems] = useState<Set<number>>(
-    () => new Set(data.scopeItems.map((s) => s.id)),
-  );
-  const [vendors, setVendors] = useState<Set<number>>(new Set());
-
-  const outAlready = new Set(
-    data.bids.filter((b) => LIVE.has(b.status)).map((b) => b.vendorId).filter((v): v is number => v != null),
-  );
-  const sendable = data.vendors.filter((v) => !outAlready.has(v.id));
+  // Two modes rather than two dialogs: sending and reviewing are the same
+  // question a week apart, and splitting them would mean guessing which one
+  // somebody wanted when they opened the gate.
+  const [mode, setMode] = useState<"compare" | "invite">("compare");
 
   function award(bidId: number, vendorName: string) {
     startTransition(async () => {
@@ -172,44 +161,6 @@ export function SelectBidDialog({
     });
   }
 
-  function send() {
-    startTransition(async () => {
-      const res = await sendBidPackage({
-        projectId,
-        vendorIds: [...vendors],
-        scopeItemIds: [...items],
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(
-        res.skipped > 0
-          ? `Sent to ${res.sent} — ${res.skipped} already had a live request`
-          : `Sent to ${res.sent} vendor${res.sent === 1 ? "" : "s"}`,
-      );
-      setVendors(new Set());
-      router.refresh();
-    });
-  }
-
-  function addVendor(form: HTMLFormElement) {
-    const fd = new FormData(form);
-    startTransition(async () => {
-      const res = await createVendor(fd);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      // Pre-select the vendor just added — you added it in order to send to it.
-      setVendors((v) => new Set(v).add(res.vendorId));
-      setAddingVendor(false);
-      form.reset();
-      toast.success("Vendor added");
-      router.refresh();
-    });
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
@@ -221,7 +172,21 @@ export function SelectBidDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {mode === "invite" ? (
+          <BidInviteWizard
+            propertyId={propertyId}
+            projectId={projectId}
+            data={data}
+            onClose={() => setMode("compare")}
+          />
+        ) : (
         <div className="max-h-[70vh] space-y-5 overflow-y-auto">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setMode("invite")}>
+              {data.bids.length > 0 ? "Invite more vendors" : "Send for pricing"}
+            </Button>
+          </div>
+
           {/* ---------- what has come back ---------- */}
           <BidMatrix data={data} pending={pending} onAward={award} />
 
@@ -245,182 +210,8 @@ export function SelectBidDialog({
               </div>
             </div>
           )}
-
-          {/* ---------- scope to send ---------- */}
-          <div className="space-y-2 border-t border-border pt-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-                Scope to price · {items.size} of {data.scopeItems.length}
-              </span>
-              <button
-                type="button"
-                className="text-[11px] text-link hover:underline"
-                onClick={() =>
-                  setItems((s) =>
-                    s.size === data.scopeItems.length
-                      ? new Set()
-                      : new Set(data.scopeItems.map((x) => x.id)),
-                  )
-                }
-              >
-                {items.size === data.scopeItems.length ? "Clear all" : "Select all"}
-              </button>
-            </div>
-            {data.scopeItems.length === 0 ? (
-              <p className="rounded-card border border-border bg-muted/30 px-3 py-3 text-[13px] text-muted-foreground">
-                No scope yet — define the scope first and it becomes what you send out.
-              </p>
-            ) : (
-              <div className="max-h-48 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
-                {data.scopeItems.map((s) => (
-                  <label
-                    key={s.id}
-                    className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-track"
-                  >
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-navy"
-                      checked={items.has(s.id)}
-                      disabled={pending}
-                      onChange={(e) =>
-                        setItems((p) => {
-                          const n = new Set(p);
-                          if (e.target.checked) n.add(s.id);
-                          else n.delete(s.id);
-                          return n;
-                        })
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-700">{s.item}</span>
-                    {s.costCodeName && (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {s.costCodeName}
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ---------- who to send to ---------- */}
-          <div className="space-y-2 border-t border-border pt-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-                Send to · {vendors.size} selected
-              </span>
-              <button
-                type="button"
-                className="text-[11px] text-link hover:underline"
-                onClick={() => setAddingVendor((v) => !v)}
-              >
-                {addingVendor ? "Cancel" : "+ New vendor"}
-              </button>
-            </div>
-
-            {addingVendor && (
-              <form
-                className="space-y-2 rounded-card border border-border p-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addVendor(e.currentTarget);
-                }}
-              >
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="bv-name" className="text-[11px]">
-                      Vendor name
-                    </Label>
-                    <Input id="bv-name" name="name" required className="h-8 text-xs" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="bv-trade" className="text-[11px]">
-                      Trade
-                    </Label>
-                    <Input id="bv-trade" name="trade" className="h-8 text-xs" placeholder="General" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="bv-contact" className="text-[11px]">
-                      Contact name
-                    </Label>
-                    <Input id="bv-contact" name="contactName" className="h-8 text-xs" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="bv-email" className="text-[11px]">
-                      Contact email
-                    </Label>
-                    <Input id="bv-email" name="contactEmail" type="email" className="h-8 text-xs" />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" size="sm" disabled={pending}>
-                    Add vendor
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            {sendable.length === 0 ? (
-              <p className="rounded-card border border-border bg-muted/30 px-3 py-3 text-[13px] text-muted-foreground">
-                {data.vendors.length === 0
-                  ? "No vendors on the roster yet — add one above."
-                  : "Every active vendor already has a live request on this project."}
-              </p>
-            ) : (
-              <div className="max-h-48 divide-y divide-hairline overflow-y-auto rounded-card border border-border">
-                {sendable.map((v) => (
-                  <label
-                    key={v.id}
-                    className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-track"
-                  >
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-navy"
-                      checked={vendors.has(v.id)}
-                      disabled={pending}
-                      onChange={(e) =>
-                        setVendors((p) => {
-                          const n = new Set(p);
-                          if (e.target.checked) n.add(v.id);
-                          else n.delete(v.id);
-                          return n;
-                        })
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-700">{v.name}</span>
-                    {v.trade && (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">{v.trade}</span>
-                    )}
-                    {v.contactCount === 0 && (
-                      <span
-                        className="shrink-0 text-[10.5px] uppercase tracking-[0.09em] text-alert"
-                        title="No contact on file — you will have nobody to send the link to"
-                      >
-                        no contact
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-          <span className="text-[11px] text-muted-foreground">
-            {vendors.size > 0 && items.size > 0
-              ? `${items.size} line${items.size === 1 ? "" : "s"} to ${vendors.size} vendor${vendors.size === 1 ? "" : "s"}`
-              : "Pick scope and at least one vendor"}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" disabled={pending} onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            <Button disabled={pending || vendors.size === 0 || items.size === 0} onClick={send}>
-              {pending ? "Sending…" : "Send for pricing"}
-            </Button>
-          </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );
