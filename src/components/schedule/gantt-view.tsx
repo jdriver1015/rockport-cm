@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   addMonths,
@@ -56,9 +56,25 @@ function bandsFor(p: ScheduleProject, end: Date): Band[] {
   return out;
 }
 
-/** Roughly the px a phase's label needs at 11px medium, plus the band's padding. */
+/**
+ * The px each phase label needs, including the band's 8px padding either side.
+ *
+ * Measured in the browser at the band's own type — 11px/500 in the app sans —
+ * rather than estimated. A characters-times-a-constant guess ran 25% high on
+ * "Pre-Construction" (119 against a real 107) and short on "Complete", because
+ * character widths are not uniform; the high side silently dropped labels from
+ * bands with room to spare. Four fixed labels do not justify measuring text at
+ * runtime, and PROJECT_PHASES is what makes four fixed labels a safe assumption.
+ */
+const LABEL_WIDTH: Record<ProjectPhaseKey, number> = {
+  precon: 109, // "Pre-Construction" 91 + 16, +2 slack
+  in_process: 73, // "In Process" 55 + 16
+  punch: 120, // "Punch and Sign Off" 101 + 16
+  complete: 69, // "Complete" 51 + 16
+};
+
 function fitsLabel(key: ProjectPhaseKey): number {
-  return phaseLabel(key).length * 6.2 + 20;
+  return LABEL_WIDTH[key];
 }
 
 /**
@@ -164,10 +180,39 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
       return { rangeStart, days, totalWidth, todayOffsetPx, gridBackground, monthSegments };
     }, [dated, today]);
 
+  /**
+   * The horizontal slice of the chart currently on screen, in chart
+   * coordinates. The name column is sticky at the scrollport's left edge and
+   * opaque, so content to its left is not merely off-screen, it is covered —
+   * which is what turned a scrolled band's label into a fragment of a word.
+   *
+   * CSS sticky slides a label along its band, but the browser clamps it to the
+   * band's own box: once a band's visible slice is narrower than its label,
+   * sticky pushes the label as far as it can and the rest stays hidden behind
+   * the name column. Knowing where the window is lets a band that cannot show
+   * its whole label show none of it instead.
+   */
+  const [view, setView] = useState({ from: 0, to: 0 });
+  const syncView = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Chart x and scrollLeft share an origin: the sticky name column occupies
+    // the first NAME_COL_WIDTH px of the scrollport, and the chart div starts
+    // exactly there, so content at x == scrollLeft sits at its right edge.
+    setView({ from: el.scrollLeft, to: el.scrollLeft + el.clientWidth - NAME_COL_WIDTH });
+  }, []);
+
+  useEffect(() => {
+    syncView();
+    window.addEventListener("resize", syncView);
+    return () => window.removeEventListener("resize", syncView);
+  }, [syncView, totalWidth]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollLeft = Math.max(0, todayOffsetPx - el.clientWidth * 0.2);
+    syncView();
     // Only on mount / range change — not on every re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalWidth]);
@@ -195,6 +240,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
   return (
     <div
       ref={scrollRef}
+      onScroll={syncView}
       className="min-h-[600px] max-h-[70vh] overflow-auto rounded-card border border-border bg-card"
     >
       <div style={{ width: NAME_COL_WIDTH + totalWidth }}>
@@ -318,7 +364,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                           <div
                             key={b.key}
                             className={cn(
-                              "absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden px-2 text-[11px] font-medium whitespace-nowrap",
+                              "absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-clip px-2 text-[11px] font-medium whitespace-nowrap",
                               first && "rounded-l-[3px]",
                               last && "rounded-r-[3px]",
                               style.bg,
@@ -338,8 +384,33 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                             {/* Only where the band fits the WHOLE word. A flat
                                 threshold ellipsised "Pre-Construction" at the
                                 same width that comfortably held "In Process",
-                                and a clipped word is worse than no word. */}
-                            {width >= fitsLabel(b.key) && <span>{phaseLabel(b.key)}</span>}
+                                and a clipped word is worse than no word.
+
+                                Sticky so a band running off the left edge still
+                                says what it is: the label slides along inside
+                                its own band, pinned just clear of the name
+                                column, and the browser clamps it to the band's
+                                own box so it can never wander into the next
+                                phase. The band clips with overflow-CLIP, not
+                                overflow-hidden: clip contains a label whose font
+                                loaded wider than measured, but does not make the
+                                band a scroll container, which hidden would — and
+                                then the label would never move. */}
+                            {(() => {
+                              // Measured against the part of the band you can
+                              // actually see, not its full width. A band running
+                              // off the left edge keeps its label — sticky slides
+                              // it along — right up until the sliver left on
+                              // screen is too small to hold the word, at which
+                              // point showing none of it beats showing "ction".
+                              const from = Math.max(pxOffset(b.from), view.from);
+                              const to = Math.min(pxOffset(b.to) + DAY_WIDTH, view.to);
+                              return to - from >= fitsLabel(b.key) ? (
+                                <span className="sticky" style={{ left: NAME_COL_WIDTH + 8 }}>
+                                  {phaseLabel(b.key)}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
                         );
                       })}
