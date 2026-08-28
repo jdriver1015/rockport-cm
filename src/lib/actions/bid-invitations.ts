@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { propertyProjectPath } from "@/lib/property-path";
@@ -11,6 +11,7 @@ import { recordBidEvent } from "@/lib/bid-events";
 import { invitationHtml, invitationSubject, invitationText } from "@/lib/bid-invitation";
 import { appOrigin, mailConfigured, sendEmail } from "@/lib/email";
 import { createClient } from "@/lib/supabase/server";
+import { resolveVendorContacts } from "@/lib/vendor-contact";
 
 const schemaIn = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -82,30 +83,11 @@ export async function sendBidInvitations(
     .where(inArray(schema.vendors.id, d.vendorIds));
   const vendorName = new Map(vendorRows.map((v) => [v.id, v.name]));
 
-  // One contact per vendor — the first active one with an address. A vendor with
-  // several people gets the invitation once rather than a copy each, because the
-  // link is the credential and handing it to three inboxes multiplies where it
-  // can leak from.
-  const contacts = await db()
-    .select({
-      vendorId: schema.vendorContacts.vendorId,
-      name: schema.vendorContacts.name,
-      email: schema.vendorContacts.email,
-    })
-    .from(schema.vendorContacts)
-    .where(
-      and(
-        inArray(schema.vendorContacts.vendorId, d.vendorIds),
-        eq(schema.vendorContacts.active, true),
-      ),
-    )
-    .orderBy(asc(schema.vendorContacts.id));
-
-  const contactFor = new Map<number, { name: string | null; email: string }>();
-  for (const c of contacts) {
-    if (!c.email || contactFor.has(c.vendorId)) continue;
-    contactFor.set(c.vendorId, { name: c.name, email: c.email });
-  }
+  // One resolved contact per vendor, the same one the preview showed and the
+  // same one the vendor step listed. A vendor with several people is written to
+  // once rather than a copy each: the link is the credential, and handing it to
+  // three inboxes multiplies where it can leak from.
+  const contactFor = await resolveVendorContacts(d.vendorIds);
 
   const supabase = await createClient();
   const {
@@ -130,30 +112,30 @@ export async function sendBidInvitations(
     });
   }
 
-  for (const c of res.created) {
+  const deliveries = res.created.map(async (c) => {
     const name = vendorName.get(c.vendorId) ?? "Vendor";
     const contact = contactFor.get(c.vendorId) ?? null;
+    const address = contact?.email ?? null;
 
     // Minted regardless of whether mail goes out: the request is real, and a
     // link nobody can reach is the state this replaced.
     const { token } = await issueBidToken(c.bidId, user?.id ?? null);
     const link = `${appOrigin()}/bid/${token}`;
 
-    if (!contact) {
+    if (!address) {
       await recordBidEvent(c.bidId, "invited", { delivery: "no contact on file" });
-      outcomes.push({
+      return {
         vendorId: c.vendorId,
         vendorName: name,
         email: null,
         link,
-        status: "no_email",
-      });
-      continue;
+        status: "no_email" as const,
+      };
     }
 
     const mail = {
       vendorName: name,
-      contactName: contact.name,
+      contactName: contact?.name ?? null,
       propertyName: project?.propertyName ?? "",
       projectName: project?.projectName ?? "",
       scopeItems,
@@ -164,38 +146,43 @@ export async function sendBidInvitations(
     };
 
     if (!configured) {
-      await recordBidEvent(c.bidId, "invited", { delivery: "not configured", to: contact.email });
-      outcomes.push({
+      await recordBidEvent(c.bidId, "invited", { delivery: "not configured", to: address });
+      return {
         vendorId: c.vendorId,
         vendorName: name,
-        email: contact.email,
+        email: address,
         link,
-        status: "not_configured",
-      });
-      continue;
+        status: "not_configured" as const,
+      };
     }
 
     const sent = await sendEmail({
-      to: contact.email,
+      to: address,
       subject: invitationSubject(mail),
       html: invitationHtml(mail),
       text: invitationText(mail),
     });
 
     await recordBidEvent(c.bidId, "invited", {
-      to: contact.email,
+      to: address,
       delivery: sent.ok ? "sent" : "failed",
     });
 
-    outcomes.push({
+    return {
       vendorId: c.vendorId,
       vendorName: name,
-      email: contact.email,
+      email: address,
       link,
-      status: sent.ok ? "sent" : "failed",
+      status: (sent.ok ? "sent" : "failed") as InvitationOutcome["status"],
       detail: sent.ok ? undefined : sent.error,
-    });
-  }
+    };
+  });
+
+  // In parallel, so the wall clock is one provider round trip rather than one
+  // per vendor. Sequentially, a slow provider could exhaust the request budget
+  // partway down the list and strand the rest with a bid and a link but no
+  // invitation — and re-running would skip them as "already has a live request".
+  outcomes.push(...(await Promise.all(deliveries)));
 
   const path = await propertyProjectPath(d.propertyId, d.projectId);
   if (path) revalidatePath(path);
@@ -254,14 +241,9 @@ export async function previewBidInvitation(
     .where(inArray(schema.scopeItems.id, d.scopeItemIds))
     .orderBy(asc(schema.scopeItems.sortOrder), asc(schema.scopeItems.id));
 
-  const [contact] = await db()
-    .select({ name: schema.vendorContacts.name, email: schema.vendorContacts.email })
-    .from(schema.vendorContacts)
-    .where(
-      and(eq(schema.vendorContacts.vendorId, d.vendorId), eq(schema.vendorContacts.active, true)),
-    )
-    .orderBy(asc(schema.vendorContacts.id))
-    .limit(1);
+  // The same resolution the send uses, so the draft names the person who will
+  // actually receive it.
+  const contact = (await resolveVendorContacts([d.vendorId])).get(d.vendorId) ?? null;
 
   const supabase = await createClient();
   const {
@@ -281,6 +263,7 @@ export async function previewBidInvitation(
     dueDate: d.dueDate ?? null,
     senderName: profile?.fullName ?? null,
     bidId: 0,
+    preview: true,
   };
 
   return {

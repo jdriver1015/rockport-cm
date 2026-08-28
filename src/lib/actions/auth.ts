@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/ensure-profile";
+import { appOrigin } from "@/lib/email";
 import type { ActionResult } from "@/lib/action-result";
 
-function siteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-}
+// Shared with outgoing mail, so a confirmation link and a bid link cannot
+// disagree about where this app lives.
+const siteUrl = appOrigin;
 
 const credsSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),

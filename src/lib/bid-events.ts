@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { asc, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 // ---------------------------------------------------------------------------
@@ -44,23 +44,38 @@ export async function recordBidEvent(
 }
 
 /**
- * De-duplicated opens.
+ * Record an event at most once an hour.
  *
  * A tracking pixel fires every time a mail client renders the message —
- * scrolling past it in a preview pane counts, and Gmail's proxy can fetch it
- * more than once on its own. Recording each is noise, so an open within the
- * same hour as the last one is treated as the same open.
+ * scrolling past it in a preview pane counts, and Gmail's proxy can fetch it on
+ * its own. The portal page is the same: it re-renders on every visit and on the
+ * router refresh that follows a submission. Recording each would report activity
+ * nobody performed.
+ *
+ * One statement rather than a read followed by a write: two pixel fetches
+ * arriving together both passed a separate SELECT and both inserted, which is
+ * precisely the double count this exists to prevent.
  */
-export async function recordEmailOpen(bidId: number): Promise<void> {
-  const [last] = await db()
-    .select({ at: schema.bidEvents.at })
-    .from(schema.bidEvents)
-    .where(and(eq(schema.bidEvents.bidId, bidId), eq(schema.bidEvents.kind, "email_opened")))
-    .orderBy(desc(schema.bidEvents.at))
-    .limit(1);
+export async function recordOncePerHour(bidId: number, kind: BidEventKind): Promise<void> {
+  try {
+    await db().execute(sql`
+      insert into bid_events (bid_id, kind)
+      select ${bidId}, ${kind}::bid_event_kind
+      where not exists (
+        select 1 from bid_events
+        where bid_id = ${bidId}
+          and kind = ${kind}::bid_event_kind
+          and at > now() - interval '1 hour'
+      )
+    `);
+  } catch (err) {
+    console.error(`bid event ${kind} for bid ${bidId} failed to record`, err);
+  }
+}
 
-  if (last && Date.now() - last.at.getTime() < 60 * 60 * 1000) return;
-  await recordBidEvent(bidId, "email_opened");
+/** An email open, de-duplicated to the hour. */
+export async function recordEmailOpen(bidId: number): Promise<void> {
+  await recordOncePerHour(bidId, "email_opened");
 }
 
 /** The trail for a set of bids, oldest first. */

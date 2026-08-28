@@ -247,10 +247,18 @@ function BidMatrix({
     return m;
   }, [data.lineAmounts]);
 
-  // A price of zero is a request that went out unpriced, not a free line.
+  // Whether a bid has come back decides what a zero means. A request goes out
+  // with its lines seeded at zero, so while it is still out a zero is an
+  // unanswered line. Once the vendor has submitted, the portal deliberately
+  // stores a line they declined as zero — reading THAT as "not asked" is the
+  // exact misreport the portal set out to avoid, and it also dropped the vendor
+  // below full coverage so they could never be marked cheapest.
+  const returned = new Map(data.bids.map((b) => [b.id, !!b.receivedDate]));
   const priced = (bidId: number, lineId: number): number | null => {
     const v = priceOf.get(`${bidId}:${lineId}`);
-    return v == null || v <= 0 ? null : v;
+    if (v == null) return null;
+    if (v > 0) return v;
+    return returned.get(bidId) ? 0 : null;
   };
 
   const linesPricedBy = (bidId: number) =>
@@ -352,6 +360,9 @@ function BidMatrix({
                         {amount == null ? (
                           // Never asked, which is not the same as quoted at zero.
                           <span className="text-[11px] text-ink-200 italic">not asked</span>
+                        ) : amount === 0 ? (
+                          // Answered, with nothing against it.
+                          <span className="text-[11px] text-ink-400 italic">no bid</span>
                         ) : (
                           <>
                             <div

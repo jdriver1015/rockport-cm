@@ -29,6 +29,8 @@ export type InvitationInput = {
   senderName: string | null;
   /** Signs the pixel to one bid, so an open can be attributed. */
   bidId: number;
+  /** Rendered for somebody to read before sending, not for delivery. */
+  preview?: boolean;
 };
 
 const esc = (s: string) =>
@@ -48,6 +50,8 @@ export function invitationSubject(i: InvitationInput): string {
 export function invitationHtml(i: InvitationInput): string {
   const origin = appOrigin();
   const link = `${origin}/bid/${i.token}`;
+  // Omitted from a preview: the draft is rendered in an iframe inside the app,
+  // so the pixel would fire a tracking request on a message nobody has received.
   const pixel = `${origin}/api/bid/${i.token}/open.gif`;
   const due = fmtDue(i.dueDate);
   const greeting = i.contactName?.trim() ? `Hi ${esc(i.contactName.trim().split(" ")[0])},` : "Hello,";
@@ -116,7 +120,7 @@ export function invitationHtml(i: InvitationInput): string {
 
 </table>
 </td></tr></table>
-<img src="${pixel}" width="1" height="1" alt="" style="display:block;border:0;">
+${i.preview ? "" : `<img src="${pixel}" width="1" height="1" alt="" style="display:block;border:0;">`}
 </body></html>`;
 }
 

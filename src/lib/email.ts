@@ -34,6 +34,19 @@ export function mailConfigured(): boolean {
 }
 
 /**
+ * Whether links in outgoing mail would actually work.
+ *
+ * appOrigin() falls back to localhost, and this app's dev server talks to the
+ * same database production does — so a local run could put
+ * http://localhost:3000/bid/... in a real vendor's inbox. Sending is refused
+ * rather than delivering a link only the sender's own machine can open.
+ */
+export function originIsPublic(): boolean {
+  const o = appOrigin();
+  return /^https?:\/\//.test(o) && !/localhost|127\.0\.0\.1|\[::1\]/.test(o);
+}
+
+/**
  * Send one message.
  *
  * Talks to Resend over fetch rather than through its SDK — one POST, and a
@@ -44,10 +57,20 @@ export async function sendEmail(mail: OutgoingEmail): Promise<SendOutcome> {
   if (!key) {
     return { ok: false, error: "Email delivery is not configured", configured: false };
   }
+  if (!originIsPublic()) {
+    return {
+      ok: false,
+      error: `Links would point at ${appOrigin()}, which a vendor cannot reach. Set NEXT_PUBLIC_SITE_URL.`,
+      configured: true,
+    };
+  }
 
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
+      // Without this one hung request holds the whole send, and an invitation
+      // loop can burn its execution budget before reaching the last vendor.
+      signal: AbortSignal.timeout(10_000),
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
@@ -90,10 +113,14 @@ export async function sendEmail(mail: OutgoingEmail): Promise<SendOutcome> {
  * A relative URL is meaningless in an inbox, and VERCEL_URL is the deployment's
  * own hostname rather than the one people use, so the canonical host is set
  * explicitly and only falls back for local work.
+ *
+ * The same variable the auth redirects use. A second name for the same fact is
+ * one that can be set to something different — a magic link landing on one host
+ * and a bid link on another, with only one of them configured.
  */
 export function appOrigin(): string {
   return (
-    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
     (process.env.VERCEL_PROJECT_PRODUCTION_URL
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : "http://localhost:3000")

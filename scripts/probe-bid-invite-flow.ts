@@ -23,7 +23,7 @@ import { db, schema } from "../src/db";
 import { confirmScopeRows } from "../src/lib/scope-confirm";
 import { sendBidPackageRows, readBidPackage } from "../src/lib/bid-package";
 import { issueBidToken, lookupPortalBid, saveDraftPrices } from "../src/lib/bid-portal";
-import { recordBidEvent, readBidEvents, summarise } from "../src/lib/bid-events";
+import { recordBidEvent, readBidEvents, recordOncePerHour, summarise } from "../src/lib/bid-events";
 
 let pass = 0, fail = 0;
 const check = (l: string, ok: boolean, d = "") =>
@@ -105,6 +105,24 @@ async function main() {
     check("a second save in the same hour is not double counted",
       evs3.filter((e) => e.kind === "priced").length === 1,
       `${evs3.filter((e) => e.kind === "priced").length}`);
+
+    // ---- opening the portal is recorded once an hour, not once a render
+    // The dedup is a single INSERT ... WHERE NOT EXISTS with an enum cast, and a
+    // cast that does not match the type would be swallowed by the recorder's own
+    // catch — so the first call has to be seen to WRITE, not merely to not throw.
+    const opensNow = async () =>
+      ((await readBidEvents([first.bidId])).get(first.bidId) ?? [])
+        .filter((e) => e.kind === "link_opened").length;
+
+    const before = await opensNow();
+    await recordOncePerHour(first.bidId, "link_opened");
+    const afterOne = await opensNow();
+    check("opening the portal is recorded", afterOne === before + 1, `${before} -> ${afterOne}`);
+
+    await recordOncePerHour(first.bidId, "link_opened");
+    await recordOncePerHour(first.bidId, "link_opened");
+    check("re-renders inside the hour do not add visits",
+      (await opensNow()) === afterOne, `${await opensNow()}`);
 
     // ---- the package now feeds the vendor step
     const pkg = await readBidPackage(1, projectId);

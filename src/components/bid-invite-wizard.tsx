@@ -56,6 +56,11 @@ export function BidInviteWizard({
   const [addingVendor, setAddingVendor] = useState(false);
 
   const chosenScope = data.scopeItems.filter((s) => items.has(s.id));
+  // Keyed on the selection itself. It used to depend on items.size, so swapping
+  // one line for another left the previous draft on screen — approving a scope
+  // that was not the one about to be sent.
+  const scopeKey = [...items].sort((a, b) => a - b).join(",");
+  const vendorKey = [...vendors].sort((a, b) => a - b).join(",");
   const scopeTotal = chosenScope.reduce((n, s) => n + (s.budgeted ?? 0), 0);
   const chosenVendors = data.vendors.filter((v) => vendors.has(v.id));
   const noEmail = chosenVendors.filter((v) => !v.contactEmail);
@@ -78,7 +83,7 @@ export function BidInviteWizard({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, projectId, dueDate, items.size, vendors.size]);
+  }, [step, projectId, dueDate, scopeKey, vendorKey]);
 
   function addVendor(form: HTMLFormElement) {
     const fd = new FormData(form);

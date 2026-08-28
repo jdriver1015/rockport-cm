@@ -256,12 +256,16 @@ export async function issueBidToken(
 
 /** Kill a bid's link without issuing a new one. */
 export async function revokeBidToken(bidId: number): Promise<{ revoked: number }> {
-  await recordBidEvent(bidId, "revoked");
   const rows = await db()
     .update(schema.bidAccessTokens)
     .set({ revokedAt: new Date() })
     .where(and(eq(schema.bidAccessTokens.bidId, bidId), isNull(schema.bidAccessTokens.revokedAt)))
     .returning({ id: schema.bidAccessTokens.id });
+
+  // After, not before. Recording it first meant a revoke that then failed left
+  // a trail claiming the link was dead while the vendor could still price.
+  if (rows.length > 0) await recordBidEvent(bidId, "revoked");
+
   return { revoked: rows.length };
 }
 

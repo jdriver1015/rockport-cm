@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { scopeLineTotal } from "@/lib/scope-total";
 import { readBidEvents, summarise, type BidProgress } from "@/lib/bid-events";
+import { resolveVendorContacts } from "@/lib/vendor-contact";
 
 // ---------------------------------------------------------------------------
 // Sending a scope out for pricing.
@@ -90,11 +91,6 @@ export async function readBidPackage(
         name: schema.vendors.name,
         trade: schema.vendors.trade,
         contactCount: sql<number>`count(${schema.vendorContacts.id})::int`,
-        // The address an invitation would actually use: the first active contact
-        // with one. Shown on the vendor step so a vendor nobody can write to is
-        // visibly un-sendable rather than quietly selectable.
-        contactEmail: sql<string | null>`min(${schema.vendorContacts.email})`,
-        contactName: sql<string | null>`min(${schema.vendorContacts.name})`,
       })
       .from(schema.vendors)
       .leftJoin(
@@ -173,6 +169,11 @@ export async function readBidPackage(
   // looked and leaving alone somebody who is halfway through pricing.
   const eventsByBid = await readBidEvents(bids.map((b) => b.id));
 
+  // Resolved rather than aggregated. min(email) and min(name) are independent
+  // aggregates and could pair one contact's name with another's address, and
+  // neither matched the contact the send actually writes to.
+  const contactByVendor = await resolveVendorContacts(vendors.map((v) => v.id));
+
   void propertyId;
   return {
     scopeItems: scopeItems.map((s) => ({
@@ -181,7 +182,11 @@ export async function readBidPackage(
       costCodeName: s.costCodeName,
       budgeted: scopeLineTotal(s),
     })),
-    vendors,
+    vendors: vendors.map((v) => ({
+      ...v,
+      contactEmail: contactByVendor.get(v.id)?.email ?? null,
+      contactName: contactByVendor.get(v.id)?.name ?? null,
+    })),
     bids: bids.map((b) => ({
       ...b,
       token: tokenByBid.get(b.id)?.token ?? null,
