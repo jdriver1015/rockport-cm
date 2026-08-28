@@ -10,7 +10,8 @@ import {
   format,
   startOfMonth,
 } from "date-fns";
-import { phaseLabel } from "@/lib/stages";
+import { phaseLabel, PROJECT_PHASES, type ProjectPhaseKey } from "@/lib/stages";
+import { PHASE_KEYS, phaseRun } from "@/lib/schedule-defaults";
 import { cn } from "@/lib/utils";
 import { projectSlug } from "@/lib/slug";
 import type { ScheduleProject } from "@/lib/schedule-data";
@@ -26,7 +27,50 @@ function parseDate(s: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-type Dated = { p: ScheduleProject; start: Date; end: Date };
+type Dated = { p: ScheduleProject; start: Date; end: Date; bands: Band[] };
+
+type Band = { key: ProjectPhaseKey; from: Date; to: Date };
+
+/**
+ * One band per dated phase, derived from where the NEXT dated phase begins.
+ *
+ * phaseRun is the same helper the wizard and the project's phase table use, so
+ * all three agree on the day a phase ends rather than each doing the arithmetic
+ * its own way. It returns null for the last dated phase — nothing follows it —
+ * and that band runs to the project's end instead.
+ *
+ * Sparse input stays sparse. A project with one dated phase gets one band, not
+ * a fabricated four.
+ */
+function bandsFor(p: ScheduleProject, end: Date): Band[] {
+  const out: Band[] = [];
+  for (const key of PHASE_KEYS) {
+    const begin = p.phaseTargets[key];
+    if (!begin) continue;
+    const from = parseDate(begin);
+    if (!from) continue;
+    const run = phaseRun(p.phaseTargets, key);
+    const to = run ? (parseDate(run.endsIso) ?? from) : end;
+    out.push({ key, from, to: to < from ? from : to });
+  }
+  return out;
+}
+
+/** Roughly the px a phase's label needs at 11px medium, plus the band's padding. */
+function fitsLabel(key: ProjectPhaseKey): number {
+  return phaseLabel(key).length * 6.2 + 20;
+}
+
+/**
+ * The ramp, darkening as the job advances. One hue — see --phase-* in
+ * globals.css. Text flips to white where the band is dark enough to need it.
+ */
+const BAND_STYLE: Record<ProjectPhaseKey, { bg: string; text: string }> = {
+  precon: { bg: "bg-phase-precon", text: "text-navy" },
+  in_process: { bg: "bg-phase-in-process", text: "text-navy" },
+  punch: { bg: "bg-phase-punch", text: "text-white" },
+  complete: { bg: "bg-phase-complete", text: "text-white" },
+};
 
 /** Says which end of the bar is a record and which is still a plan. */
 function barTitle(p: ScheduleProject): string {
@@ -62,7 +106,8 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
             parseDate(p.actualStart) ?? parseDate(p.targetStart) ?? parseDate(p.preWalkDate);
           if (!start) return null;
           const end = parseDate(p.actualCompletion) ?? parseDate(p.targetCompletion) ?? today;
-          return { p, start, end: end < start ? start : end };
+          const clamped = end < start ? start : end;
+          return { p, start, end: clamped, bands: bandsFor(p, clamped) };
         })
         .filter((x): x is Dated => x !== null),
     [projects, today],
@@ -243,16 +288,63 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                       )}
                     </div>
                     <div className="relative" style={{ width: totalWidth }}>
+                      {/* The full extent, behind the bands. A project whose plan
+                          covers only part of its span still shows how long it
+                          runs, and the gap reads as "not dated yet" rather than
+                          as the job being shorter than it is. */}
                       <div
-                        className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center rounded bg-navy px-2 text-[11px] font-medium whitespace-nowrap text-white"
+                        className="absolute top-1/2 h-6 -translate-y-1/2 rounded bg-track"
                         style={{
                           left: pxOffset(d.start),
                           width: Math.max(DAY_WIDTH, pxOffset(d.end) - pxOffset(d.start) + DAY_WIDTH),
                         }}
                         title={barTitle(d.p)}
-                      >
-                        <span className="truncate">{phaseLabel(d.p.phase)}</span>
-                      </div>
+                      />
+                      {d.bands.map((b) => {
+                        const style = BAND_STYLE[b.key];
+                        const width = Math.max(
+                          DAY_WIDTH,
+                          pxOffset(b.to) - pxOffset(b.from) + DAY_WIDTH,
+                        );
+                        return (
+                          <div
+                            key={b.key}
+                            className={cn(
+                              "absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-2 text-[11px] font-medium whitespace-nowrap",
+                              style.bg,
+                              style.text,
+                              // The phase the project is REALLY in, against the
+                              // band that planned for it.
+                              b.key === d.p.phase && "ring-1 ring-navy/45",
+                            )}
+                            style={{ left: pxOffset(b.from), width }}
+                            title={`${phaseLabel(b.key)} · ${b.from.toISOString().slice(0, 10)} → ${b.to
+                              .toISOString()
+                              .slice(0, 10)}`}
+                          >
+                            {/* Only where the band fits the WHOLE word. A flat
+                                threshold ellipsised "Pre-Construction" at the
+                                same width that comfortably held "In Process",
+                                and a clipped word is worse than no word. */}
+                            {width >= fitsLabel(b.key) && <span>{phaseLabel(b.key)}</span>}
+                          </div>
+                        );
+                      })}
+                      {d.bands.length === 0 && (
+                        <div
+                          className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center rounded border border-dashed border-ink-100 px-2 text-[11px] text-ink-300"
+                          style={{
+                            left: pxOffset(d.start),
+                            width: Math.max(
+                              DAY_WIDTH,
+                              pxOffset(d.end) - pxOffset(d.start) + DAY_WIDTH,
+                            ),
+                          }}
+                          title={barTitle(d.p)}
+                        >
+                          <span className="truncate">No phase dates</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -260,6 +352,23 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* One hue in four steps needs one line to say which way it runs. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 pt-2.5 text-[11px] text-muted-foreground">
+        {PROJECT_PHASES.map((phase) => (
+          <span key={phase.key} className="flex items-center gap-1.5">
+            <span
+              className={cn("h-2 w-4 rounded-[2px]", BAND_STYLE[phase.key].bg)}
+              aria-hidden
+            />
+            {phase.label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-4 rounded-[2px] bg-track" aria-hidden />
+          Not dated yet
+        </span>
       </div>
     </div>
   );

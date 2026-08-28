@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { PHASE_KEYS } from "@/lib/schedule-defaults";
+import type { ProjectPhaseKey } from "@/lib/stages";
 
 export type ScheduleProject = {
   id: number;
@@ -27,6 +29,16 @@ export type ScheduleProject = {
   /** What actually happened — stamped on entry to In Process and Complete. */
   actualStart: string | null;
   actualCompletion: string | null;
+  /**
+   * The target start of EVERY phase, so the Gantt can draw one band per phase
+   * instead of one bar per project. A bar that spans the whole job while its
+   * label names only today's phase reads as though the whole span were that
+   * phase; four bands say which stretch is which.
+   *
+   * Sparse on purpose. A phase nobody has dated is absent rather than guessed,
+   * and the chart draws what is known instead of inventing a plan.
+   */
+  phaseTargets: Partial<Record<ProjectPhaseKey, string>>;
 };
 
 /**
@@ -69,7 +81,7 @@ export async function getScheduleProjects(opts?: {
   // isDefault pins this to the four seeded phase rows. A custom milestone may
   // also carry a phase, and one tagged "In Process" would otherwise compete
   // with the real target for the same slot.
-  const targets = new Map<number, { start: string | null; completion: string | null }>();
+  const targets = new Map<number, Partial<Record<ProjectPhaseKey, string>>>();
   if (rows.length > 0) {
     const milestones = await db()
       .select({
@@ -89,11 +101,11 @@ export async function getScheduleProjects(opts?: {
         ),
       );
 
+    const known = new Set<string>(PHASE_KEYS);
     for (const m of milestones) {
-      if (m.phase !== "in_process" && m.phase !== "complete") continue;
-      const entry = targets.get(m.projectId) ?? { start: null, completion: null };
-      if (m.phase === "in_process") entry.start = m.plannedDate;
-      else entry.completion = m.plannedDate;
+      if (!m.phase || !m.plannedDate || !known.has(m.phase)) continue;
+      const entry = targets.get(m.projectId) ?? {};
+      entry[m.phase as ProjectPhaseKey] = m.plannedDate;
       targets.set(m.projectId, entry);
     }
   }
@@ -111,10 +123,13 @@ export async function getScheduleProjects(opts?: {
         phase: r.phase,
         unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
         preWalkDate: r.preWalkDate,
-        targetStart: t?.start ?? null,
-        targetCompletion: t?.completion ?? null,
+        // Kept as named fields because the agenda and calendar ask exactly these
+        // two questions; the Gantt reads the full map instead.
+        targetStart: t?.in_process ?? null,
+        targetCompletion: t?.complete ?? null,
         actualStart: r.startDate,
         actualCompletion: r.completeDate,
+        phaseTargets: t ?? {},
       };
     })
     .filter(

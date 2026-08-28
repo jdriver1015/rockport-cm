@@ -49,6 +49,10 @@
   --color-info-bg: var(--info-bg);
   --color-alert: var(--alert);
   --color-alert-bg: var(--alert-bg);
+  --color-phase-precon: var(--phase-precon);
+  --color-phase-in-process: var(--phase-in-process);
+  --color-phase-punch: var(--phase-punch);
+  --color-phase-complete: var(--phase-complete);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -242,4 +246,20 @@
   --info-bg: #f1f3f5;
   --alert: #b23b3b;
   --alert-bg: #fbecec;
+
+  /* Phase ramp — the Gantt's four bands.
+     One hue, not four. These are the ONLY place the interface uses color to
+     carry a sequence, and they earn it by being a sequence: the same navy the
+     rest of the app is built on, lightened in four steps so a bar reads as
+     progress left to right without anyone learning a legend. Four unrelated
+     hues would imply four unrelated things and break the two-accent rule.
+
+     hsl(218, …) is the brand navy's own hue, so the darkest step IS --navy.
+     Held at 88% alpha: the month shading and weekend columns show faintly
+     through, which ties a bar to the calendar underneath it rather than
+     stamping it on top. */
+  --phase-precon: rgb(180 194 217 / 0.88);
+  --phase-in-process: rgb(109 138 186 / 0.88);
+  --phase-punch: rgb(55 82 129 / 0.88);
+  --phase-complete: rgb(22 35 58 / 0.88);
 }
