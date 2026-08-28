@@ -24,12 +24,15 @@ import { generateContractRow, advanceContractRow, readContracts } from "../src/l
 import { readPreconGateState } from "../src/lib/precon-gate-state";
 import { evaluateGates } from "../src/lib/phase-gates";
 import { readAwardCoverage } from "../src/lib/award-coverage";
+import { loadFixtures } from "./probe-fixtures";
 
-const PROPERTY_ID = 1;
-const CODE_A = 1; // 1000-0001 Exterior Paint and Carpentry
-const CODE_B = 2; // 1000-0002 Carpentry Repairs
-const VENDOR_A = 2; // Ace
-const VENDOR_B = 1; // ZZ Test Fencing Co
+// Resolved at run time — see probe-fixtures.ts. Literal ids here were a bet
+// that those rows outlive the script, and a data purge collected on it.
+let PROPERTY_ID = 0;
+let CODE_A = 0;
+let CODE_B = 0;
+let VENDOR_A = 0;
+let VENDOR_B = 0;
 
 let pass = 0;
 let fail = 0;
@@ -44,6 +47,11 @@ function check(label: string, ok: boolean, detail?: string) {
 }
 
 async function main() {
+  const fx = await loadFixtures();
+  ({ propertyId: PROPERTY_ID, codeA: CODE_A, codeB: CODE_B, vendorA: VENDOR_A, vendorB: VENDOR_B } = fx);
+  console.log(`  fixtures: property ${fx.propertySlug}, codes ${CODE_A}/${CODE_B}, vendors ${VENDOR_A}/${VENDOR_B}
+`);
+
   let projectId = 0;
 
   try {

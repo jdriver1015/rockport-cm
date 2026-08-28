@@ -24,16 +24,21 @@ import { confirmScopeRows } from "../src/lib/scope-confirm";
 import { sendBidPackageRows, readBidPackage } from "../src/lib/bid-package";
 import { issueBidToken, lookupPortalBid, saveDraftPrices } from "../src/lib/bid-portal";
 import { recordBidEvent, readBidEvents, recordOncePerHour, summarise } from "../src/lib/bid-events";
+import { loadFixtures } from "./probe-fixtures";
 
 let pass = 0, fail = 0;
 const check = (l: string, ok: boolean, d = "") =>
   (ok ? pass++ : fail++, console.log(`  ${ok ? "PASS" : "FAIL"}  ${l}${d ? `  — ${d}` : ""}`));
 
 async function main() {
+  const fx = await loadFixtures();
+  console.log(`  fixtures: property ${fx.propertySlug}
+`);
+
   let projectId = 0;
   try {
     const [p] = await db().insert(schema.projects)
-      .values({ propertyId: 1, kind: "common", name: "ZZ probe — invite flow", phase: "precon" })
+      .values({ propertyId: fx.propertyId, kind: "common", name: "ZZ probe — invite flow", phase: "precon" })
       .returning({ id: schema.projects.id });
     projectId = p.id;
 
@@ -125,7 +130,7 @@ async function main() {
       (await opensNow()) === afterOne, `${await opensNow()}`);
 
     // ---- the package now feeds the vendor step
-    const pkg = await readBidPackage(1, projectId);
+    const pkg = await readBidPackage(fx.propertyId, projectId);
     check("package carries each vendor's progress",
       pkg.bids.every((b) => "progress" in b),
       pkg.bids.map((b) => `${b.vendorName}:${b.progress.startedPricing ? "pricing" : "idle"}`).join(", "));

@@ -22,8 +22,10 @@ import { db, schema } from "../src/db";
 import { createInteriorProject } from "../src/lib/actions/interior-projects";
 import { getScheduleProjects } from "../src/lib/schedule-data";
 import { phaseRun, describeDays, dayBefore } from "../src/lib/schedule-defaults";
+import { loadFixtures } from "./probe-fixtures";
 
-const PROPERTY_ID = 1;
+// Resolved at run time — see probe-fixtures.ts.
+let PROPERTY_ID = 0;
 const UNIT_NUMBER = "ZZ-PROBE-PHASING";
 
 const PLAN = {
@@ -75,12 +77,17 @@ function check(label: string, ok: boolean, detail?: string) {
 }
 
 async function main() {
+  const fx = await loadFixtures();
+  PROPERTY_ID = fx.propertyId;
+  console.log(`  fixtures: property ${fx.propertySlug}
+`);
+
   const group = await db().query.budgetGroups.findFirst({
     where: eq(schema.budgetGroups.propertyId, PROPERTY_ID),
   });
   if (!group) throw new Error("no budget group on property 1 to build from");
 
-  const code = await db().query.costCodes.findFirst();
+  const code = { id: fx.codeA };
   if (!code) throw new Error("no cost code to price against");
 
   let projectId: number | null = null;
