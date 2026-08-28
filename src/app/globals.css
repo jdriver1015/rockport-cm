@@ -257,8 +257,10 @@
      hsl(218, …) is the brand navy's own hue, so the darkest step IS --navy.
      Held at 88% alpha: the month shading and weekend columns show faintly
      through, which ties a bar to the calendar underneath it rather than
-     stamping it on top. */
-  --phase-precon: rgb(180 194 217 / 0.88);
+     stamping it on top. The lightest step is kept well clear of --track
+     (#edf1f5) — a shade closer and a pre-con band stopped reading as a filled
+     band and started reading as an empty outlined box. */
+  --phase-precon: rgb(160 177 207 / 0.88);
   --phase-in-process: rgb(109 138 186 / 0.88);
   --phase-punch: rgb(55 82 129 / 0.88);
   --phase-complete: rgb(22 35 58 / 0.88);

@@ -281,7 +281,10 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                       >
                         {d.p.name}
                       </Link>
-                      {d.p.unitLabel && (
+                      {/* Only when it adds something. "Unit 001 Interior · Unit
+                          001" says the same thing twice; a project named
+                          "Deluxe Turn" still needs to say which unit. */}
+                      {d.p.unitLabel && !d.p.name.includes(d.p.unitLabel) && (
                         <span className="ml-1.5 shrink-0 text-xs text-muted-foreground">
                           {d.p.unitLabel}
                         </span>
@@ -293,29 +296,39 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                           runs, and the gap reads as "not dated yet" rather than
                           as the job being shorter than it is. */}
                       <div
-                        className="absolute top-1/2 h-6 -translate-y-1/2 rounded bg-track"
+                        className="absolute top-1/2 h-6 -translate-y-1/2 rounded-[3px] bg-track"
                         style={{
                           left: pxOffset(d.start),
                           width: Math.max(DAY_WIDTH, pxOffset(d.end) - pxOffset(d.start) + DAY_WIDTH),
                         }}
                         title={barTitle(d.p)}
                       />
-                      {d.bands.map((b) => {
+                      {d.bands.map((b, i) => {
                         const style = BAND_STYLE[b.key];
                         const width = Math.max(
                           DAY_WIDTH,
                           pxOffset(b.to) - pxOffset(b.from) + DAY_WIDTH,
                         );
+                        // The bands abut exactly, so rounding each one notched
+                        // every join and the bar read as a row of loose pills.
+                        // Only the two ends of the WHOLE bar are round.
+                        const first = i === 0;
+                        const last = i === d.bands.length - 1;
                         return (
                           <div
                             key={b.key}
                             className={cn(
-                              "absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-2 text-[11px] font-medium whitespace-nowrap",
+                              "absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden px-2 text-[11px] font-medium whitespace-nowrap",
+                              first && "rounded-l-[3px]",
+                              last && "rounded-r-[3px]",
                               style.bg,
                               style.text,
                               // The phase the project is REALLY in, against the
-                              // band that planned for it.
-                              b.key === d.p.phase && "ring-1 ring-navy/45",
+                              // band that planned for it. An inset rule rather
+                              // than a ring: a ring on one band per row is an
+                              // outline that looks like a mistake on every other
+                              // row, and it changed the bar's silhouette.
+                              b.key === d.p.phase && "shadow-[inset_0_-2px_0_0_var(--navy)]",
                             )}
                             style={{ left: pxOffset(b.from), width }}
                             title={`${phaseLabel(b.key)} · ${b.from.toISOString().slice(0, 10)} → ${b.to
