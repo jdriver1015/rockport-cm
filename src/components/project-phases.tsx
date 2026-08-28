@@ -13,8 +13,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { fmtDate } from "@/lib/format";
-import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
+import { fmtDate, fmtDateShort } from "@/lib/format";
+import {
+  phaseRun,
+  toIsoDate,
+  todayInBusinessZone,
+  type PhaseRun,
+  type ScheduleKey,
+} from "@/lib/schedule-defaults";
+import type { ProjectPhaseKey } from "@/lib/stages";
 import { updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
@@ -117,6 +124,17 @@ export function ProjectPhases({
   nextPhaseLabel: string | null;
 }) {
   const defaults = phases.filter((p) => p.isDefault);
+
+  // Target phasing: each planned date is the day that phase BEGINS, so a phase
+  // ends the day before the next one starts. Derived here rather than stored —
+  // an end date that is typed is an end date that can contradict the next
+  // phase's start.
+  const plannedByPhase: Partial<Record<ScheduleKey, string>> = {};
+  for (const row of defaults) {
+    if (row.phase && row.plannedDate) {
+      plannedByPhase[row.phase as ScheduleKey] = row.plannedDate;
+    }
+  }
   // The current phase is the one the PROJECT says it is in, not the first row
   // without an actual date. Those disagree constantly: the Pre-Construction row
   // is stamped by hand so it is usually blank, and rows get completed out of
@@ -151,7 +169,7 @@ export function ProjectPhases({
           )}
         >
           <div>Phase</div>
-          <div className="text-right">Planned</div>
+          <div className="text-right">Target start</div>
           <div className="text-right">Actual</div>
           <div className="text-right">Var</div>
           <div className="text-right">Actions</div>
@@ -215,7 +233,14 @@ export function ProjectPhases({
                   ) : (
                     <PhaseName phase={row} hideIcon />
                   )}
-                  <PhaseDates phase={row} canEditActual={reached(row)} emphasise={isCurrent} />
+                  <PhaseDates
+                    phase={row}
+                    canEditActual={reached(row)}
+                    emphasise={isCurrent}
+                    run={
+                      row.phase ? phaseRun(plannedByPhase, row.phase as ProjectPhaseKey) : null
+                    }
+                  />
                   <PhaseActions
                     phase={row}
                     projectId={projectId}
@@ -261,11 +286,14 @@ function PhaseDates({
   phase,
   canEditActual,
   emphasise,
+  run,
 }: {
   phase: PhaseRow;
   /** False on a phase the project has not reached. */
   canEditActual: boolean;
   emphasise?: boolean;
+  /** When this phase is planned to end, derived from the next one's start. */
+  run: PhaseRun | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -302,13 +330,20 @@ function PhaseDates({
             onBlur={() => save({ plannedDate: planned })}
           />
         ) : (
-          <button
-            type="button"
-            onClick={() => setEditing("planned")}
-            className={cn("tabular-nums", size, planned ? "text-ink-700" : "text-ink-300 hover:text-link")}
-          >
-            {planned ? fmtDate(planned) : "Set date"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setEditing("planned")}
+              className={cn("tabular-nums", size, planned ? "text-ink-700" : "text-ink-300 hover:text-link")}
+            >
+              {planned ? fmtDate(planned) : "Set date"}
+            </button>
+            {planned && run && run.days > 0 && (
+              <div className="text-[10.5px] text-ink-300 tabular-nums">
+                thru {fmtDateShort(run.endsIso)}
+              </div>
+            )}
+          </>
         )}
       </div>
 

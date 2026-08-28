@@ -146,7 +146,7 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
         ? [{ field: "milestone:label", fieldLabel: `Milestone: ${milestone.label} → Label`, from: milestone.label, to: set.label }]
         : []),
       ...(input.plannedDate !== undefined
-        ? [{ field: "milestone:plannedDate", fieldLabel: `${label}: Planned Date`, from: fmtDate(milestone.plannedDate), to: fmtDate(d.plannedDate) }]
+        ? [{ field: "milestone:plannedDate", fieldLabel: `${label}: Target Start`, from: fmtDate(milestone.plannedDate), to: fmtDate(d.plannedDate) }]
         : []),
       ...(input.actualDate !== undefined
         ? [{ field: "milestone:actualDate", fieldLabel: `${label}: Actual Date`, from: fmtDate(milestone.actualDate), to: fmtDate(d.actualDate) }]

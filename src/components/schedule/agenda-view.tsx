@@ -18,7 +18,7 @@ import type { ScheduleProject } from "@/lib/schedule-data";
 
 type Milestone = {
   date: string;
-  label: "Pre-walk" | "Start" | "Target completion" | "Complete";
+  label: "Pre-walk" | "Target start" | "Started" | "Target completion" | "Completed";
   project: ScheduleProject;
 };
 
@@ -26,10 +26,15 @@ function toMilestones(projects: ScheduleProject[]): Milestone[] {
   const out: Milestone[] = [];
   for (const p of projects) {
     if (p.preWalkDate) out.push({ date: p.preWalkDate, label: "Pre-walk", project: p });
-    if (p.startDate) out.push({ date: p.startDate, label: "Start", project: p });
-    if (p.targetCompletionDate)
-      out.push({ date: p.targetCompletionDate, label: "Target completion", project: p });
-    if (p.completeDate) out.push({ date: p.completeDate, label: "Complete", project: p });
+    // Target and actual both listed, and both labelled as what they are. A date
+    // in an agenda that might be a plan or might be a record is a date nobody
+    // can act on.
+    if (p.targetStart) out.push({ date: p.targetStart, label: "Target start", project: p });
+    if (p.actualStart) out.push({ date: p.actualStart, label: "Started", project: p });
+    if (p.targetCompletion)
+      out.push({ date: p.targetCompletion, label: "Target completion", project: p });
+    if (p.actualCompletion)
+      out.push({ date: p.actualCompletion, label: "Completed", project: p });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -106,10 +111,13 @@ function TableRowsForMonth({
     <>
       <TableGroupRow label={month} count={rows.length} colSpan={5} />
       {rows.map((m, i) => {
+        // A target is overdue once the day has passed and the thing it
+        // targets has not happened. Actuals are never overdue — they are the
+        // record of what did happen, whenever it happened.
         const overdue =
-          m.label === "Target completion" &&
           m.date < todayIso &&
-          !DONE_PHASES.has(m.project.phase);
+          ((m.label === "Target completion" && !DONE_PHASES.has(m.project.phase)) ||
+            (m.label === "Target start" && m.project.phase === "precon"));
         return (
           <ClickableTableRow
             key={`${m.project.id}-${m.label}-${i}`}

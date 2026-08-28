@@ -114,7 +114,7 @@ export function ProjectEditDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="project-start">Start date</Label>
+              <Label htmlFor="project-start">Actual start</Label>
               <Input
                 id="project-start"
                 name="startDate"
@@ -123,7 +123,7 @@ export function ProjectEditDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="project-complete">Complete date</Label>
+              <Label htmlFor="project-complete">Actual completion</Label>
               <Input
                 id="project-complete"
                 name="completeDate"

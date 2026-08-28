@@ -546,7 +546,7 @@ export default async function ProjectDetailPage({
               <ProjectPanelSwitch />
               <span className="text-sm text-muted-foreground">
                 {nextMilestone
-                  ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · planned ${fmtDate(nextMilestone.plannedDate)}` : ""}`
+                  ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · targeted to begin ${fmtDate(nextMilestone.plannedDate)}` : ""}`
                   : "Final phase"}
               </span>
             </CardHeader>

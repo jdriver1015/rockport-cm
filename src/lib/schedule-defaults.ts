@@ -15,6 +15,16 @@ import type { ProjectPhaseKey } from "@/lib/stages";
  * settings page can preview what a project created today would get.
  */
 
+/**
+ * TARGET PHASING: each date is the day a phase BEGINS. A phase runs until the
+ * day before the next one begins, so four begin dates describe four spans
+ * without anyone typing an end date — and an end date typed separately is an
+ * end date that can contradict the next phase's start.
+ *
+ * Complete is the exception: it begins and does not end. It is the finish line,
+ * and it is what "target completion" means.
+ */
+
 /** "pre_walk" is not a milestone — it is the walk that produces the scope. */
 export const PRE_WALK_KEY = "pre_walk";
 export type ScheduleKey = typeof PRE_WALK_KEY | ProjectPhaseKey;
@@ -52,6 +62,9 @@ export const SCHEDULE_KEYS: ScheduleKey[] = [
   PRE_WALK_KEY,
   ...DEFAULT_MILESTONES.map((m) => m.phase),
 ];
+
+/** The four phases in order — the schedule minus the walk that precedes it. */
+export const PHASE_KEYS: ProjectPhaseKey[] = DEFAULT_MILESTONES.map((m) => m.phase);
 
 export const SCHEDULE_LABELS: Record<ScheduleKey, string> = {
   pre_walk: "Pre-walk",
@@ -167,6 +180,61 @@ export function blankSchedule(): Record<ScheduleKey, string> {
   return Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, ""])) as Record<ScheduleKey, string>;
 }
 
+/** The day before `iso` — where a phase ends when the next one begins on `iso`. */
+export function dayBefore(iso: string): string {
+  return toIsoDate(new Date(dateFromIso(iso).getTime() - MS_PER_DAY));
+}
+
+/** Whole days from `from` up to but not including `to`. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((dateFromIso(to).getTime() - dateFromIso(from).getTime()) / MS_PER_DAY);
+}
+
+export type PhaseRun = {
+  /** Last day of the phase — the day before the next one begins. */
+  endsIso: string;
+  /** How many days it runs. Zero or negative means the dates disagree. */
+  days: number;
+};
+
+/**
+ * When a phase ends and how long it runs, derived from the phase that follows.
+ *
+ * Skips blank phases rather than giving up on them: with In Process dated,
+ * Punch blank and Complete dated, In Process genuinely runs until the day
+ * before Complete. Returns null for the last dated phase — nothing follows it,
+ * so it has no end, which is exactly what Complete is.
+ *
+ * Zero and negative days are returned rather than suppressed. A phase beginning
+ * the same day as the next one has no days in it, and that is worth showing;
+ * `scheduleWarnings` names the out-of-order case separately.
+ */
+export function phaseRun(
+  dates: Partial<Record<ScheduleKey, string>>,
+  key: ProjectPhaseKey,
+): PhaseRun | null {
+  const begin = dates[key];
+  if (!begin) return null;
+  const after = PHASE_KEYS.slice(PHASE_KEYS.indexOf(key) + 1);
+  const nextKey = after.find((k) => !!dates[k]);
+  if (!nextKey) return null;
+  const next = dates[nextKey] as string;
+  return { endsIso: dayBefore(next), days: daysBetween(begin, next) };
+}
+
+/** A day count as a person would say it — "4 days", "2 weeks", "2.6 weeks". */
+export function describeDays(days: number): string {
+  if (days === 0) return "no days";
+  if (days < 0) return `${days} days`;
+  if (days === 1) return "1 day";
+  if (days % 7 === 0) {
+    const weeks = days / 7;
+    return `${weeks} week${weeks === 1 ? "" : "s"}`;
+  }
+  if (days <= 13) return `${days} days`;
+  return `${Math.round((days / 7) * 10) / 10} weeks`;
+}
+
 /**
  * How the schedule reads in plain language — "about 2.5 weeks from commencement
  * to sign-off" — for the settings page and the wizard's hint.
@@ -175,6 +243,21 @@ export function describeSchedule(offsets: Record<ScheduleKey, number>): string {
   const weeks = (offsets.complete - offsets.in_process) / 7;
   const rounded = Math.round(weeks * 10) / 10;
   return `about ${rounded} week${rounded === 1 ? "" : "s"} from work commencing to sign-off`;
+}
+
+/**
+ * Each phase's length, for the settings panel — "3 days pre-con · 2 weeks in
+ * process · 4 days punch". The offsets are days from creation, so the gap
+ * between two of them IS the length of the earlier phase.
+ */
+export function describePhaseLengths(offsets: Record<ScheduleKey, number>): string {
+  const parts: string[] = [];
+  for (let i = 0; i < PHASE_KEYS.length - 1; i++) {
+    const key = PHASE_KEYS[i];
+    const days = offsets[PHASE_KEYS[i + 1]] - offsets[key];
+    parts.push(`${describeDays(days)} ${SCHEDULE_LABELS[key].toLowerCase()}`);
+  }
+  return parts.join(" · ");
 }
 
 /** Dates out of order — the thing three free-floating fields could not catch. */

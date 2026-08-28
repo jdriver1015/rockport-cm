@@ -5,7 +5,8 @@ import { db, schema } from "@/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { readScheduleDefaults } from "@/lib/interior-defaults";
-import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
+import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
+
 import { listTriggerSteps } from "@/lib/renovation-triggers-store";
 import { projectSlug } from "@/lib/slug";
 import { phaseLabel } from "@/lib/stages";
@@ -17,7 +18,6 @@ import {
   type WizardTakenUnit,
   type WizardUnit,
   type WizardUnitGroup,
-  type WizardVendor,
 } from "@/components/interior-wizard";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 
@@ -120,12 +120,6 @@ export default async function NewInteriorProjectPage({
         notes: ln.notes,
       })),
   }));
-
-  const vendors: WizardVendor[] = await db()
-    .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
-    .from(schema.vendors)
-    .where(eq(schema.vendors.active, true))
-    .orderBy(asc(schema.vendors.name));
 
   // The interior plan supplies two things the wizard needs: the overridden amounts
   // this unit's group carries (so a created project's budget matches its pivot
@@ -238,13 +232,13 @@ export default async function NewInteriorProjectPage({
         propertySlug={property.slug}
         units={units}
         groups={groups}
-        vendors={vendors}
         unitGroups={unitGroups}
         pins={pins}
         allocations={allocations}
         schedule={schedule}
         suggestedDates={suggestedDates}
-        takenUnits={takenUnits}
+        takenUnits={takenUnits}
+
         triggerSteps={triggerSteps}
       />
     </div>

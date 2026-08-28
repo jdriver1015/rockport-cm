@@ -31,12 +31,17 @@ import {
   SCHEDULE_KEYS,
   SCHEDULE_LABELS,
   blankSchedule,
+  daysBetween,
+  describeDays,
   describeSchedule,
+  phaseRun,
   scheduleWarnings,
   type ScheduleKey,
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
+import type { ProjectPhaseKey } from "@/lib/stages";
+import { fmtDate, fmtDateShort } from "@/lib/format";
 import { TriggerChecklist } from "@/components/trigger-checklist";
 import type { TriggerStep } from "@/lib/renovation-triggers";
 
@@ -58,7 +63,6 @@ export type WizardBudgetLine = {
   notes: string | null;
 };
 export type WizardBudgetGroup = { id: number; name: string; lines: WizardBudgetLine[] };
-export type WizardVendor = { id: number; name: string; trade: string | null };
 
 /** A unit that already has an interior project, so it cannot be turned again. */
 export type WizardTakenUnit = {
@@ -104,7 +108,7 @@ type Line = {
 const money = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const STEPS = ["Unit", "Renovation type", "Review budget", "Vendor & dates", "Create"];
+const STEPS = ["Unit", "Renovation type", "Review budget", "Target phasing", "Create"];
 
 /**
  * Price a tier's lines against the chosen unit. All the arithmetic — including
@@ -157,7 +161,6 @@ export function InteriorWizard({
   propertySlug,
   units,
   groups,
-  vendors,
   unitGroups = [],
   pins = [],
   allocations = [],
@@ -170,7 +173,6 @@ export function InteriorWizard({
   propertySlug: string;
   units: WizardUnit[];
   groups: WizardBudgetGroup[];
-  vendors: WizardVendor[];
   unitGroups?: WizardUnitGroup[];
   pins?: WizardPin[];
   allocations?: WizardAllocation[];
@@ -196,7 +198,6 @@ export function InteriorWizard({
   const [unit, setUnit] = useState<WizardUnit | null>(null);
   const [groupId, setGroupId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
-  const [vendorId, setVendorId] = useState<number | null>(null);
 
   // One map keyed by schedule key rather than three loose date fields. The old
   // shape let target completion sit before the pre-walk with nothing noticing,
@@ -210,6 +211,11 @@ export function InteriorWizard({
   const [dates, setDates] = useState<Record<ScheduleKey, string>>(suggested);
 
   const dateWarnings = scheduleWarnings(dates);
+  // The whole turn end to end, which is the number people actually quote.
+  const span =
+    dates[PRE_WALK_KEY] && dates.complete
+      ? daysBetween(dates[PRE_WALK_KEY], dates.complete)
+      : null;
   const touched = SCHEDULE_KEYS.some((k) => dates[k] !== suggested[k]);
 
   function setDate(key: ScheduleKey, value: string) {
@@ -319,13 +325,12 @@ export function InteriorWizard({
         bedrooms: unit.bedrooms,
         baths: unit.baths,
         sqft: unit.sqft,
-        vendorId: vendorId ?? undefined,
         preWalkDate: dates[PRE_WALK_KEY],
-        // The project's own start and target are DERIVED from the milestones
-        // rather than entered separately, so the header and the timeline cannot
-        // disagree about when the work runs.
-        startDate: dates.in_process,
-        targetCompletionDate: dates.complete,
+        // No start or target date on the project itself. Those columns hold what
+        // ACTUALLY happened — startDate is stamped on entry to In Process — and
+        // filling them here with a plan made one column mean the target until
+        // the phase flipped and the real date afterwards. The plan lives on the
+        // milestones, which is where it stays editable.
         milestones: DEFAULT_MILESTONES.map((m) => ({
           phase: m.phase,
           plannedDate: dates[m.phase] || undefined,
@@ -565,33 +570,28 @@ export function InteriorWizard({
           </div>
         )}
 
-        {/* Step 4 — vendor & dates */}
+        {/* Step 4 — target phasing */}
         {step === 3 && (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="wz-vendor">Vendor</Label>
-              <select
-                id="wz-vendor"
-                value={vendorId ?? ""}
-                onChange={(e) => setVendorId(e.target.value ? Number(e.target.value) : null)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <option value="">Unassigned</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                    {v.trade ? ` — ${v.trade}` : ""}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-1">
+              <p className="text-[13px] leading-relaxed text-ink-600">
+                Set the day each phase is meant to{" "}
+                <span className="font-medium text-navy">begin</span>. Each phase runs until the day
+                before the next one starts, so these five dates lay out the whole turn.
+              </p>
+              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                A target, not a commitment — the project records its real dates as it moves through
+                each phase, and you can change any of these later. Leave one blank to fill in
+                later. Vendors are set by awarding a bid, not here.
+              </p>
             </div>
+
             <div className="space-y-2">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <Label>Schedule</Label>
+                <Label>Target phasing</Label>
                 {scheduleSettings.enabled && (
                   <span className="text-[11px] text-muted-foreground">
-                    Suggested from the portfolio default —{" "}
-                    {describeSchedule(scheduleSettings.offsets)}
+                    Portfolio default — {describeSchedule(scheduleSettings.offsets)}
                     {touched && (
                       <>
                         {" · "}
@@ -609,31 +609,65 @@ export function InteriorWizard({
               </div>
 
               <div className="divide-y divide-hairline rounded-card border border-border">
-                {SCHEDULE_KEYS.map((key) => (
-                  <div key={key} className="flex items-center gap-3 px-3 py-2">
-                    <Label htmlFor={`wz-date-${key}`} className="flex-1 text-[13px] font-normal">
-                      {SCHEDULE_LABELS[key]}
-                      {key === PRE_WALK_KEY && (
-                        <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                          not a phase
-                        </span>
+                {SCHEDULE_KEYS.map((key) => {
+                  const isPreWalk = key === PRE_WALK_KEY;
+                  // Derived, never typed: the end of a phase is the day before the
+                  // next one begins, so showing it here is the only place the
+                  // implied span is visible before the project exists.
+                  const run = isPreWalk ? null : phaseRun(dates, key as ProjectPhaseKey);
+                  return (
+                    <div key={key}>
+                      <div
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2",
+                          isPreWalk && "bg-surface-muted/40",
+                        )}
+                      >
+                        <Label
+                          htmlFor={`wz-date-${key}`}
+                          className="flex-1 text-[13px] font-normal"
+                        >
+                          {SCHEDULE_LABELS[key]}
+                          {isPreWalk ? (
+                            <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
+                              before the project
+                            </span>
+                          ) : key === "complete" ? (
+                            <span className="ml-1.5 text-[12px] text-muted-foreground">
+                              — target finish
+                            </span>
+                          ) : (
+                            <span className="ml-1.5 text-[12px] text-muted-foreground">begins</span>
+                          )}
+                        </Label>
+                        <Input
+                          id={`wz-date-${key}`}
+                          type="date"
+                          className="w-44"
+                          value={dates[key]}
+                          onChange={(e) => setDate(key, e.target.value)}
+                        />
+                      </div>
+                      {run && (
+                        <p className="ml-3 border-l-2 border-hairline py-0.5 pl-3 text-[11px] text-muted-foreground">
+                          {run.days > 0
+                            ? `runs ${describeDays(run.days)}, through ${fmtDateShort(run.endsIso)}`
+                            : `${describeDays(run.days)} — the next phase begins ${
+                                run.days === 0 ? "the same day" : "earlier"
+                              }`}
+                        </p>
                       )}
-                    </Label>
-                    <Input
-                      id={`wz-date-${key}`}
-                      type="date"
-                      className="w-44"
-                      value={dates[key]}
-                      onChange={(e) => setDate(key, e.target.value)}
-                    />
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
 
-              <p className="text-[11px] text-muted-foreground">
-                The four phases are created with the project and stamp their actual dates as it
-                moves through each phase. Leave a date blank to fill it in later.
-              </p>
+              {span !== null && (
+                <div className="flex items-center justify-between px-0.5 text-[12px] text-muted-foreground">
+                  <span>Pre-walk to sign-off</span>
+                  <span className="font-medium text-navy tabular-nums">{describeDays(span)}</span>
+                </div>
+              )}
 
               {dateWarnings.length > 0 && (
                 <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
@@ -651,10 +685,22 @@ export function InteriorWizard({
             <Summary label="Unit" value={unit ? `Unit ${unit.unitNumber}` : "—"} />
             <Summary label="Renovation type" value={group?.name ?? "—"} />
             <Summary label="Budget lines" value={String(lines.length)} />
-            <Summary label="Vendor" value={vendors.find((v) => v.id === vendorId)?.name ?? "Unassigned"} />
-            {SCHEDULE_KEYS.map((key) => (
-              <Summary key={key} label={SCHEDULE_LABELS[key]} value={dates[key] || "—"} />
-            ))}
+            {SCHEDULE_KEYS.map((key) => {
+              const run = key === PRE_WALK_KEY ? null : phaseRun(dates, key as ProjectPhaseKey);
+              return (
+                <Summary
+                  key={key}
+                  label={SCHEDULE_LABELS[key]}
+                  value={
+                    dates[key]
+                      ? `${fmtDate(dates[key])}${
+                          run && run.days > 0 ? ` · ${describeDays(run.days)}` : ""
+                        }`
+                      : "—"
+                  }
+                />
+              );
+            })}
             <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
               <span>Estimated budget</span>
               <span className="tabular-nums">{money(total)}</span>

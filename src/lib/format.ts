@@ -31,6 +31,17 @@ export function fmtDate(value: string | Date | null | undefined): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * Month and day only — for prose that sits beside a full date, where repeating
+ * the year adds length without adding anything.
+ */
+export function fmtDateShort(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function num(value: number | string | null | undefined): number {
   const n = typeof value === "string" ? parseFloat(value) : value;
   return n == null || Number.isNaN(n) ? 0 : n;

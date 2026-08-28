@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { PROJECT_PHASES, phaseLabel } from "@/lib/stages";
+import { PROJECT_PHASES, phaseLabel } from "@/lib/stages";
+
 import { requireUser } from "@/lib/auth";
 import { canWriteProperty } from "@/lib/auth-rules";
 import type { ActionResult } from "@/lib/action-result";
@@ -239,8 +240,8 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
             },
           ]
         : []),
-      { field: "startDate", fieldLabel: "Start Date", from: fmtDate(project.startDate), to: fmtDate(d.startDate) },
-      { field: "completeDate", fieldLabel: "Complete Date", from: fmtDate(project.completeDate), to: fmtDate(d.completeDate) },
+      { field: "startDate", fieldLabel: "Actual Start", from: fmtDate(project.startDate), to: fmtDate(d.startDate) },
+      { field: "completeDate", fieldLabel: "Actual Completion", from: fmtDate(project.completeDate), to: fmtDate(d.completeDate) },
       { field: "notes", fieldLabel: "Notes", from: truncate(project.notes), to: truncate(d.notes) },
       ...(project.kind === "unit"
         ? [

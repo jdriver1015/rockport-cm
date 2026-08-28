@@ -431,9 +431,24 @@ export const projects = pgTable("projects", {
    * would reintroduce the timezone bug class that shifted dates by a day.
    */
   preWalkTime: time("pre_walk_time"),
+  /**
+   * When work ACTUALLY started — stamped on first entry to In Process, and
+   * editable after the fact. Not a plan: the target start is the In Process
+   * phase milestone's plannedDate (see project_milestones and
+   * src/lib/schedule-data.ts).
+   */
   startDate: date("start_date"),
-  /** Planned delivery/target date (distinct from completeDate, the actual finish) */
+  /**
+   * SUPERSEDED — no longer written or read.
+   *
+   * The target finish is the `complete` phase milestone's plannedDate. This
+   * column held a second copy of it, filled once by the interior wizard and
+   * never updated again, so editing the target on the project page moved one
+   * copy and left the Schedule views drawing the other. Kept because dropping a
+   * column is a migration with no user-visible payoff.
+   */
   targetCompletionDate: date("target_completion_date"),
+  /** When work ACTUALLY finished — stamped on first entry to Complete. */
   completeDate: date("complete_date"),
   /** Rent economics — unit projects; drives trade-out $, %, and ROI */
   previousRent: numeric("previous_rent", { precision: 10, scale: 2 }),

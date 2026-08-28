@@ -21,15 +21,18 @@ import { projectSlug } from "@/lib/slug";
 import type { ScheduleProject } from "@/lib/schedule-data";
 
 type Chip = {
-  label: "Pre-walk" | "Start" | "Target" | "Complete";
+  label: "Pre-walk" | "Target start" | "Started" | "Target finish" | "Completed";
   project: ScheduleProject;
 };
 
 const CHIP_COLOR: Record<Chip["label"], string> = {
   "Pre-walk": "bg-text-faint",
-  Start: "bg-info",
-  Target: "bg-pending",
-  Complete: "bg-positive",
+  // Targets read as pending, actuals as done — the colour says which kind of
+  // date a chip is before the label is read.
+  "Target start": "bg-pending",
+  Started: "bg-info",
+  "Target finish": "bg-pending",
+  Completed: "bg-positive",
 };
 
 function buildDayMap(projects: ScheduleProject[]): Map<string, Chip[]> {
@@ -40,9 +43,10 @@ function buildDayMap(projects: ScheduleProject[]): Map<string, Chip[]> {
   }
   for (const p of projects) {
     add(p.preWalkDate, "Pre-walk", p);
-    add(p.startDate, "Start", p);
-    add(p.targetCompletionDate, "Target", p);
-    add(p.completeDate, "Complete", p);
+    add(p.targetStart, "Target start", p);
+    add(p.actualStart, "Started", p);
+    add(p.targetCompletion, "Target finish", p);
+    add(p.actualCompletion, "Completed", p);
   }
   return map;
 }

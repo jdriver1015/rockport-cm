@@ -14,6 +14,7 @@ import {
   PRE_WALK_KEY,
   SCHEDULE_KEYS,
   SCHEDULE_LABELS,
+  describePhaseLengths,
   describeSchedule,
   scheduleWarnings,
   suggestSchedule,
@@ -97,7 +98,7 @@ export function ScheduleDefaultsPanel({
               Days out
             </span>
             <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-              If created today
+              Begins, if created today
             </span>
           </div>
           {SCHEDULE_KEYS.map((key) => (
@@ -106,7 +107,7 @@ export function ScheduleDefaultsPanel({
                 {SCHEDULE_LABELS[key]}
                 {key === PRE_WALK_KEY && (
                   <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                    not a phase
+                    before the project
                   </span>
                 )}
               </Label>
@@ -131,10 +132,16 @@ export function ScheduleDefaultsPanel({
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Days are counted from the day the project is created, each independently — not chained off
-          the one before — so changing one date does not move the others. A date landing on a
-          weekend rolls forward to the Monday. Currently{" "}
-          <span className="font-medium text-navy">{describeSchedule(offsets)}</span>.
+          Each number is the day that phase <span className="font-medium text-navy">begins</span>,
+          counted from the day the project is created. A phase runs until the day before the next
+          one starts, so these four numbers set four lengths:{" "}
+          <span className="font-medium text-navy">{describePhaseLengths(offsets)}</span> —{" "}
+          {describeSchedule(offsets)}.
+        </p>
+
+        <p className="text-[11px] text-muted-foreground">
+          Days are counted independently rather than chained off the one before, so changing one
+          date does not move the others. A date landing on a weekend rolls forward to the Monday.
         </p>
 
         {warnings.length > 0 && (

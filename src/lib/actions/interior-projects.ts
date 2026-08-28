@@ -62,15 +62,16 @@ const createSchema = z.object({
   bedrooms: z.coerce.number().int().nonnegative().optional().nullable(),
   baths: z.coerce.number().nonnegative().optional().nullable(),
   sqft: z.coerce.number().int().nonnegative().optional().nullable(),
-  vendorId: z.coerce.number().int().positive().optional().nullable(),
   name: z.string().trim().optional(),
   preWalkDate: optDate,
-  startDate: optDate,
-  targetCompletionDate: optDate,
   /**
-   * Planned dates for the four seeded milestones, keyed by phase. Optional so
-   * an older caller still creates a project with undated milestones rather than
-   * none.
+   * TARGET PHASING — the day each of the four phases is planned to BEGIN, keyed
+   * by phase. A phase runs until the day before the next begins, so these are
+   * the whole plan; nothing here writes a start or completion date onto the
+   * project, because those columns record what actually happened.
+   *
+   * Optional so an older caller still creates a project with undated milestones
+   * rather than none.
    */
   milestones: z
     .array(z.object({ phase: z.string().trim().min(1), plannedDate: optDate }))
@@ -175,14 +176,18 @@ export async function createInteriorProject(
           kind: "unit",
           name: projectName,
           unitId,
-          vendorId: d.vendorId ?? undefined,
+          // No vendorId. A project's vendor is whoever holds an approved bid on
+          // it — see syncProjectVendor — so setting one at creation asserts an
+          // award that does not exist, and the bidding flow would overwrite it.
           budgetGroupId: d.budgetGroupId,
           // No budgetAmount here: it is derived from the scope lines seeded
           // below, so writing it as well would be a second answer that only
           // agrees until somebody edits a line.
           preWalkDate: d.preWalkDate,
-          startDate: d.startDate,
-          targetCompletionDate: d.targetCompletionDate,
+          // startDate and completeDate stay null: they are stamped when the
+          // project really enters In Process and Complete. Seeding them with the
+          // plan made one column mean "target" until the phase flipped and
+          // "actual" afterwards, which the Gantt drew as a moving start.
         })
         .returning({ id: schema.projects.id });
 

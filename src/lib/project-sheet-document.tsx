@@ -225,7 +225,7 @@ export function ProjectSheetDocument({ data }: { data: ProjectSheet }) {
         <Text style={styles.section}>Phases</Text>
         <View style={styles.th}>
           <Text style={[styles.thText, styles.cItem]}>Phase</Text>
-          <Text style={[styles.thText, styles.cCat]}>Planned</Text>
+          <Text style={[styles.thText, styles.cCat]}>Target start</Text>
           <Text style={[styles.thText, styles.cCat]}>Actual</Text>
           <Text style={[styles.thText, styles.cNum]}>Variance</Text>
         </View>

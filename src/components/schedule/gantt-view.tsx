@@ -28,6 +28,21 @@ function parseDate(s: string | null): Date | null {
 
 type Dated = { p: ScheduleProject; start: Date; end: Date };
 
+/** Says which end of the bar is a record and which is still a plan. */
+function barTitle(p: ScheduleProject): string {
+  const from = p.actualStart
+    ? `started ${p.actualStart}`
+    : p.targetStart
+      ? `target start ${p.targetStart}`
+      : `pre-walk ${p.preWalkDate}`;
+  const to = p.actualCompletion
+    ? `completed ${p.actualCompletion}`
+    : p.targetCompletion
+      ? `target finish ${p.targetCompletion}`
+      : "in progress";
+  return `${from} → ${to}`;
+}
+
 export function GanttView({ projects }: { projects: ScheduleProject[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = useMemo(() => {
@@ -40,9 +55,13 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
     () =>
       projects
         .map((p) => {
-          const start = parseDate(p.startDate) ?? parseDate(p.preWalkDate);
+          // What really happened wins; the target is the fallback while it has
+          // not happened yet. One bar per project still, but its ends no longer
+          // change meaning underneath the reader — see ScheduleProject.
+          const start =
+            parseDate(p.actualStart) ?? parseDate(p.targetStart) ?? parseDate(p.preWalkDate);
           if (!start) return null;
-          const end = parseDate(p.completeDate) ?? parseDate(p.targetCompletionDate) ?? today;
+          const end = parseDate(p.actualCompletion) ?? parseDate(p.targetCompletion) ?? today;
           return { p, start, end: end < start ? start : end };
         })
         .filter((x): x is Dated => x !== null),
@@ -230,7 +249,7 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                           left: pxOffset(d.start),
                           width: Math.max(DAY_WIDTH, pxOffset(d.end) - pxOffset(d.start) + DAY_WIDTH),
                         }}
-                        title={`${d.p.startDate ?? d.p.preWalkDate} → ${d.p.completeDate ?? d.p.targetCompletionDate ?? "in progress"}`}
+                        title={barTitle(d.p)}
                       >
                         <span className="truncate">{phaseLabel(d.p.phase)}</span>
                       </div>
