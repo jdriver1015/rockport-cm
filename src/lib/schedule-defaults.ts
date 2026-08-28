@@ -136,6 +136,69 @@ export function toIsoDate(date: Date): string {
 }
 
 /**
+ * Add days by CALENDAR FIELDS, never by epoch milliseconds.
+ *
+ * `t + n * 86_400_000` is not "n days later". The day a clock springs forward is
+ * 23 hours long, so local midnight minus 86,400,000ms lands at 23:00 the day
+ * before that — and reading the calendar fields off it gives the wrong date.
+ * dayBefore("2026-03-09") returned 2026-03-07. Mon 9 Mar 2026 is exactly where
+ * nextWeekday parks a suggested date, so this was on the default path.
+ *
+ * new Date(y, m, d + n) is defined to normalise overflow against the local
+ * calendar, which is the arithmetic people mean.
+ */
+export function addDays(date: Date, n: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+}
+
+/** Saturday or Sunday — not a day anybody mobilises a crew. */
+export function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * `n` BUSINESS days from `iso`, skipping weekends.
+ *
+ * Zero is meaningful: it rolls a weekend date onto the following Monday without
+ * advancing. Negative counts backwards, which is what un-doing a slip needs.
+ */
+export function addBusinessDays(iso: string, n: number): string {
+  let d = dateFromIso(iso);
+  // Count from a working day. A gap measured from a Saturday is a gap from a
+  // day the work could not have started on.
+  while (isWeekend(d)) d = addDays(d, 1);
+  let left = n;
+  while (left > 0) {
+    d = addDays(d, 1);
+    if (!isWeekend(d)) left--;
+  }
+  while (left < 0) {
+    d = addDays(d, -1);
+    if (!isWeekend(d)) left++;
+  }
+  return toIsoDate(d);
+}
+
+/**
+ * Working days from `from` up to but not including `to`. Negative if `to` is
+ * earlier — a phase whose dates run backwards should report that, not zero.
+ */
+export function businessDaysBetween(from: string, to: string): number {
+  if (from === to) return 0;
+  const backwards = to < from;
+  const start = dateFromIso(backwards ? to : from);
+  const end = dateFromIso(backwards ? from : to);
+  let count = 0;
+  let d = start;
+  while (d < end) {
+    d = addDays(d, 1);
+    if (!isWeekend(d)) count++;
+  }
+  return backwards ? -count : count;
+}
+
+/**
  * Roll a weekend date forward to the following Monday.
  *
  * Crews do not mobilize on a Saturday, so a suggested date landing on one is
@@ -145,8 +208,8 @@ export function toIsoDate(date: Date): string {
  */
 export function nextWeekday(date: Date): Date {
   const day = date.getDay();
-  if (day === 6) return new Date(date.getTime() + 2 * MS_PER_DAY); // Sat → Mon
-  if (day === 0) return new Date(date.getTime() + MS_PER_DAY); // Sun → Mon
+  if (day === 6) return addDays(date, 2); // Sat → Mon
+  if (day === 0) return addDays(date, 1); // Sun → Mon
   return date;
 }
 
@@ -155,7 +218,7 @@ export function weekdayAfter(from: Date, days: number): Date {
   // Normalized to local midnight first so a project created late in the evening
   // gets the same suggestion as one created that morning.
   const base = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-  return nextWeekday(new Date(base.getTime() + days * MS_PER_DAY));
+  return nextWeekday(addDays(base, days));
 }
 
 /**
@@ -182,10 +245,17 @@ export function blankSchedule(): Record<ScheduleKey, string> {
 
 /** The day before `iso` — where a phase ends when the next one begins on `iso`. */
 export function dayBefore(iso: string): string {
-  return toIsoDate(new Date(dateFromIso(iso).getTime() - MS_PER_DAY));
+  return toIsoDate(addDays(dateFromIso(iso), -1));
 }
 
-/** Whole days from `from` up to but not including `to`. */
+/**
+ * Whole CALENDAR days from `from` up to but not including `to` — wall time, for
+ * describing how long a phase occupies. Scheduling arithmetic uses
+ * businessDaysBetween instead.
+ *
+ * Math.round absorbs the 23- and 25-hour days, so this one was never wrong; it
+ * is kept on epoch ms because rounding a difference is exactly where that is safe.
+ */
 export function daysBetween(from: string, to: string): number {
   return Math.round((dateFromIso(to).getTime() - dateFromIso(from).getTime()) / MS_PER_DAY);
 }

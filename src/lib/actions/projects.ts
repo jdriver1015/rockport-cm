@@ -12,6 +12,7 @@ import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
 import { projectSlug } from "@/lib/slug";
 import { defaultMilestoneRows } from "@/lib/milestones";
+import { slipOverdueTargets } from "@/lib/target-slip";
 import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
 import { money, fmtDate } from "@/lib/format";
 
@@ -324,6 +325,26 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
         isNull(schema.projectMilestones.archivedAt),
       ),
     );
+
+  // Advancing re-bases what is still ahead, straight away rather than waiting
+  // for the nightly pass: arriving at this phase late makes every date after it
+  // impossible, and the schedule should say so before anyone reads it.
+  const slip = await db().transaction((tx) =>
+    slipOverdueTargets(tx, parsed.data.projectId, toPhase),
+  );
+  if (slip) {
+    await logFieldChanges({
+      projectId: parsed.data.projectId,
+      userId: auth.profile.id,
+      changes: slip.moved.map((m) => ({
+        field: "milestone:plannedDate",
+        fieldLabel: `${phaseLabel(m.phase)}: Target Start`,
+        from: fmtDate(m.from),
+        to: fmtDate(m.to),
+      })),
+      note: `Pushed ${slip.days} working day${slip.days === 1 ? "" : "s"} on entering ${phaseLabel(toPhase)}`,
+    });
+  }
 
   const _base = await propertyPath(project.propertyId);
   if (_base) {

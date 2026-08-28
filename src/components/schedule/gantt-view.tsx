@@ -335,6 +335,17 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
                           {d.p.unitLabel}
                         </span>
                       )}
+                      {/* The bands move on their own when a phase is missed, so
+                          a slipped schedule and an on-time one look the same
+                          without this. */}
+                      {d.p.slipDays > 0 && (
+                        <span
+                          className="ml-1.5 shrink-0 rounded-control bg-alert-bg px-1.5 py-0.5 text-[10.5px] font-medium text-alert tabular-nums"
+                          title={`Pushed ${d.p.slipDays} working day${d.p.slipDays === 1 ? "" : "s"} since first planned`}
+                        >
+                          +{d.p.slipDays}d
+                        </span>
+                      )}
                     </div>
                     <div className="relative" style={{ width: totalWidth }}>
                       {/* The full extent, behind the bands. A project whose plan

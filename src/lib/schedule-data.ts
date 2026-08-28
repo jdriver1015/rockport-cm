@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { PHASE_KEYS } from "@/lib/schedule-defaults";
+import { readSlipTotals } from "@/lib/target-slip";
 import type { ProjectPhaseKey } from "@/lib/stages";
 
 export type ScheduleProject = {
@@ -39,6 +40,13 @@ export type ScheduleProject = {
    * and the chart draws what is known instead of inventing a plan.
    */
   phaseTargets: Partial<Record<ProjectPhaseKey, string>>;
+  /**
+   * Working days this project's finish has been pushed since it was first
+   * planned. Targets move on their own when a phase is missed, so without this
+   * a schedule that has slipped three weeks looks identical to one that never
+   * slipped at all.
+   */
+  slipDays: number;
 };
 
 /**
@@ -110,6 +118,8 @@ export async function getScheduleProjects(opts?: {
     }
   }
 
+  const slip = await readSlipTotals(rows.map((r) => r.id));
+
   return rows
     .map((r) => {
       const t = targets.get(r.id);
@@ -130,6 +140,7 @@ export async function getScheduleProjects(opts?: {
         actualStart: r.startDate,
         actualCompletion: r.completeDate,
         phaseTargets: t ?? {},
+        slipDays: slip.get(r.id) ?? 0,
       };
     })
     .filter(

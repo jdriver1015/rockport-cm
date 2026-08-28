@@ -1,3 +1,9 @@
 {
-  "buildCommand": "npm run db:migrate && next build"
+  "buildCommand": "npm run db:migrate && next build",
+  "crons": [
+    {
+      "path": "/api/cron/slip-targets",
+      "schedule": "0 7 * * *"
+    }
+  ]
 }

@@ -51,6 +51,9 @@ export const projectStage = pgEnum("project_stage", [
  * for labels and the gate that must be satisfied to leave each one. Replaces
  * the eight-value `projectStage` above, which is being retired.
  */
+/** Why a target date moved without a person moving it. */
+export const slipReason = pgEnum("slip_reason", ["missed", "rebased"]);
+
 export const projectPhase = pgEnum("project_phase", [
   "precon",
   "in_process",
@@ -609,6 +612,42 @@ export const projectMilestones = pgTable("project_milestones", {
   /** Soft-delete: hidden from the timeline but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 }, (t) => [index("project_milestones_project_idx").on(t.projectId)]);
+
+/**
+ * Every time a target date moved on its own.
+ *
+ * Targets are a living plan: when a phase is missed, it and everything after it
+ * are pushed forward so the schedule stays a forecast rather than a work of
+ * fiction. That is only safe because nothing is lost when a date moves — this
+ * table is where it goes.
+ *
+ * It is also the post-mortem dataset. "How much do we slip in punch?" is a
+ * group-by here, and the original commitment is recoverable without a baseline
+ * column: the earliest `fromDate` for a milestone is what was first planned.
+ *
+ * `days` is BUSINESS days. A Friday miss noticed on Monday cost one working
+ * day, not three, and every push lands on a weekday because crews do not
+ * mobilise on a Saturday.
+ */
+export const milestoneSlipEvents = pgTable("milestone_slip_events", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
+  milestoneId: integer("milestone_id")
+    .notNull()
+    .references(() => projectMilestones.id),
+  phase: projectPhase("phase").notNull(),
+  fromDate: date("from_date").notNull(),
+  toDate: date("to_date").notNull(),
+  days: integer("days").notNull(),
+  /** 'missed' — the date passed. 'rebased' — an actual was corrected after it. */
+  reason: slipReason("reason").notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("milestone_slip_events_project_idx").on(t.projectId, t.at),
+  index("milestone_slip_events_phase_idx").on(t.phase, t.at),
+]);
 
 export const bids = pgTable("bids", {
   id: serial("id").primaryKey(),

@@ -12,6 +12,8 @@ import { FIRST_CUSTOM_SORT_ORDER } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
 import { fmtDate } from "@/lib/format";
+import { rebaseFromActual } from "@/lib/target-slip";
+import { phaseLabel, type ProjectPhaseKey } from "@/lib/stages";
 
 const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
 
@@ -157,6 +159,39 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
     ],
   });
 
+  // The override: a transition nobody recorded on the day.
+  //
+  // The nightly pass has already pushed everything forward believing the phase
+  // was late, so correcting the actual has to take that back. Without this a
+  // slip stands on a transition that was never late — which is the exact thing
+  // this correction exists to undo.
+  //
+  // Only the seeded phase rows drive the plan; a custom milestone's actual date
+  // is a note to the reader, not a schedule anchor.
+  if (input.actualDate !== undefined && d.actualDate && milestone.isDefault && milestone.phase) {
+    const rebased = await db().transaction((tx) =>
+      rebaseFromActual(
+        tx,
+        milestone.projectId,
+        milestone.phase as ProjectPhaseKey,
+        d.actualDate as string,
+        project.phase,
+      ),
+    );
+    if (rebased) {
+      await logFieldChanges({
+        projectId: milestone.projectId,
+        userId: auth.profile.id,
+        changes: rebased.moved.map((m) => ({
+          field: "milestone:plannedDate",
+          fieldLabel: `${phaseLabel(m.phase)}: Target Start`,
+          from: fmtDate(m.from),
+          to: fmtDate(m.to),
+        })),
+        note: `Re-based from a corrected ${label} actual of ${fmtDate(d.actualDate)}`,
+      });
+    }
+  }
   await revalidateProject(project.propertyId, project);
   return { ok: true };
 }
