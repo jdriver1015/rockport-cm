@@ -42,10 +42,22 @@ export type BoardProject = {
   lineItem: string;
   /** Slip against the original plan — see readScheduleHealth. */
   health: ScheduleHealth;
+  /** 'unit' or 'common'. Decides how the scope was priced, nothing after that. */
+  kind: string;
+  /** "Unit 001" on a turn, null on common-area work. */
+  unitLabel: string | null;
+  /** The renovation type a turn was priced from. Null on common-area work. */
+  renovationType: string | null;
+};
+
+/** What each kind is called where a person reads it. */
+export const KIND_LABEL: Record<string, string> = {
+  unit: "Unit interior",
+  common: "Common area",
 };
 
 type ViewMode = "table" | "kanban" | "gantt";
-type GroupBy = "phase" | "division" | "category" | "none";
+type GroupBy = "phase" | "kind" | "division" | "category" | "none";
 type SortKey = "name" | "budget" | "committed" | "jtd" | "phase" | "schedule";
 type Dir = "asc" | "desc";
 
@@ -59,7 +71,9 @@ function isView(v: string | undefined): v is ViewMode {
   return v === "table" || v === "kanban" || v === "gantt";
 }
 function isGroup(v: string | undefined): v is GroupBy {
-  return v === "phase" || v === "division" || v === "category" || v === "none";
+  return (
+    v === "phase" || v === "kind" || v === "division" || v === "category" || v === "none"
+  );
 }
 function isSort(v: string | undefined): v is SortKey {
   return (
@@ -135,7 +149,8 @@ export function ProjectBoard({
   const filtered = optimistic.filter((p) => {
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      const hay = `${p.name} ${p.lineItem} ${p.categoryLabel}`.toLowerCase();
+      const hay =
+        `${p.name} ${p.lineItem} ${p.categoryLabel} ${p.unitLabel ?? ""} ${p.renovationType ?? ""} ${KIND_LABEL[p.kind] ?? ""}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -209,6 +224,7 @@ export function ProjectBoard({
             }}
             options={[
               ["phase", "Phase"],
+              ["kind", "Type"],
               ["division", "Division"],
               ["category", "Category"],
               ["none", "None"],
@@ -263,7 +279,7 @@ export function ProjectBoard({
           No projects yet — add the first one with “New project”.
         </p>
       ) : view === "table" ? (
-        <TableView groups={groups} propertySlug={propertySlug} />
+        <TableView groups={groups} propertySlug={propertySlug} groupBy={group} />
       ) : view === "kanban" ? (
         <KanbanView
           groups={groups}
@@ -295,6 +311,17 @@ function buildGroups(projects: BoardProject[], groupBy: GroupBy): Group[] {
       label: ph.label,
       projects: projects.filter((p) => p.phase === ph.key),
     }));
+  }
+  if (groupBy === "kind") {
+    // Unit turns first: they are the bulk of the work and the ones a property
+    // manager scans for.
+    return ["unit", "common"]
+      .map((k) => ({
+        key: k,
+        label: KIND_LABEL[k] ?? k,
+        projects: projects.filter((p) => p.kind === k),
+      }))
+      .filter((g) => g.projects.length > 0);
   }
   if (groupBy === "division") {
     const groups: Group[] = DIVISIONS.map((d) => ({
@@ -453,7 +480,29 @@ function ProjectLink({
 // Table view
 // ---------------------------------------------------------------------------
 
-function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: string }) {
+/**
+ * The line under a project's name, or nothing.
+ *
+ * A turn says which renovation type priced it; a common-area job says nothing,
+ * because its categories live on its scope lines and naming one here would be
+ * the same lie the project-level cost code was. Both go quiet when the list is
+ * already grouped by type.
+ */
+function subtitleFor(p: BoardProject, groupBy: GroupBy): string | null {
+  if (groupBy === "kind") return p.kind === "unit" ? p.renovationType : null;
+  if (p.kind !== "unit") return null;
+  return p.renovationType ? `Unit interior · ${p.renovationType}` : "Unit interior";
+}
+
+function TableView({
+  groups,
+  propertySlug,
+  groupBy,
+}: {
+  groups: Group[];
+  propertySlug: string;
+  groupBy: GroupBy;
+}) {
   const router = useRouter();
   const shown = groups.filter((g) => g.projects.length > 0);
   if (shown.length === 0) {
@@ -500,7 +549,22 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                           grouped by phase. */}
                       <span className="flex min-w-0 items-center gap-2">
                         <PhaseDot phase={p.phase} />
-                        <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
+                        <span className="min-w-0">
+                          <ProjectLink
+                            project={p}
+                            propertySlug={propertySlug}
+                            interactive={false}
+                          />
+                          {/* The renovation type a turn was priced from — the one
+                              thing the separate Unit Upgrades table showed that
+                              this list did not. Suppressed when already grouped
+                              by type, where the header says it. */}
+                          {subtitleFor(p, groupBy) && (
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {subtitleFor(p, groupBy)}
+                            </span>
+                          )}
+                        </span>
                       </span>
                     </TableCell>
                     <TableCell>

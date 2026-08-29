@@ -1,60 +1,17 @@
-import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { InteriorManageMenu } from "@/components/interior-manage-menu";
-import { AmountCell } from "@/components/ui/amount-cell";
-import { ClickableTableRow } from "@/components/ui/clickable-table-row";
-import { TableCard } from "@/components/ui/table-card";
-import { TierBadge } from "@/components/ui/tier-badge";
 import { KpiStrip } from "@/components/ui/kpi-strip";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableGroupRow,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { fmtDate, money, num } from "@/lib/format";
-import { PROJECT_PHASES } from "@/lib/stages";
+import { num } from "@/lib/format";
 import { buildInteriorKpis } from "@/lib/interior-kpis";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
-import { projectSlug } from "@/lib/slug";
-import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-function daysBetween(start: string | null, end: string | null): string {
-  if (!start || !end) return "—";
-  const a = new Date(`${start}T00:00:00`);
-  const b = new Date(`${end}T00:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return "—";
-  return String(Math.round((b.getTime() - a.getTime()) / 86_400_000));
-}
-
-function VarianceCell({ budget, actual }: { budget: number; actual: number }) {
-  if (!actual) return <span className="block text-right font-semibold tabular-nums text-ink-100">—</span>;
-  const variance = budget - actual;
-  const formatted = money(Math.abs(variance));
-  if (formatted === "—") return <span className="block text-right font-semibold tabular-nums text-ink-100">—</span>;
-  const isPositive = variance >= 0;
-  return (
-    <span
-      className={cn(
-        "block text-right font-semibold tabular-nums",
-        isPositive ? "text-positive" : "text-red-600",
-      )}
-    >
-      {isPositive ? `+${formatted}` : `-${formatted}`}
-    </span>
-  );
-}
 
 export default async function InteriorsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -65,23 +22,14 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [groups, interiorProjects, jtdRows, budget] = await Promise.all([
-    db()
-      .select()
-      .from(schema.budgetGroups)
-      .where(and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)))
-      .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
+  const [interiorProjects, jtdRows, budget] = await Promise.all([
     db()
       .select({
         id: schema.projects.id,
-        name: schema.projects.name,
         phase: schema.projects.phase,
         budgetAmount: schema.projects.budgetAmount,
-        budgetGroupId: schema.projects.budgetGroupId,
         startDate: schema.projects.startDate,
         completeDate: schema.projects.completeDate,
-        unitNumber: schema.units.unitNumber,
-        floorplan: schema.units.floorplan,
       })
       .from(schema.projects)
       .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
@@ -128,18 +76,7 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
     })),
   });
 
-  // Same tier ordering/coloring as the budget pivot — index is the group's
-  // position among the property's budget groups, not tied to its name.
-  const tierIndexById = new Map(groups.map((g, i) => [g.id, i]));
-  const tierNameById = new Map(groups.map((g) => [g.id, g.name]));
 
-  const phaseGroups = PROJECT_PHASES
-    .map((ph) => ({
-      key: ph.key,
-      label: ph.label,
-      projects: interiorProjects.filter((p) => p.phase === ph.key),
-    }))
-    .filter((g) => g.projects.length > 0);
 
   return (
     <div className="space-y-6">
@@ -159,80 +96,41 @@ export default async function InteriorsPage({ params }: { params: Promise<{ slug
 
       <KpiStrip items={kpis} />
 
-      {interiorProjects.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">
-          No interior projects yet. Set up your scope groups, then create one from the wizard.
+      {/*
+        The list of turns moved to Projects.
+        
+        This page used to hold both a project list and the turn programme, and
+        the list duplicated the Projects tab in a table that could not do
+        Kanban, Gantt, grouping, sorting or schedule health. A turn and a
+        common-area job differ in how they are scoped and priced, not in what
+        they are afterwards, so they are one list now.
+        
+        What is left here is the programme: how many turns, how far along, and
+        against what budget. The plan itself — tiers, planned units, cost per
+        unit — is on the Budget tab, where it always was.
+      */}
+      <div className="rounded-card border border-border bg-card px-4 py-3.5">
+        <p className="text-[13px] text-ink-600">
+          Individual turns live on the{" "}
+          <Link
+            href={`/properties/${slug}?group=kind`}
+            className="text-link underline underline-offset-2 hover:text-navy"
+          >
+            Projects tab
+          </Link>
+          , grouped by type alongside common-area work.
         </p>
-      ) : (
-        <TableCard>
-          <Table className="table-fixed">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[15%]">Project</TableHead>
-                <TableHead className="w-[8%]">Floorplan</TableHead>
-                <TableHead className="w-[11%]">Renovation type</TableHead>
-                <TableHead className="w-[10%]">Est. Start</TableHead>
-                <TableHead className="w-[10%]">Date Complete</TableHead>
-                <TableHead className="w-[6%] text-right">Days</TableHead>
-                <TableHead className="w-[13%] text-right">Budgeted Cost</TableHead>
-                <TableHead className="w-[15%] text-right">Reconciled Cost</TableHead>
-                <TableHead className="w-[12%] text-right">Variance</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {phaseGroups.map((g) => (
-                <Fragment key={g.key}>
-                  <TableGroupRow label={g.label} count={g.projects.length} colSpan={9} />
-                  {g.projects.map((p) => {
-                    const jtd = jtdByProject.get(p.id) ?? 0;
-                    const reconciledCost = jtd;
-                    const href = `/properties/${slug}/projects/${projectSlug(p)}`;
-                    const tierName = p.budgetGroupId != null ? tierNameById.get(p.budgetGroupId) : undefined;
-                    const tierIndex = p.budgetGroupId != null ? tierIndexById.get(p.budgetGroupId) ?? 0 : 0;
-                    return (
-                      <ClickableTableRow key={p.id} href={href}>
-                        <TableCell className="truncate">
-                          <Link href={href} className="font-medium text-navy">
-                            {p.unitNumber ? `Unit ${p.unitNumber}` : p.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {p.floorplan ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          {tierName ? (
-                            <TierBadge label={tierName} index={tierIndex} />
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {fmtDate(p.startDate)}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {fmtDate(p.completeDate)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {daysBetween(p.startDate, p.completeDate)}
-                        </TableCell>
-                        <TableCell>
-                          <AmountCell value={p.budgetAmount} />
-                        </TableCell>
-                        <TableCell>
-                          <AmountCell value={reconciledCost} positive={reconciledCost > 0} />
-                        </TableCell>
-                        <TableCell>
-                          <VarianceCell budget={num(p.budgetAmount)} actual={reconciledCost} />
-                        </TableCell>
-                      </ClickableTableRow>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableCard>
-      )}
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          The tiers and per-unit budgets behind these figures are on the{" "}
+          <Link
+            href={`/properties/${slug}/budget`}
+            className="text-link underline underline-offset-2 hover:text-navy"
+          >
+            Budget tab
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   );
 }

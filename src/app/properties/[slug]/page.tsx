@@ -41,14 +41,22 @@ export default async function PropertyBoardPage({
         costCodeName: schema.costCodes.name,
         categoryName: schema.costCategories.name,
         division: schema.costCategories.division,
+        // Both kinds live in one list now. A turn and a common-area job differ
+        // in how they are scoped and priced, not in what they are afterwards —
+        // both carry scope, bids, contracts, phases, GL and a schedule, and all
+        // of that was already kind-agnostic.
+        kind: schema.projects.kind,
+        unitNumber: schema.units.unitNumber,
+        renovationType: schema.budgetGroups.name,
       })
       .from(schema.projects)
       .leftJoin(schema.costCodes, eq(schema.projects.costCodeId, schema.costCodes.id))
       .leftJoin(schema.costCategories, eq(schema.costCodes.categoryId, schema.costCategories.id))
+      .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
+      .leftJoin(schema.budgetGroups, eq(schema.projects.budgetGroupId, schema.budgetGroups.id))
       .where(
         and(
           eq(schema.projects.propertyId, propertyId),
-          eq(schema.projects.kind, "common"),
           isNull(schema.projects.archivedAt),
         ),
       )
@@ -59,7 +67,6 @@ export default async function PropertyBoardPage({
       .where(
         and(
           eq(schema.projects.propertyId, propertyId),
-          eq(schema.projects.kind, "common"),
           sql`${schema.projects.archivedAt} is not null`,
         ),
       ),
@@ -92,6 +99,12 @@ export default async function PropertyBoardPage({
     division: r.division ?? null,
     categoryLabel: r.categoryName ?? "Uncategorized",
     lineItem: r.costCodeName ?? "—",
+    kind: r.kind,
+    unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
+    // The renovation type a turn was priced from. Carried here so the merged
+    // list keeps the one thing the separate Unit Upgrades table showed that
+    // this one did not.
+    renovationType: r.renovationType ?? null,
     health: health.get(r.id) ?? {
       slipDays: 0,
       baselineDays: 0,
