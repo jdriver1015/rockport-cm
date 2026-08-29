@@ -134,7 +134,6 @@ const updateProjectSchema = z.object({
     .optional()
     .transform((v) => (v ? Number(v) : null))
     .refine((v) => v === null || Number.isInteger(v), "Invalid cost code"),
-  budgetAmount: optMoney,
   startDate: optDate,
   completeDate: optDate,
   notes: z
@@ -161,14 +160,21 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
   const parsed = updateProjectSchema.safeParse({
     projectId: formData.get("projectId"),
     name: formData.get("name"),
+    // `?? undefined` on every optional field, not just the coded one.
+    //
+    // FormData.get returns null for a field the form never rendered, and these
+    // optional schemas are z.string().optional() — they take undefined and
+    // reject null. The rent fields and the cost code only render for one kind
+    // of project, so editing the OTHER kind failed validation with "expected
+    // string, received null" before it wrote anything. A common-area project
+    // could not be renamed, redated or annotated at all.
     costCodeId: formData.get("costCodeId") ?? undefined,
-    budgetAmount: formData.get("budgetAmount") ?? undefined,
-    startDate: formData.get("startDate"),
-    completeDate: formData.get("completeDate"),
-    notes: formData.get("notes"),
-    previousRent: formData.get("previousRent"),
-    tradeOutRent: formData.get("tradeOutRent"),
-    leaseDate: formData.get("leaseDate"),
+    startDate: formData.get("startDate") ?? undefined,
+    completeDate: formData.get("completeDate") ?? undefined,
+    notes: formData.get("notes") ?? undefined,
+    previousRent: formData.get("previousRent") ?? undefined,
+    tradeOutRent: formData.get("tradeOutRent") ?? undefined,
+    leaseDate: formData.get("leaseDate") ?? undefined,
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -196,20 +202,21 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
     }
   }
 
-  const budget = d.budgetAmount == null ? null : Number(d.budgetAmount);
-  if (budget != null && (!Number.isFinite(budget) || budget < 0)) {
-    return { ok: false, error: "Enter a valid budget" };
-  }
-
   await db()
     .update(schema.projects)
     .set({
       name: d.name,
       // An interior turn spends across every 4000-series code, so a single UW
       // line item would be a lie. Its budget comes from the renovation template.
-      ...(project.kind === "common"
-        ? { costCodeId: d.costCodeId, budgetAmount: (budget ?? 0).toFixed(2) }
-        : {}),
+      // The cost code only. A project's budget is what its priced scope adds
+      // up to — recomputeProjectBudget owns that column for every kind of
+      // project, and this used to overwrite it on every save.
+      //
+      // Worse than a duplicate: the edit dialog has no budget input, so
+      // formData.get("budgetAmount") was always null and `budget ?? 0` wrote
+      // "0.00". Renaming a common-area project silently zeroed its budget until
+      // the next scope edit put it back.
+      ...(project.kind === "common" ? { costCodeId: d.costCodeId } : {}),
       startDate: d.startDate,
       completeDate: d.completeDate,
       notes: d.notes,
@@ -232,12 +239,6 @@ export async function updateProject(formData: FormData): Promise<ActionResult> {
               fieldLabel: "UW Line Item",
               from: project.costCodeId == null ? null : String(project.costCodeId),
               to: d.costCodeId == null ? null : String(d.costCodeId),
-            },
-            {
-              field: "budgetAmount",
-              fieldLabel: "Approved Budget",
-              from: money(project.budgetAmount),
-              to: money(budget),
             },
           ]
         : []),

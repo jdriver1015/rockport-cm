@@ -76,7 +76,7 @@ export function ProjectEditDialog({
           <DialogTitle>Edit project</DialogTitle>
           <DialogDescription>
             {project.kind === "common"
-              ? "The cost code and budget live here — a project is created with just a name."
+              ? "Name, dates and notes. The budget is whatever the priced scope adds up to, so it is not editable here."
               : "Update the project’s details and dates."}
           </DialogDescription>
         </DialogHeader>
@@ -84,8 +84,10 @@ export function ProjectEditDialog({
           <input type="hidden" name="projectId" value={project.id} />
 
           {/*
-            An interior turn spends across every 4000-series code and gets its
-            budget from a renovation template, so neither field applies to it.
+            An interior turn spends across every 4000-series code, so it carries
+            no project-level one. On a common-area project this is a fallback the
+            budget page uses to file a job that has scope but no prices yet — the
+            categories that actually count are the ones on each scope line.
           */}
           {project.kind === "common" && (
             <div className="grid gap-4 sm:grid-cols-2">
