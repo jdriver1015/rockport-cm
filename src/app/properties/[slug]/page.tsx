@@ -8,6 +8,7 @@ import { PropertyNav } from "@/components/property-nav";
 import { ProjectBoard, type BoardProject } from "@/components/project-board";
 import { num } from "@/lib/format";
 import { readScheduleHealth } from "@/lib/target-slip";
+import { getScheduleProjects } from "@/lib/schedule-data";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,10 @@ export default async function PropertyBoardPage({
   // is the one schedule number that survives targets being pushed forward.
   const health = await readScheduleHealth(rows.map((r) => r.id));
 
+  // The Gantt on this tab is the Schedule tab's, so it reads the same rows:
+  // phase targets, actuals and slip, rather than the board's budget shape.
+  const ganttProjects = await getScheduleProjects({ propertyId });
+
   const projects: BoardProject[] = rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -141,6 +146,7 @@ export default async function PropertyBoardPage({
 
       <ProjectBoard
         projects={projects}
+        ganttProjects={ganttProjects}
         propertySlug={property.slug}
         initialView={typeof sp.view === "string" ? sp.view : undefined}
         initialGroup={typeof sp.group === "string" ? sp.group : undefined}

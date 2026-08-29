@@ -103,7 +103,17 @@ function barTitle(p: ScheduleProject): string {
   return `${from} → ${to}`;
 }
 
-export function GanttView({ projects }: { projects: ScheduleProject[] }) {
+export function GanttView({
+  projects,
+  showPropertyHeadings = true,
+}: {
+  projects: ScheduleProject[];
+  /**
+   * False on a property's own Projects tab, where a heading naming the property
+   * you are already looking at is a row of chrome saying nothing.
+   */
+  showPropertyHeadings?: boolean;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = useMemo(() => {
     const d = new Date();
@@ -303,15 +313,17 @@ export function GanttView({ projects }: { projects: ScheduleProject[] }) {
           <div className="relative">
             {sortedGroups.map((g) => (
               <div key={g.label}>
-                <div className="flex border-b border-divider bg-surface-sub">
-                  <div
-                    className="sticky left-0 z-10 shrink-0 bg-surface-sub px-3 py-1.5 text-sm font-bold text-navy"
-                    style={{ width: NAME_COL_WIDTH }}
-                  >
-                    {g.label}
+                {showPropertyHeadings && (
+                  <div className="flex border-b border-divider bg-surface-sub">
+                    <div
+                      className="sticky left-0 z-10 shrink-0 bg-surface-sub px-3 py-1.5 text-sm font-bold text-navy"
+                      style={{ width: NAME_COL_WIDTH }}
+                    >
+                      {g.label}
+                    </div>
+                    <div style={{ width: totalWidth }} />
                   </div>
-                  <div style={{ width: totalWidth }} />
-                </div>
+                )}
                 {g.rows.map((d) => (
                   <div
                     key={d.p.id}

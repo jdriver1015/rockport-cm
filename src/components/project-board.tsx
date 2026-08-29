@@ -1,14 +1,13 @@
 "use client";
 
-import { Fragment, useOptimistic, useState, useTransition } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { differenceInCalendarDays } from "date-fns";
-import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { PhaseDot } from "@/components/ui/stage-dot";
+import { GanttView } from "@/components/schedule/gantt-view";
+import type { ScheduleProject } from "@/lib/schedule-data";
 import { TableCard } from "@/components/ui/table-card";
 import { isInteractiveTarget } from "@/components/ui/clickable-table-row";
 import {
@@ -22,9 +21,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
-import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
+import { PROJECT_PHASES, phaseIndex } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
-import { setProjectPhase } from "@/lib/actions/projects";
 import type { ScheduleHealth } from "@/lib/target-slip";
 import { projectSlug } from "@/lib/slug";
 
@@ -56,19 +54,18 @@ export const KIND_LABEL: Record<string, string> = {
   common: "Common area",
 };
 
-type ViewMode = "table" | "kanban" | "gantt";
+type ViewMode = "table" | "gantt";
 type GroupBy = "phase" | "kind" | "division" | "category" | "none";
 type SortKey = "name" | "budget" | "committed" | "jtd" | "phase" | "schedule";
 type Dir = "asc" | "desc";
 
 const VIEWS: { key: ViewMode; label: string }[] = [
   { key: "table", label: "Table" },
-  { key: "kanban", label: "Kanban" },
   { key: "gantt", label: "Gantt" },
 ];
 
 function isView(v: string | undefined): v is ViewMode {
-  return v === "table" || v === "kanban" || v === "gantt";
+  return v === "table" || v === "gantt";
 }
 function isGroup(v: string | undefined): v is GroupBy {
   return (
@@ -87,6 +84,7 @@ function isSort(v: string | undefined): v is SortKey {
 }
 
 export function ProjectBoard({
+  ganttProjects,
   projects,
   propertySlug,
   initialView,
@@ -95,6 +93,15 @@ export function ProjectBoard({
   initialDir,
   initialQuery,
 }: {
+  /**
+   * The same rows the Schedule tab's Gantt draws, scoped to this property.
+   *
+   * The board keeps its own BoardProject shape for the table — budgets,
+   * committed cost, variance — and the Gantt needs target phasing and slip,
+   * which is a different read. Rather than widen one to cover both, the Gantt
+   * gets its own rows and the toolbar filters them by id.
+   */
+  ganttProjects: ScheduleProject[];
   projects: BoardProject[];
   propertySlug: string;
   initialView?: string;
@@ -112,13 +119,6 @@ export function ProjectBoard({
   const [sort, setSort] = useState<SortKey>(isSort(initialSort) ? initialSort : "name");
   const [dir, setDir] = useState<Dir>(initialDir === "desc" ? "desc" : "asc");
   const [query, setQuery] = useState(initialQuery ?? "");
-
-  const [pending, startTransition] = useTransition();
-  const [optimistic, applyOptimistic] = useOptimistic(
-    projects,
-    (state: BoardProject[], move: { id: number; phase: string }) =>
-      state.map((p) => (p.id === move.id ? { ...p, phase: move.phase } : p)),
-  );
 
   // Keep the URL in sync so a view is shareable and survives reload.
   function syncUrl(next: Partial<Record<string, string>>) {
@@ -146,7 +146,7 @@ export function ProjectBoard({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  const filtered = optimistic.filter((p) => {
+  const filtered = projects.filter((p) => {
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       const hay =
@@ -184,21 +184,10 @@ export function ProjectBoard({
   });
 
   const groups = buildGroups(sorted, group);
-
-  function advancePhase(projectId: number, toPhase: string) {
-    startTransition(async () => {
-      applyOptimistic({ id: projectId, phase: toPhase });
-      const fd = new FormData();
-      fd.set("projectId", String(projectId));
-      fd.set("toPhase", toPhase);
-      const res = await setProjectPhase(fd);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      router.refresh();
-    });
-  }
+  // The Gantt draws from the schedule rows, but the toolbar above it still
+  // decides what is on screen — so it gets the same filtered set the table
+  // would have shown, matched by id.
+  const visibleIds = new Set(sorted.map((p) => p.id));
 
   return (
     <div className="space-y-4">
@@ -280,16 +269,15 @@ export function ProjectBoard({
         </p>
       ) : view === "table" ? (
         <TableView groups={groups} propertySlug={propertySlug} groupBy={group} />
-      ) : view === "kanban" ? (
-        <KanbanView
-          groups={groups}
-          groupBy={group}
-          propertySlug={propertySlug}
-          pending={pending}
-          onDropToPhase={advancePhase}
-        />
       ) : (
-        <GanttView groups={groups} propertySlug={propertySlug} />
+        /* The Schedule tab's Gantt, not a second one. This used to draw its own
+           bars from startDate and completeDate — actuals only — so a project
+           that had not begun showed nothing at all, which is most of them. That
+           one understands phase bands, target phasing and slip. */
+        <GanttView
+          projects={ganttProjects.filter((g) => visibleIds.has(g.id))}
+          showPropertyHeadings={false}
+        />
       )}
     </div>
   );
@@ -445,14 +433,6 @@ function ScheduleCell({ health }: { health: ScheduleHealth }) {
   );
 }
 
-function PhaseBadge({ phase }: { phase: string }) {
-  return (
-    <Badge variant="secondary" className="border border-border">
-      {phaseLabel(phase)}
-    </Badge>
-  );
-}
-
 function ProjectLink({
   project,
   propertySlug,
@@ -597,165 +577,3 @@ function TableView({
 // ---------------------------------------------------------------------------
 // Kanban view
 // ---------------------------------------------------------------------------
-
-function KanbanView({
-  groups,
-  groupBy,
-  propertySlug,
-  pending,
-  onDropToPhase,
-}: {
-  groups: Group[];
-  groupBy: GroupBy;
-  propertySlug: string;
-  pending: boolean;
-  onDropToPhase: (projectId: number, toPhase: string) => void;
-}) {
-  const draggable = groupBy === "phase";
-  const [dragOver, setDragOver] = useState<string | null>(null);
-
-  return (
-    <div>
-      {!draggable && (
-        <p className="mb-2 text-xs text-muted-foreground">
-          Drag-to-move is available when grouped by Phase.
-        </p>
-      )}
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {groups.map((g) => (
-          <div
-            key={g.key}
-            onDragOver={(e) => {
-              if (!draggable) return;
-              e.preventDefault();
-              setDragOver(g.key);
-            }}
-            onDragLeave={() => setDragOver((k) => (k === g.key ? null : k))}
-            onDrop={(e) => {
-              if (!draggable) return;
-              e.preventDefault();
-              setDragOver(null);
-              const pid = Number(e.dataTransfer.getData("text/plain"));
-              if (pid) onDropToPhase(pid, g.key);
-            }}
-            className={cn(
-              "flex w-64 shrink-0 flex-col rounded-lg border bg-muted",
-              dragOver === g.key && "ring-2 ring-gold",
-            )}
-          >
-            <div className="flex items-baseline justify-between border-b px-3 py-2">
-              <h3 className="text-sm font-bold text-navy">{g.label}</h3>
-              <span className="text-xs text-muted-foreground">{g.projects.length}</span>
-            </div>
-            <div className={cn("flex flex-col gap-2 p-2", pending && "opacity-70")}>
-              {g.projects.map((p) => (
-                <div
-                  key={p.id}
-                  draggable={draggable}
-                  onDragStart={(e) => e.dataTransfer.setData("text/plain", String(p.id))}
-                  className={cn(
-                    "rounded-md border bg-card p-3 shadow-sm",
-                    draggable && "cursor-grab active:cursor-grabbing",
-                  )}
-                >
-                  <ProjectLink project={p} propertySlug={propertySlug} className="text-sm" />
-                  <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                    {p.lineItem}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-xs font-semibold tabular-nums text-navy">
-                      {money(p.budget)}
-                    </span>
-                    {groupBy !== "phase" && <PhaseBadge phase={p.phase} />}
-                  </div>
-                </div>
-              ))}
-              {g.projects.length === 0 && (
-                <p className="px-1 py-3 text-center text-xs text-muted-foreground">—</p>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Gantt view
-// ---------------------------------------------------------------------------
-
-function parseDate(s: string | null): Date | null {
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function GanttView({ groups, propertySlug }: { groups: Group[]; propertySlug: string }) {
-  const today = new Date();
-  const all = groups.flatMap((g) => g.projects);
-  const dated = all
-    .map((p) => {
-      const start = parseDate(p.startDate);
-      if (!start) return null;
-      const end = parseDate(p.completeDate) ?? today;
-      return { p, start, end: end < start ? start : end };
-    })
-    .filter((x): x is { p: BoardProject; start: Date; end: Date } => x !== null);
-
-  if (dated.length === 0) {
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        No projects have a start date yet — dates are set when a project moves into “In Progress”.
-      </p>
-    );
-  }
-
-  const min = new Date(Math.min(...dated.map((d) => d.start.getTime())));
-  const max = new Date(Math.max(...dated.map((d) => d.end.getTime())));
-  const span = Math.max(1, differenceInCalendarDays(max, min));
-
-  const pct = (d: Date) => (differenceInCalendarDays(d, min) / span) * 100;
-
-  const shown = groups.filter((g) => g.projects.length > 0);
-
-  return (
-    <div className="space-y-5">
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{min.toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
-        <span>{max.toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
-      </div>
-      {shown.map((g) => (
-        <div key={g.key} className="space-y-1.5">
-          <h3 className="text-sm font-bold text-navy">{g.label}</h3>
-          {g.projects.map((p) => {
-            const d = dated.find((x) => x.p.id === p.id);
-            return (
-              <div key={p.id} className="grid grid-cols-[minmax(9rem,14rem)_1fr] items-center gap-3">
-                <ProjectLink project={p} propertySlug={propertySlug} className="truncate text-sm" />
-                <div className="relative h-6 rounded bg-track">
-                  {d ? (
-                    <div
-                      className="absolute top-0 flex h-6 items-center rounded bg-navy px-2 text-[11px] font-medium text-white"
-                      style={{
-                        left: `${pct(d.start)}%`,
-                        width: `${Math.max(2, pct(d.end) - pct(d.start))}%`,
-                      }}
-                      title={`${p.startDate} → ${p.completeDate ?? "in progress"}`}
-                    >
-                      <span className="truncate">{phaseLabel(p.phase)}</span>
-                    </div>
-                  ) : (
-                    <span className="absolute left-2 top-1 text-[11px] text-muted-foreground">
-                      no dates yet
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
