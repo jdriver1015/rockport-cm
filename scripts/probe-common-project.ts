@@ -58,7 +58,6 @@ async function main() {
     const created = await createCommonProjectRows({
       propertyId: fx.propertyId,
       name: NAME,
-      costCodeId: line.costCodeId,
       milestones: [
         { phase: "precon", plannedDate: "2026-09-07" },
         { phase: "in_process", plannedDate: "2026-09-10" },
@@ -81,7 +80,10 @@ async function main() {
 
     check("it is a common-area project", project.kind === "common", project.kind);
     check("it starts in pre-con", project.phase === "precon", project.phase);
-    check("it draws on the chosen UW line", project.costCodeId === line.costCodeId);
+    // The categories live on the lines. A project-level code named only part
+    // of Exterior Paint's spend and hid the rest — see common-project.ts.
+    check("no project-level cost code is asserted", project.costCodeId == null,
+      `${project.costCodeId}`);
 
     // ---- the two numbers that must not be typed
     check(
@@ -104,9 +106,9 @@ async function main() {
       .orderBy(asc(schema.scopeItems.sortOrder));
     check("both scope lines land", scope.length === 2, `${scope.length}`);
     check(
-      "a line may sit on a different code from the project",
-      scope[1]?.costCodeId === fx.codeA,
-      `${scope[1]?.costCodeId} vs project ${project.costCodeId}`,
+      "lines keep their own categories, and they may differ",
+      scope[0]?.costCodeId === line.costCodeId && scope[1]?.costCodeId === fx.codeA,
+      `${scope[0]?.costCodeId} then ${scope[1]?.costCodeId}`,
     );
 
     // ---- target phasing arrives with the project
@@ -127,14 +129,30 @@ async function main() {
       .where(eq(schema.projectStageEvents.projectId, projectId));
     check("creation is on the stage trail", events.length === 1 && events[0].toPhase === "precon");
 
+    // ---- the scope step says it can be skipped, so it has to survive being
+    // skipped: no lines means no codes to validate and no budget to derive.
+    const bare = await createCommonProjectRows({
+      propertyId: fx.propertyId,
+      name: `${NAME} (no scope)`,
+      lines: [],
+    });
+    check("a project with no scope at all still creates", bare.ok,
+      bare.ok ? undefined : bare.error);
+    if (bare.ok) {
+      const p2 = await db().query.projects.findFirst({
+        where: eq(schema.projects.id, bare.projectId),
+      });
+      check("and reports no budget rather than zero", Number(p2?.budgetAmount ?? -1) === 0,
+        `${p2?.budgetAmount}`);
+    }
+
     // ---- a code from another chart is refused
     const bad = await createCommonProjectRows({
       propertyId: fx.propertyId,
       name: `${NAME} (bad code)`,
-      costCodeId: 999_999,
-      lines: [],
+      lines: [{ item: "Bad", costCodeId: 999_999, quantity: 1, unitPrice: 1 }],
     }).catch((e) => ({ ok: false as const, error: String(e) }));
-    check("a cost code outside the property's chart is refused", bad.ok === false,
+    check("a scope line coded outside the property's chart is refused", bad.ok === false,
       bad.ok === false ? bad.error.slice(0, 60) : "accepted");
   } finally {
     const made = await db()

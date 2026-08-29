@@ -73,7 +73,6 @@ export function CommonProjectWizard({
   const [busy, setBusy] = useState(false);
 
   const [name, setName] = useState("");
-  const [costCodeId, setCostCodeId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
 
   const scheduleSettings = schedule ?? DEFAULT_SCHEDULE;
@@ -85,18 +84,43 @@ export function CommonProjectWizard({
     setDates((prev) => ({ ...prev, [key]: value }));
   }
 
-  const uwLine = budgetLines.find((b) => b.costCodeId === costCodeId) ?? null;
   const total = useMemo(() => lines.reduce((n, l) => n + lineTotal(l), 0), [lines]);
 
-  // What is left on the line this project draws from, once this project's own
-  // scope is counted. Shown rather than enforced: going over an underwritten
-  // allowance is a real decision somebody makes, and the app's job is to make
-  // sure they make it knowingly.
-  const remaining = uwLine ? uwLine.approved - uwLine.allocated - total : null;
+  /**
+   * What each category this project touches would have left, once this
+   * project's own lines are counted against it.
+   *
+   * Per category rather than per project, because a common-area job spends
+   * across several. Exterior Paint's project-level code named $419k of a $530k
+   * job and hid the rest on three other codes — the same shape of lie as a
+   * typed budget, and the reason the question belongs here rather than up front.
+   *
+   * Shown, not enforced: spending past an underwritten allowance is a real
+   * decision, and the app's job is to make sure it is made knowingly.
+   */
+  const byCategory = useMemo(() => {
+    const spend = new Map<number, number>();
+    for (const l of lines) spend.set(l.costCodeId, (spend.get(l.costCodeId) ?? 0) + lineTotal(l));
+    return [...spend]
+      .map(([id, amount]) => {
+        const uw = budgetLines.find((b) => b.costCodeId === id);
+        return {
+          id,
+          name: uw?.name ?? "Uncategorised",
+          amount,
+          remaining: uw ? uw.approved - uw.allocated - amount : null,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+  }, [lines, budgetLines]);
 
   function addLine() {
-    if (costCodeId == null) return;
-    setLines((prev) => [...prev, blankLine(costCodeId)]);
+    // Defaults to whatever the last line used — consecutive lines usually sit
+    // on the same category, and re-picking it every time is friction.
+    const fallback = budgetLines[0]?.costCodeId;
+    const previous = lines[lines.length - 1]?.costCodeId ?? fallback;
+    if (previous == null) return;
+    setLines((prev) => [...prev, blankLine(previous)]);
   }
   function patchLine(key: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -106,17 +130,14 @@ export function CommonProjectWizard({
   }
 
   const namedLines = lines.filter((l) => l.item.trim());
-  const canNext =
-    (step === 0 && name.trim().length > 0 && costCodeId != null) || step === 1 || step === 2;
+  const canNext = (step === 0 && name.trim().length > 0) || step === 1 || step === 2;
 
   async function handleCreate() {
-    if (costCodeId == null) return;
     setBusy(true);
     try {
       const result = await createCommonProject({
         propertyId,
         name: name.trim(),
-        costCodeId,
         milestones: DEFAULT_MILESTONES.map((m) => ({
           phase: m.phase,
           plannedDate: dates[m.phase] || undefined,
@@ -159,47 +180,20 @@ export function CommonProjectWizard({
                 placeholder="Dog Park Fence"
                 onChange={(e) => setName(e.target.value)}
               />
+              <p className="text-[11.5px] text-muted-foreground">
+                What the work is called. Which budget categories it spends against comes from the
+                scope on the next step — a job usually touches several, and naming one here would
+                only be right until the second line was added.
+              </p>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="cp-code">Budget category</Label>
-              <p className="text-[11.5px] text-muted-foreground">
-                The underwritten line this project spends against. Each one shows what is left
-                after the scope already committed elsewhere on the property.
+            {budgetLines.length === 0 && (
+              <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
+                This property has no budget lines yet. Add one on the Budget tab first — scope with
+                nothing to spend against cannot be reconciled later.
               </p>
-              {budgetLines.length === 0 ? (
-                <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
-                  This property has no budget lines yet. Add one on the Budget tab first — a
-                  project with nothing to spend against cannot be reconciled later.
-                </p>
-              ) : (
-                <select
-                  id="cp-code"
-                  value={costCodeId ?? ""}
-                  onChange={(e) => {
-                    const next = e.target.value ? Number(e.target.value) : null;
-                    setCostCodeId(next);
-                    // Lines default to the project's own code, so re-pointing the
-                    // project moves any line still on the old default with it.
-                    if (next != null) {
-                      setLines((prev) =>
-                        prev.map((l) =>
-                          l.costCodeId === costCodeId ? { ...l, costCodeId: next } : l,
-                        ),
-                      );
-                    }
-                  }}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <option value="">Select a budget category…</option>
-                  {budgetLines.map((b) => (
-                    <option key={b.costCodeId} value={b.costCodeId}>
-                      {b.name} — {money(b.approved - b.allocated)} left of {money(b.approved)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
+            )}
+
           </div>
         )}
 
@@ -219,50 +213,63 @@ export function CommonProjectWizard({
 
             {lines.length > 0 && (
               <div className="divide-y divide-hairline rounded-card border border-border">
-                <div className="grid grid-cols-[1fr_5rem_7rem_6rem_2rem] gap-2 bg-muted/40 px-3 py-1.5 text-[10.5px] font-semibold tracking-[0.09em] text-ink-300 uppercase">
-                  <div>Item</div>
-                  <div className="text-right">Qty</div>
-                  <div className="text-right">Unit cost</div>
-                  <div className="text-right">Total</div>
-                  <div />
-                </div>
                 {lines.map((l) => (
-                  <div
-                    key={l.key}
-                    className="grid grid-cols-[1fr_5rem_7rem_6rem_2rem] items-center gap-2 px-3 py-2"
-                  >
-                    <Input
-                      value={l.item}
-                      placeholder="Replace perimeter fencing"
-                      className="h-8 text-[13px]"
-                      onChange={(e) => patchLine(l.key, { item: e.target.value })}
-                    />
-                    <Input
-                      value={l.quantity}
-                      type="number"
-                      step="0.01"
-                      className="h-8 text-right text-[13px]"
-                      onChange={(e) => patchLine(l.key, { quantity: e.target.value })}
-                    />
-                    <Input
-                      value={l.unitPrice}
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      className="h-8 text-right text-[13px]"
-                      onChange={(e) => patchLine(l.key, { unitPrice: e.target.value })}
-                    />
-                    <div className="text-right text-[13px] tabular-nums">
-                      {l.unitPrice ? money(lineTotal(l)) : "—"}
+                  /* Two rows per line rather than one. The category select needs
+                     real width to be readable, and squeezing six controls onto
+                     one row at this card width made every one of them too narrow
+                     to use. */
+                  <div key={l.key} className="space-y-1.5 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={l.item}
+                        placeholder="Replace perimeter fencing"
+                        className="h-8 flex-1 text-[13px]"
+                        onChange={(e) => patchLine(l.key, { item: e.target.value })}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove line"
+                        onClick={() => removeLine(l.key)}
+                        className="shrink-0 text-ink-300 hover:text-alert"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      aria-label="Remove line"
-                      onClick={() => removeLine(l.key)}
-                      className="text-ink-300 hover:text-alert"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <select
+                        aria-label="Budget category"
+                        value={l.costCodeId}
+                        onChange={(e) => patchLine(l.key, { costCodeId: Number(e.target.value) })}
+                        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-[12.5px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        {budgetLines.map((b) => (
+                          <option key={b.costCodeId} value={b.costCodeId}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={l.quantity}
+                        type="number"
+                        step="0.01"
+                        aria-label="Quantity"
+                        className="h-8 w-16 shrink-0 text-right text-[13px]"
+                        onChange={(e) => patchLine(l.key, { quantity: e.target.value })}
+                      />
+                      <span className="shrink-0 text-[12px] text-ink-300">×</span>
+                      <Input
+                        value={l.unitPrice}
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        aria-label="Unit cost"
+                        className="h-8 w-24 shrink-0 text-right text-[13px]"
+                        onChange={(e) => patchLine(l.key, { unitPrice: e.target.value })}
+                      />
+                      <span className="w-24 shrink-0 text-right text-[13px] font-medium tabular-nums">
+                        {l.unitPrice ? money(lineTotal(l)) : "—"}
+                      </span>
+                    </div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between bg-muted/40 px-3 py-2 text-[13px]">
@@ -276,24 +283,32 @@ export function CommonProjectWizard({
               Add a scope line
             </Button>
 
-            {uwLine && remaining !== null && (
-              <p
-                className={cn(
-                  "rounded-control px-2.5 py-1.5 text-[12px]",
-                  remaining < 0 ? "bg-alert-bg text-alert" : "bg-muted text-muted-foreground",
-                )}
-              >
-                {remaining < 0 ? (
-                  <>
-                    This is {money(Math.abs(remaining))} over the {uwLine.name} allowance. Allowed —
-                    but it will show as over budget from day one.
-                  </>
-                ) : (
-                  <>
-                    {money(remaining)} would still be left on {uwLine.name} after this project.
-                  </>
-                )}
-              </p>
+            {byCategory.length > 0 && (
+              <div className="space-y-1 rounded-card border border-border px-3 py-2">
+                <div className="text-[10.5px] font-semibold tracking-[0.09em] text-ink-300 uppercase">
+                  Against the budget
+                </div>
+                {byCategory.map((c) => (
+                  <div key={c.id} className="flex items-baseline justify-between text-[12px]">
+                    <span className="truncate text-muted-foreground">{c.name}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 pl-3 tabular-nums",
+                        c.remaining !== null && c.remaining < 0 ? "text-alert" : "text-ink-500",
+                      )}
+                    >
+                      {money(c.amount)}
+                      {c.remaining !== null && (
+                        <span className="ml-1.5">
+                          {c.remaining < 0
+                            ? `· ${money(Math.abs(c.remaining))} over`
+                            : `· ${money(c.remaining)} left`}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -316,7 +331,10 @@ export function CommonProjectWizard({
         {step === 3 && (
           <div className="space-y-2 text-sm">
             <Summary label="Name" value={name.trim() || "—"} />
-            <Summary label="Budget category" value={uwLine?.name ?? "—"} />
+            <Summary
+              label="Budget categories"
+              value={byCategory.length > 0 ? byCategory.map((c) => c.name).join(", ") : "—"}
+            />
             <Summary label="Scope lines" value={String(namedLines.length)} />
             <Summary label="Pre-Construction begins" value={dates.precon || "—"} />
             <Summary label="In Process begins" value={dates.in_process || "—"} />
@@ -351,7 +369,7 @@ export function CommonProjectWizard({
               Next
             </Button>
           ) : (
-            <Button onClick={handleCreate} disabled={busy || !name.trim() || costCodeId == null}>
+            <Button onClick={handleCreate} disabled={busy || !name.trim()}>
               {busy ? "Creating…" : "Create project"}
             </Button>
           )}

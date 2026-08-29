@@ -13,10 +13,11 @@ import { projectSlug } from "@/lib/slug";import type { ActionResult } from "@/li
 // afterwards from four different screens, so every common project began as an
 // empty shell and stayed one until somebody remembered.
 //
-// Notably absent here: a budget field. A project's budget is what its scope
-// adds up to (see project-budget-derive.ts), and asking for a total as well
-// would put the same number in two places — the mistake this codebase has now
-// made and unmade three times. The scope produces it.
+// Notably absent here: a budget field, and a project-level cost code. A
+// project's budget is what its scope adds up to (see project-budget-derive.ts),
+// and the categories it spends against are whatever its lines are coded to.
+// Asking for either up front puts the same fact in two places — the mistake
+// this codebase has now made and unmade four times.
 // ---------------------------------------------------------------------------
 
 const optDate = z
@@ -37,12 +38,7 @@ const lineSchema = z.object({
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, "Give the project a name"),
-  /**
-   * The UW line this project spends against. Legitimately project-level here:
-   * a common-area job draws on one budget line, unlike an interior turn that
-   * spends across every 4000-series code and therefore carries none.
-   */
-  costCodeId: z.coerce.number().int().positive(),
+
   notes: z
     .string()
     .trim()
@@ -82,8 +78,8 @@ export async function createCommonProjectRows(
   // Every code — the project's own and each line's — has to belong to this
   // property's chart. A code from another chart would post against a ledger
   // this property does not use.
-  const codeIds = [...new Set([d.costCodeId, ...d.lines.map((l) => l.costCodeId)])];
-  const valid = await db()
+  const codeIds = [...new Set(d.lines.map((l) => l.costCodeId))];
+  const valid = codeIds.length === 0 ? [] : await db()
     .select({ id: schema.costCodes.id })
     .from(schema.costCodes)
     .where(
@@ -103,11 +99,17 @@ export async function createCommonProjectRows(
         propertyId: d.propertyId,
         kind: "common",
         name: d.name,
-        costCodeId: d.costCodeId,
         notes: d.notes,
-        // No budgetAmount and no startDate. The first is derived from the scope
-        // below; the second records what actually happened and is stamped on
-        // entry to In Process.
+        // No costCodeId, no budgetAmount, no startDate.
+        //
+        // The cost code belongs to the scope line, not the project. Exterior
+        // Paint proves why: its project-level code named $419k of a $530k job
+        // and hid $111k sitting on Siding, Balconies and Railings. The budget
+        // page already treats the column as a fallback for a project with no
+        // scope at all, and no unit turn has ever set it.
+        //
+        // The budget is derived from the scope below, and startDate records
+        // what actually happened — it is stamped on entry to In Process.
       })
       .returning({ id: schema.projects.id, name: schema.projects.name });
 
