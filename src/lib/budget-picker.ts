@@ -2,7 +2,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 /**
- * The UW lines this property carries, with what is already spoken for.
+ * The UW lines a COMMON-AREA project can spend against, with what is already
+ * spoken for on each.
  *
  * Allocated counts every scope line on the property against that code, which is
  * the same figure the scope dialog compares a line against — so the wizard and
@@ -28,7 +29,20 @@ export async function readBudgetLinesForPicker(propertyId: number) {
         eq(schema.costCategories.id, schema.costCodes.categoryId),
       )
       .where(
-        and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt)),
+        and(
+          eq(schema.budgetLines.propertyId, propertyId),
+          isNull(schema.budgetLines.archivedAt),
+          // Interior codes are out. They are budgeted per unit — uwAmount is
+          // perUnitAmount times plannedUnits — and spent by unit turns priced
+          // from a renovation type, so a common-area project drawing on them
+          // would be spending a fleet's allowance on one job.
+          //
+          // Keyed on the cost code's own isInterior flag rather than on the
+          // "interiors" division: the flag is what the chart of accounts uses to
+          // mean per-unit, and a property is free to arrange its divisions
+          // however it likes.
+          eq(schema.costCodes.isInterior, false),
+        ),
       ),
     db()
       .select({

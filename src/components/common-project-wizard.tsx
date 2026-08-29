@@ -263,7 +263,8 @@ export function CommonProjectWizard({
                 <p className="text-[11.5px] text-muted-foreground">
                   Pick as many as apply — a common-area job usually spends across several. Each
                   becomes a scope line on the next step, prefilled with what is left on it, and you
-                  set the real amounts there.
+                  set the real amounts there. Interior categories are not listed: they are budgeted
+                  per unit and spent by unit turns.
                 </p>
                 <BudgetCategoryPicker
                   options={budgetLines}
