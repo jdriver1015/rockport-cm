@@ -281,3 +281,114 @@ export async function readSlipTotals(projectIds: number[]): Promise<Map<number, 
   for (const r of rows) out.set(r.projectId, (out.get(r.projectId) ?? 0) + r.days);
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Schedule health.
+//
+// "Which projects are in trouble?" needs one number that survives the pushing.
+// Days-to-next-milestone does not: a missed target is moved to today, so it can
+// never read negative and every project reports zero. Variance against the
+// BASELINE does survive — it accumulates, and it is the same thing a scheduler
+// reads off total float: how far has the finish moved from what we committed to.
+//
+// The threshold is proportional to the length of the job. Four days on a
+// three-week turn is a wobble; four days on a three-day common-area fix is most
+// of it, and a fixed cut-off calls those the same.
+// ---------------------------------------------------------------------------
+
+/** Slip beyond this share of the original duration reads as late, not slipping. */
+export const LATE_RATIO = 0.2;
+
+export type ScheduleStatus = "on_time" | "slipping" | "late" | "unknown";
+
+export type ScheduleHealth = {
+  /** Working days the finish has moved since first planned. */
+  slipDays: number;
+  /** Working days the job was originally planned to take. Zero if unknown. */
+  baselineDays: number;
+  /** The current target finish, which is what the slip has moved. */
+  forecastFinish: string | null;
+  status: ScheduleStatus;
+};
+
+export function statusOf(slipDays: number, baselineDays: number): ScheduleStatus {
+  if (slipDays <= 0) return "on_time";
+  // No baseline to measure against: it has slipped, but by an unknown share of
+  // an unknown plan. Reported as slipping rather than guessed into red.
+  if (baselineDays <= 0) return "slipping";
+  return slipDays / baselineDays > LATE_RATIO ? "late" : "slipping";
+}
+
+/**
+ * Slip, original duration and forecast finish for each project.
+ *
+ * The original duration comes from the trail the same way rebaseFromActual gets
+ * it — the earliest recorded fromDate is what a milestone was first planned
+ * for, so a project that has never slipped measures against its current plan,
+ * which is still its original one.
+ */
+export async function readScheduleHealth(
+  projectIds: number[],
+): Promise<Map<number, ScheduleHealth>> {
+  const out = new Map<number, ScheduleHealth>();
+  if (projectIds.length === 0) return out;
+
+  const milestones = await db()
+    .select({
+      id: schema.projectMilestones.id,
+      projectId: schema.projectMilestones.projectId,
+      phase: schema.projectMilestones.phase,
+      plannedDate: schema.projectMilestones.plannedDate,
+    })
+    .from(schema.projectMilestones)
+    .where(
+      and(
+        inArray(schema.projectMilestones.projectId, projectIds),
+        eq(schema.projectMilestones.isDefault, true),
+        isNull(schema.projectMilestones.archivedAt),
+      ),
+    );
+
+  const events = await db()
+    .select({
+      projectId: schema.milestoneSlipEvents.projectId,
+      milestoneId: schema.milestoneSlipEvents.milestoneId,
+      fromDate: schema.milestoneSlipEvents.fromDate,
+    })
+    .from(schema.milestoneSlipEvents)
+    .where(inArray(schema.milestoneSlipEvents.projectId, projectIds))
+    .orderBy(asc(schema.milestoneSlipEvents.at), asc(schema.milestoneSlipEvents.id));
+
+  const firstPlanned = new Map<number, string>();
+  for (const e of events) if (!firstPlanned.has(e.milestoneId)) firstPlanned.set(e.milestoneId, e.fromDate);
+
+  const slip = await readSlipTotals(projectIds);
+  const tail = PHASE_KEYS[PHASE_KEYS.length - 1];
+
+  for (const projectId of projectIds) {
+    const rows = milestones
+      .filter((m) => m.projectId === projectId && m.phase)
+      .sort((a, b) => phaseIndex(a.phase as string) - phaseIndex(b.phase as string));
+
+    const original = (id: number, current: string | null) => firstPlanned.get(id) ?? current;
+    const dated = rows.filter((m) => original(m.id, m.plannedDate));
+    const finishRow = rows.find((m) => m.phase === tail);
+
+    const startBasis = dated.length > 0 ? original(dated[0].id, dated[0].plannedDate) : null;
+    const finishBasis = finishRow ? original(finishRow.id, finishRow.plannedDate) : null;
+    const baselineDays =
+      startBasis && finishBasis ? Math.max(0, businessDaysBetween(startBasis, finishBasis)) : 0;
+
+    const slipDays = slip.get(projectId) ?? 0;
+    const forecastFinish = finishRow?.plannedDate ?? null;
+
+    out.set(projectId, {
+      slipDays,
+      baselineDays,
+      forecastFinish,
+      status: forecastFinish === null ? "unknown" : statusOf(slipDays, baselineDays),
+    });
+  }
+
+  return out;
+}

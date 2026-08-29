@@ -7,6 +7,7 @@ import { PropertyHeader } from "@/components/property-header";
 import { PropertyNav } from "@/components/property-nav";
 import { ProjectBoard, type BoardProject } from "@/components/project-board";
 import { num } from "@/lib/format";
+import { readScheduleHealth } from "@/lib/target-slip";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,9 @@ export default async function PropertyBoardPage({
       .groupBy(schema.glTransactions.projectId),
   ]);
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
+  // How far each project's finish has moved from what was first planned, which
+  // is the one schedule number that survives targets being pushed forward.
+  const health = await readScheduleHealth(rows.map((r) => r.id));
 
   const projects: BoardProject[] = rows.map((r) => ({
     id: r.id,
@@ -88,6 +92,12 @@ export default async function PropertyBoardPage({
     division: r.division ?? null,
     categoryLabel: r.categoryName ?? "Uncategorized",
     lineItem: r.costCodeName ?? "—",
+    health: health.get(r.id) ?? {
+      slipDays: 0,
+      baselineDays: 0,
+      forecastFinish: null,
+      status: "unknown" as const,
+    },
   }));
 
   return (

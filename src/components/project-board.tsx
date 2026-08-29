@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { AmountCell } from "@/components/ui/amount-cell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { StageDot } from "@/components/ui/stage-dot";
+import { PhaseDot } from "@/components/ui/stage-dot";
 import { TableCard } from "@/components/ui/table-card";
 import { isInteractiveTarget } from "@/components/ui/clickable-table-row";
 import {
@@ -25,6 +25,7 @@ import { fmtDate, money } from "@/lib/format";
 import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
 import { setProjectPhase } from "@/lib/actions/projects";
+import type { ScheduleHealth } from "@/lib/target-slip";
 import { projectSlug } from "@/lib/slug";
 
 export type BoardProject = {
@@ -39,11 +40,13 @@ export type BoardProject = {
   division: string | null;
   categoryLabel: string;
   lineItem: string;
+  /** Slip against the original plan — see readScheduleHealth. */
+  health: ScheduleHealth;
 };
 
 type ViewMode = "table" | "kanban" | "gantt";
 type GroupBy = "phase" | "division" | "category" | "none";
-type SortKey = "name" | "budget" | "committed" | "jtd" | "phase";
+type SortKey = "name" | "budget" | "committed" | "jtd" | "phase" | "schedule";
 type Dir = "asc" | "desc";
 
 const VIEWS: { key: ViewMode; label: string }[] = [
@@ -59,7 +62,14 @@ function isGroup(v: string | undefined): v is GroupBy {
   return v === "phase" || v === "division" || v === "category" || v === "none";
 }
 function isSort(v: string | undefined): v is SortKey {
-  return v === "name" || v === "budget" || v === "committed" || v === "jtd" || v === "phase";
+  return (
+    v === "name" ||
+    v === "budget" ||
+    v === "committed" ||
+    v === "jtd" ||
+    v === "phase" ||
+    v === "schedule"
+  );
 }
 
 export function ProjectBoard({
@@ -149,6 +159,11 @@ export function ProjectBoard({
       case "phase":
         cmp = phaseIndex(a.phase) - phaseIndex(b.phase);
         break;
+      case "schedule":
+        // Worst first on descending, which is the direction anybody sorting by
+        // schedule actually wants: the top of the list is the work to do today.
+        cmp = a.health.slipDays - b.health.slipDays;
+        break;
     }
     return dir === "asc" ? cmp : -cmp;
   });
@@ -215,6 +230,7 @@ export function ProjectBoard({
               ["committed", "Committed cost"],
               ["jtd", "Completed"],
               ["phase", "Phase"],
+              ["schedule", "Schedule"],
             ]}
           />
           <button
@@ -347,6 +363,61 @@ function VarianceCell({ budget, actual }: { budget: number; actual: number }) {
   );
 }
 
+/**
+ * Is this project in trouble, and when does it land.
+ *
+ * Slip against the ORIGINAL plan, not days to the next milestone. A missed
+ * target is pushed to today, so days-to-next can never read negative and every
+ * project reports zero — the metric is destroyed by the mechanic that keeps the
+ * plan honest. Slip accumulates instead, which is what a scheduler reads off
+ * total float: how far has the finish moved from what we committed to.
+ */
+const STATUS_STYLE: Record<ScheduleHealth["status"], string> = {
+  on_time: "bg-positive-bg text-positive",
+  slipping: "bg-alert-bg/60 text-pending",
+  late: "bg-alert-bg text-alert",
+  unknown: "bg-muted text-text-faint",
+};
+
+function ScheduleCell({ health }: { health: ScheduleHealth }) {
+  const { slipDays, baselineDays, forecastFinish, status } = health;
+
+  const label =
+    status === "unknown"
+      ? "No plan"
+      : slipDays <= 0
+        ? // "On time" rather than "0d" — zero is a number you have to interpret.
+          "On time"
+        : `${slipDays} day${slipDays === 1 ? "" : "s"} late`;
+
+  const share = baselineDays > 0 ? Math.round((slipDays / baselineDays) * 100) : null;
+
+  return (
+    <div className="min-w-0">
+      <span
+        className={cn(
+          "inline-block rounded-control px-1.5 py-0.5 text-[12px] font-medium whitespace-nowrap",
+          STATUS_STYLE[status],
+        )}
+        title={
+          status === "unknown"
+            ? "No target finish set for this project"
+            : slipDays > 0 && share !== null
+              ? `${slipDays} working days later than first planned — ${share}% of a ${baselineDays}-day plan`
+              : "The finish has not moved since it was first planned"
+        }
+      >
+        {label}
+      </span>
+      {forecastFinish && (
+        <div className="truncate text-[11px] text-muted-foreground">
+          finishing {fmtDate(forecastFinish)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PhaseBadge({ phase }: { phase: string }) {
   return (
     <Badge variant="secondary" className="border border-border">
@@ -395,13 +466,13 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[22%]">Project</TableHead>
-            <TableHead className="w-[10%]">Phase</TableHead>
-            <TableHead className="w-[11%]">Est. Start</TableHead>
-            <TableHead className="w-[14%] text-right">Planned Cost</TableHead>
-            <TableHead className="w-[14%] text-right">Committed</TableHead>
-            <TableHead className="w-[15%] text-right">Reconciled Cost</TableHead>
-            <TableHead className="w-[14%] text-right">Variance</TableHead>
+            <TableHead className="w-[24%]">Project</TableHead>
+            <TableHead className="w-[15%]">Schedule</TableHead>
+            <TableHead className="w-[10%]">Est. Start</TableHead>
+            <TableHead className="w-[13%] text-right">Planned Cost</TableHead>
+            <TableHead className="w-[13%] text-right">Committed</TableHead>
+            <TableHead className="w-[13%] text-right">Reconciled Cost</TableHead>
+            <TableHead className="w-[12%] text-right">Variance</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -423,10 +494,17 @@ function TableView({ groups, propertySlug }: { groups: Group[]; propertySlug: st
                     className="cursor-pointer hover:bg-track"
                   >
                     <TableCell className="truncate">
-                      <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
+                      {/* The phase as colour only. It cost a whole column and
+                          the widest label in the table to say what a 7px dot
+                          says here, and the group header names it outright when
+                          grouped by phase. */}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <PhaseDot phase={p.phase} />
+                        <ProjectLink project={p} propertySlug={propertySlug} interactive={false} />
+                      </span>
                     </TableCell>
                     <TableCell>
-                      <StageDot phase={p.phase} />
+                      <ScheduleCell health={p.health} />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{fmtDate(p.startDate)}</TableCell>
                     <TableCell>
