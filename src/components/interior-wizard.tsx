@@ -15,7 +15,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   resolveGroupPricing,
@@ -31,17 +30,15 @@ import {
   SCHEDULE_KEYS,
   SCHEDULE_LABELS,
   blankSchedule,
-  daysBetween,
   describeDays,
-  describeSchedule,
   phaseRun,
-  scheduleWarnings,
   type ScheduleKey,
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
 import type { ProjectPhaseKey } from "@/lib/stages";
-import { fmtDate, fmtDateShort } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
+import { TargetPhasingStep } from "@/components/target-phasing-step";
 import { TriggerChecklist } from "@/components/trigger-checklist";
 import type { TriggerStep } from "@/lib/renovation-triggers";
 
@@ -210,13 +207,6 @@ export function InteriorWizard({
   );
   const [dates, setDates] = useState<Record<ScheduleKey, string>>(suggested);
 
-  const dateWarnings = scheduleWarnings(dates);
-  // The whole turn end to end, which is the number people actually quote.
-  const span =
-    dates[PRE_WALK_KEY] && dates.complete
-      ? daysBetween(dates[PRE_WALK_KEY], dates.complete)
-      : null;
-  const touched = SCHEDULE_KEYS.some((k) => dates[k] !== suggested[k]);
 
   function setDate(key: ScheduleKey, value: string) {
     setDates((prev) => ({ ...prev, [key]: value }));
@@ -570,113 +560,17 @@ export function InteriorWizard({
           </div>
         )}
 
-        {/* Step 4 — target phasing */}
+        {/* Step 4 — target phasing. Shared with the common-area wizard, which
+            needs the same step with the same meaning. */}
         {step === 3 && (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-[13px] leading-relaxed text-ink-600">
-                Set the day each phase is meant to{" "}
-                <span className="font-medium text-navy">begin</span>. Each phase runs until the day
-                before the next one starts, so these five dates lay out the whole turn.
-              </p>
-              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-                A target, not a commitment — the project records its real dates as it moves through
-                each phase, and you can change any of these later. Leave one blank to fill in
-                later. Vendors are set by awarding a bid, not here.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <Label>Target phasing</Label>
-                {scheduleSettings.enabled && (
-                  <span className="text-[11px] text-muted-foreground">
-                    Portfolio default — {describeSchedule(scheduleSettings.offsets)}
-                    {touched && (
-                      <>
-                        {" · "}
-                        <button
-                          type="button"
-                          className="underline hover:text-foreground"
-                          onClick={() => setDates(suggested)}
-                        >
-                          reset
-                        </button>
-                      </>
-                    )}
-                  </span>
-                )}
-              </div>
-
-              <div className="divide-y divide-hairline rounded-card border border-border">
-                {SCHEDULE_KEYS.map((key) => {
-                  const isPreWalk = key === PRE_WALK_KEY;
-                  // Derived, never typed: the end of a phase is the day before the
-                  // next one begins, so showing it here is the only place the
-                  // implied span is visible before the project exists.
-                  const run = isPreWalk ? null : phaseRun(dates, key as ProjectPhaseKey);
-                  return (
-                    <div key={key}>
-                      <div
-                        className={cn(
-                          "flex items-center gap-3 px-3 py-2",
-                          isPreWalk && "bg-surface-muted/40",
-                        )}
-                      >
-                        <Label
-                          htmlFor={`wz-date-${key}`}
-                          className="flex-1 text-[13px] font-normal"
-                        >
-                          {SCHEDULE_LABELS[key]}
-                          {isPreWalk ? (
-                            <span className="ml-2 text-[10.5px] uppercase tracking-[0.09em] text-ink-300">
-                              before the project
-                            </span>
-                          ) : key === "complete" ? (
-                            <span className="ml-1.5 text-[12px] text-muted-foreground">
-                              — target finish
-                            </span>
-                          ) : (
-                            <span className="ml-1.5 text-[12px] text-muted-foreground">begins</span>
-                          )}
-                        </Label>
-                        <Input
-                          id={`wz-date-${key}`}
-                          type="date"
-                          className="w-44"
-                          value={dates[key]}
-                          onChange={(e) => setDate(key, e.target.value)}
-                        />
-                      </div>
-                      {run && (
-                        <p className="ml-3 border-l-2 border-hairline py-0.5 pl-3 text-[11px] text-muted-foreground">
-                          {run.days > 0
-                            ? `runs ${describeDays(run.days)}, through ${fmtDateShort(run.endsIso)}`
-                            : `${describeDays(run.days)} — the next phase begins ${
-                                run.days === 0 ? "the same day" : "earlier"
-                              }`}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {span !== null && (
-                <div className="flex items-center justify-between px-0.5 text-[12px] text-muted-foreground">
-                  <span>Pre-walk to sign-off</span>
-                  <span className="font-medium text-navy tabular-nums">{describeDays(span)}</span>
-                </div>
-              )}
-
-              {dateWarnings.length > 0 && (
-                <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
-                  {dateWarnings.join(" · ")}. Saving is still allowed — dates get resequenced often
-                  — but check this is what you meant.
-                </p>
-              )}
-            </div>
-          </div>
+          <TargetPhasingStep
+            dates={dates}
+            setDate={setDate}
+            onReset={() => setDates(suggested)}
+            suggested={suggested}
+            schedule={scheduleSettings}
+            noun="the whole turn"
+          />
         )}
 
         {/* Step 5 — create */}
