@@ -56,8 +56,14 @@ export async function createAudit(
     projectId: formData.get("projectId") || undefined,
     title: formData.get("title"),
     auditDate: formData.get("auditDate"),
-    auditorName: formData.get("auditorName"),
-    notes: formData.get("notes"),
+    // `?? undefined` on the optional ones. Both fields render unconditionally
+    // today, so a bare get happens to work — but these schemas are
+    // z.string().optional(), which takes undefined and rejects null, and the
+    // day either field is wrapped in a condition the whole form starts failing
+    // with "expected string, received null". That is what happened to
+    // updateProject.
+    auditorName: formData.get("auditorName") ?? undefined,
+    notes: formData.get("notes") ?? undefined,
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;

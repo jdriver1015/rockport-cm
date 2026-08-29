@@ -16,5 +16,12 @@ Internal multifamily construction tracking app. See README.md for the domain mod
 - Derived figures (left-to-invoice, variance, days-to-complete, trade-out %) are computed in queries/views, never stored.
 - Actuals only enter through the GL intake pipeline (`import_batches` → staged `gl_transactions` → review → posted). Do not write endpoints that insert posted transactions directly.
 - Stage changes must write a `project_stage_events` / `turn_stage_events` row; timestamps there drive the analytics.
+- Reading a form: `formData.get(x) ?? undefined` for every optional field.
+  `get` returns `null` for a field the form did not render, and the optional
+  schemas here are `z.string().optional()` — they accept `undefined` and reject
+  `null`. A conditionally rendered field parsed with a bare `get` fails the
+  whole form with "expected string, received null". This is why a common-area
+  project could not be edited at all: the dialog renders the rent fields only
+  for unit projects.
 - Verify with `npm run typecheck` and `npm run lint` before committing.
 
