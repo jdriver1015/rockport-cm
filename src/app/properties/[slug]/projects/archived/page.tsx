@@ -15,7 +15,7 @@ import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { PropertyHeader } from "@/components/property-header";
 import { RestoreProjectButton } from "@/components/restore-project-button";
 import { fmtDate } from "@/lib/format";
-import { phaseLabel } from "@/lib/stages";
+import { KIND_LABEL, phaseLabel } from "@/lib/stages";
 import { projectSlug } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
@@ -37,9 +37,12 @@ export default async function ArchivedProjectsPage({
     .select()
     .from(schema.projects)
     .where(
+      // Both kinds, matching the list this page is reached from. The count on
+      // the Projects tab stopped filtering by kind when the two lists merged
+      // and this did not, so archiving a unit turn made the badge say two and
+      // the page show one, with nothing explaining the difference.
       and(
         eq(schema.projects.propertyId, propertyId),
-        eq(schema.projects.kind, "common"),
         isNotNull(schema.projects.archivedAt),
       ),
     )
@@ -75,6 +78,7 @@ export default async function ArchivedProjectsPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Stage at archive</TableHead>
                     <TableHead>Archived</TableHead>
                     <TableHead className="text-right">Action</TableHead>
@@ -90,6 +94,9 @@ export default async function ArchivedProjectsPage({
                         >
                           {p.name}
                         </Link>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {KIND_LABEL[p.kind] ?? p.kind}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {phaseLabel(p.phase)}

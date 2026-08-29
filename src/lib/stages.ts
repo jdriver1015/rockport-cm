@@ -1,4 +1,16 @@
 /**
+ * What each kind of project is called where a person reads it.
+ *
+ * Not a phase, but the same kind of fact: one spelling, in one place, so a
+ * heading, a table cell and a search index cannot drift apart. `kind` decides
+ * how a project's scope is priced and nothing after that — see the wizards.
+ */
+export const KIND_LABEL: Record<string, string> = {
+  unit: "Unit interior",
+  common: "Common area",
+};
+
+/**
  * The four operational phases a project moves through. Collapsed from the
  * original eight-stage system — planned/bidding/ready → precon,
  * in_progress → in_process, punch stays, complete/invoiced/closed → complete.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AmountCell } from "@/components/ui/amount-cell";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
-import { PROJECT_PHASES, phaseIndex } from "@/lib/stages";
+import { KIND_LABEL, PROJECT_PHASES, phaseIndex } from "@/lib/stages";
 import { DIVISIONS } from "@/lib/divisions";
 import type { ScheduleHealth } from "@/lib/target-slip";
 import { projectSlug } from "@/lib/slug";
@@ -46,12 +46,6 @@ export type BoardProject = {
   unitLabel: string | null;
   /** The renovation type a turn was priced from. Null on common-area work. */
   renovationType: string | null;
-};
-
-/** What each kind is called where a person reads it. */
-export const KIND_LABEL: Record<string, string> = {
-  unit: "Unit interior",
-  common: "Common area",
 };
 
 type ViewMode = "table" | "gantt";
@@ -184,10 +178,29 @@ export function ProjectBoard({
   });
 
   const groups = buildGroups(sorted, group);
-  // The Gantt draws from the schedule rows, but the toolbar above it still
-  // decides what is on screen — so it gets the same filtered set the table
-  // would have shown, matched by id.
-  const visibleIds = new Set(sorted.map((p) => p.id));
+  // The Gantt draws from the schedule rows, but the toolbar above it decides
+  // what is on screen AND in what order. Swapping in the Schedule tab's Gantt
+  // first lost that: it received a flat array and imposed its own ordering, so
+  // Sort and Group sat there enabled and did nothing.
+  //
+  // Walking the built groups gives both back at once — the sequence carries the
+  // sort, and the label each project lands under carries the grouping.
+  const ganttRows = useMemo(() => {
+    const byId = new Map(ganttProjects.map((g) => [g.id, g]));
+    const rows: ScheduleProject[] = [];
+    const labelOf = new Map<number, string | null>();
+    for (const g of groups) {
+      for (const p of g.projects) {
+        const row = byId.get(p.id);
+        // Absent when the project has no dates at all — getScheduleProjects
+        // only returns the ones there is something to draw.
+        if (!row) continue;
+        rows.push(row);
+        labelOf.set(p.id, group === "none" ? null : g.label);
+      }
+    }
+    return { rows, labelOf };
+  }, [ganttProjects, groups, group]);
 
   return (
     <div className="space-y-4">
@@ -275,8 +288,8 @@ export function ProjectBoard({
            that had not begun showed nothing at all, which is most of them. That
            one understands phase bands, target phasing and slip. */
         <GanttView
-          projects={ganttProjects.filter((g) => visibleIds.has(g.id))}
-          showPropertyHeadings={false}
+          projects={ganttRows.rows}
+          groupLabelOf={(p) => ganttRows.labelOf.get(p.id) ?? null}
         />
       )}
     </div>

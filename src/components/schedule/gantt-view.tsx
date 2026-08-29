@@ -105,14 +105,19 @@ function barTitle(p: ScheduleProject): string {
 
 export function GanttView({
   projects,
-  showPropertyHeadings = true,
+  groupLabelOf = (p) => p.propertyName,
 }: {
   projects: ScheduleProject[];
   /**
-   * False on a property's own Projects tab, where a heading naming the property
-   * you are already looking at is a row of chrome saying nothing.
+   * The heading a row sits under, or null for no heading at all.
+   *
+   * Defaults to the property, which is what the portfolio-wide Schedule tab
+   * wants. A property's own Projects tab passes its own grouping instead — a
+   * heading naming the property you are already looking at says nothing, and
+   * the board's Group control has to mean something here or it is a control
+   * that visibly does nothing.
    */
-  showPropertyHeadings?: boolean;
+  groupLabelOf?: (p: ScheduleProject) => string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = useMemo(() => {
@@ -237,15 +242,19 @@ export function GanttView({
 
   const pxOffset = (d: Date) => differenceInCalendarDays(d, rangeStart) * DAY_WIDTH;
 
-  // Group by property when the view spans the whole portfolio; a single
-  // property already reads as one flat group.
-  const groups = new Map<number, { label: string; rows: Dated[] }>();
+  // Grouped in the order the rows arrive, not re-sorted here. The caller has
+  // already decided the order — by property on the Schedule tab, by whatever
+  // the board's Sort and Group are set to on a property tab — and sorting again
+  // would quietly overrule it.
+  const groups = new Map<string, { label: string | null; rows: Dated[] }>();
   for (const d of dated) {
-    const g = groups.get(d.p.propertyId);
+    const label = groupLabelOf(d.p);
+    const key = label ?? " ungrouped";
+    const g = groups.get(key);
     if (g) g.rows.push(d);
-    else groups.set(d.p.propertyId, { label: d.p.propertyName, rows: [d] });
+    else groups.set(key, { label, rows: [d] });
   }
-  const sortedGroups = [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  const sortedGroups = [...groups.entries()];
 
   return (
     <div
@@ -311,9 +320,9 @@ export function GanttView({
           />
 
           <div className="relative">
-            {sortedGroups.map((g) => (
-              <div key={g.label}>
-                {showPropertyHeadings && (
+            {sortedGroups.map(([key, g]) => (
+              <div key={key}>
+                {g.label !== null && (
                   <div className="flex border-b border-divider bg-surface-sub">
                     <div
                       className="sticky left-0 z-10 shrink-0 bg-surface-sub px-3 py-1.5 text-sm font-bold text-navy"
