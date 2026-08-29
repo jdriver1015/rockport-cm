@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { money } from "@/lib/format";
 import { createCommonProject } from "@/lib/actions/common-projects";
 import { TargetPhasingStep } from "@/components/target-phasing-step";
+import { BudgetCategoryPicker } from "@/components/budget-category-picker";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
 import {
   DEFAULT_SCHEDULE,
@@ -24,6 +25,9 @@ export type BudgetLineOption = {
   costCodeId: number;
   code: string;
   name: string;
+  /** Which of the four divisions it sits under, for grouping the picker. */
+  division: string | null;
+  categoryName: string | null;
   approved: number;
   allocated: number;
 };
@@ -74,6 +78,44 @@ export function CommonProjectWizard({
 
   const [name, setName] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
+  const [categories, setCategories] = useState<Set<number>>(new Set());
+
+  /**
+   * Picking a category seeds a scope line for it; unpicking removes its lines.
+   *
+   * Reconciled rather than regenerated, so going back to change one choice does
+   * not silently discard the amounts already typed against the others. A line
+   * added by hand on the scope step has no category ticked here and is left
+   * alone entirely.
+   */
+  function toggleCategory(costCodeId: number, next: boolean) {
+    setCategories((prev) => {
+      const out = new Set(prev);
+      if (next) out.add(costCodeId);
+      else out.delete(costCodeId);
+      return out;
+    });
+    setLines((prev) => {
+      if (!next) return prev.filter((l) => l.costCodeId !== costCodeId);
+      if (prev.some((l) => l.costCodeId === costCodeId)) return prev;
+      const option = budgetLines.find((b) => b.costCodeId === costCodeId);
+      if (!option) return prev;
+      const left = option.approved - option.allocated;
+      return [
+        ...prev,
+        {
+          key: nextKey++,
+          // The category's own name, so the line is describable from the moment
+          // it appears — an undescribed line is one the create step drops.
+          item: option.name,
+          costCodeId,
+          quantity: "1",
+          // What is actually left on the line. The ceiling, to be trimmed.
+          unitPrice: left > 0 ? String(Math.round(left * 100) / 100) : "",
+        },
+      ];
+    });
+  }
 
   const scheduleSettings = schedule ?? DEFAULT_SCHEDULE;
   const [suggested] = useState<Record<ScheduleKey, string>>(
@@ -140,7 +182,21 @@ export function CommonProjectWizard({
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   function removeLine(key: number) {
-    setLines((prev) => prev.filter((l) => l.key !== key));
+    setLines((prev) => {
+      const gone = prev.find((l) => l.key === key);
+      const next = prev.filter((l) => l.key !== key);
+      // Untick a category once nothing is left spending against it, so step one
+      // cannot show a selection that step two has no line for.
+      if (gone && !next.some((l) => l.costCodeId === gone.costCodeId)) {
+        setCategories((cats) => {
+          if (!cats.has(gone.costCodeId)) return cats;
+          const out = new Set(cats);
+          out.delete(gone.costCodeId);
+          return out;
+        });
+      }
+      return next;
+    });
   }
 
   const canNext = (step === 0 && name.trim().length > 0) || step === 1 || step === 2;
@@ -193,18 +249,28 @@ export function CommonProjectWizard({
                 placeholder="Dog Park Fence"
                 onChange={(e) => setName(e.target.value)}
               />
-              <p className="text-[11.5px] text-muted-foreground">
-                What the work is called. Which budget categories it spends against comes from the
-                scope on the next step — a job usually touches several, and naming one here would
-                only be right until the second line was added.
-              </p>
+              <p className="text-[11.5px] text-muted-foreground">What the work is called.</p>
             </div>
 
-            {budgetLines.length === 0 && (
+            {budgetLines.length === 0 ? (
               <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
                 This property has no budget lines yet. Add one on the Budget tab first — scope with
                 nothing to spend against cannot be reconciled later.
               </p>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Which budget categories will it touch?</Label>
+                <p className="text-[11.5px] text-muted-foreground">
+                  Pick as many as apply — a common-area job usually spends across several. Each
+                  becomes a scope line on the next step, prefilled with what is left on it, and you
+                  set the real amounts there.
+                </p>
+                <BudgetCategoryPicker
+                  options={budgetLines}
+                  selected={categories}
+                  onToggle={toggleCategory}
+                />
+              </div>
             )}
 
           </div>
@@ -215,8 +281,10 @@ export function CommonProjectWizard({
           <div className="space-y-3">
             <div className="space-y-1">
               <p className="text-[13px] leading-relaxed text-ink-600">
-                What is being built. Each line is priced, and the project&apos;s budget is what
-                they add up to — there is no separate budget to type.
+                What is being built. Each category you picked is here at the amount still
+                available on it — trim each one to what this job will actually spend. The
+                project&apos;s budget is what the lines add up to; there is no separate total to
+                type.
               </p>
               <p className="text-[11.5px] leading-relaxed text-muted-foreground">
                 You can leave this empty and price it later; the project is created either way and

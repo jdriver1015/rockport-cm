@@ -16,9 +16,17 @@ export async function readBudgetLinesForPicker(propertyId: number) {
         uwAmount: schema.budgetLines.uwAmount,
         code: schema.costCodes.code,
         name: schema.costCodes.name,
+        // Division and category so a picker can group 49 of these into
+        // something scannable rather than one long wall.
+        division: schema.costCategories.division,
+        categoryName: schema.costCategories.name,
       })
       .from(schema.budgetLines)
       .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
+      .leftJoin(
+        schema.costCategories,
+        eq(schema.costCategories.id, schema.costCodes.categoryId),
+      )
       .where(
         and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt)),
       ),
@@ -52,6 +60,8 @@ export async function readBudgetLinesForPicker(propertyId: number) {
     costCodeId: l.costCodeId,
     code: l.code,
     name: l.name,
+    division: l.division ?? null,
+    categoryName: l.categoryName ?? null,
     approved: Number(l.uwAmount),
     allocated: allocated.get(l.costCodeId) ?? 0,
   }));
