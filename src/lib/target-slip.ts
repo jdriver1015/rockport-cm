@@ -253,32 +253,50 @@ export async function rebaseFromActual(
 }
 
 /**
- * Cumulative working days each project has slipped.
+ * Cumulative working days each project's plan has slipped.
  *
- * Counted on the LAST phase only. Every push moves several rows at once, so
- * summing all of them would multiply one slip by however many phases happened
- * to follow it; the tail of the plan moves exactly once per push and is the
- * date anybody was promised.
+ * Taken as the MAXIMUM total over the project's milestones, not a sum across
+ * them and not the tail phase's total.
+ *
+ * A sum across milestones multiplies one push by however many phases happened
+ * to follow it. Reading the tail phase alone fixed that but introduced a
+ * quieter fault: relayout only moves a phase that HAS a target, so a project
+ * whose Complete date is blank — a state both wizards invite — never records a
+ * Complete event and reported zero however far it had really moved. One
+ * measured 16 working days of slip and read as on time.
+ *
+ * The maximum works because every milestone moved by a single push moves by the
+ * SAME number of working days: each is re-laid from a common anchor with its
+ * gaps held, so the shift is anchor-to-anchor for all of them. A milestone
+ * present for every push therefore carries the project's whole history, one
+ * dated later carries only part of it, and the longest history is the answer.
+ * Negative totals from a re-base handing days back are kept rather than
+ * clamped — statusOf reads anything at or below zero as on time.
  */
 export async function readSlipTotals(projectIds: number[]): Promise<Map<number, number>> {
   const out = new Map<number, number>();
   if (projectIds.length === 0) return out;
 
-  const tail = PHASE_KEYS[PHASE_KEYS.length - 1];
   const rows = await db()
     .select({
       projectId: schema.milestoneSlipEvents.projectId,
+      milestoneId: schema.milestoneSlipEvents.milestoneId,
       days: schema.milestoneSlipEvents.days,
     })
     .from(schema.milestoneSlipEvents)
-    .where(
-      and(
-        inArray(schema.milestoneSlipEvents.projectId, projectIds),
-        eq(schema.milestoneSlipEvents.phase, tail),
-      ),
-    );
+    .where(inArray(schema.milestoneSlipEvents.projectId, projectIds));
 
-  for (const r of rows) out.set(r.projectId, (out.get(r.projectId) ?? 0) + r.days);
+  const perMilestone = new Map<number, { projectId: number; days: number }>();
+  for (const r of rows) {
+    const entry = perMilestone.get(r.milestoneId) ?? { projectId: r.projectId, days: 0 };
+    entry.days += r.days;
+    perMilestone.set(r.milestoneId, entry);
+  }
+
+  for (const { projectId, days } of perMilestone.values()) {
+    const best = out.get(projectId);
+    if (best === undefined || days > best) out.set(projectId, days);
+  }
   return out;
 }
 

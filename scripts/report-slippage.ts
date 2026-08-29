@@ -52,15 +52,24 @@ async function main() {
   }
 
   console.log("\n── Worst projects ────────────────────────────────────────────");
-  // The tail phase only: every push moves several rows at once, so summing all
-  // of them multiplies one slip by however many phases followed it.
+  // Max over the project's milestones, matching readSlipTotals. Summing every
+  // row multiplies one push by the phases that followed it; reading the Complete
+  // phase alone misses any project whose finish was never dated, because a phase
+  // with no target is never moved and so never recorded.
   const worst = (await db().execute(sql`
-    select p.name, pr.name property, sum(e.days)::int slipped, count(*)::int pushes
-    from milestone_slip_events e
-    join projects p on p.id = e.project_id
+    with per_milestone as (
+      select project_id, milestone_id, sum(days)::int total
+      from milestone_slip_events
+      where reason = 'missed'
+      group by project_id, milestone_id
+    )
+    select p.name, pr.name property, max(m.total)::int slipped,
+           (select count(distinct e.at)::int from milestone_slip_events e
+             where e.project_id = p.id and e.reason = 'missed') pushes
+    from per_milestone m
+    join projects p on p.id = m.project_id
     join properties pr on pr.id = p.property_id
-    where e.reason = 'missed' and e.phase = 'complete'
-    group by p.name, pr.name
+    group by p.id, p.name, pr.name
     order by slipped desc
     limit 15`)) as unknown as Row[];
   if (worst.length === 0) console.log("  (none yet)");
@@ -70,6 +79,7 @@ async function main() {
         `+${r.slipped}d over ${r.pushes} push${Number(r.pushes) === 1 ? "" : "es"}`,
     );
   }
+
 
   console.log("\n── Corrections ───────────────────────────────────────────────");
   const rebased = (await db().execute(sql`

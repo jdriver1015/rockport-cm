@@ -84,7 +84,21 @@ export function CommonProjectWizard({
     setDates((prev) => ({ ...prev, [key]: value }));
   }
 
-  const total = useMemo(() => lines.reduce((n, l) => n + lineTotal(l), 0), [lines]);
+  /**
+   * Only the lines that will actually be created.
+   *
+   * createCommonProject requires a description on every line, so a line priced
+   * but left undescribed is dropped on submit. Totalling all of them promised a
+   * budget the project would not get: $25,000 on the confirm step, $0.00 in the
+   * database.
+   */
+  const namedLines = useMemo(() => lines.filter((l) => l.item.trim()), [lines]);
+  const total = useMemo(() => namedLines.reduce((n, l) => n + lineTotal(l), 0), [namedLines]);
+
+  // Money typed against a line with no description. Called out rather than
+  // silently left out of the total — the number vanishing with no explanation is
+  // how the mismatch stayed invisible.
+  const strandedLines = lines.filter((l) => !l.item.trim() && lineTotal(l) > 0);
 
   /**
    * What each category this project touches would have left, once this
@@ -100,7 +114,7 @@ export function CommonProjectWizard({
    */
   const byCategory = useMemo(() => {
     const spend = new Map<number, number>();
-    for (const l of lines) spend.set(l.costCodeId, (spend.get(l.costCodeId) ?? 0) + lineTotal(l));
+    for (const l of namedLines) spend.set(l.costCodeId, (spend.get(l.costCodeId) ?? 0) + lineTotal(l));
     return [...spend]
       .map(([id, amount]) => {
         const uw = budgetLines.find((b) => b.costCodeId === id);
@@ -112,7 +126,7 @@ export function CommonProjectWizard({
         };
       })
       .sort((a, b) => b.amount - a.amount);
-  }, [lines, budgetLines]);
+  }, [namedLines, budgetLines]);
 
   function addLine() {
     // Defaults to whatever the last line used — consecutive lines usually sit
@@ -129,7 +143,6 @@ export function CommonProjectWizard({
     setLines((prev) => prev.filter((l) => l.key !== key));
   }
 
-  const namedLines = lines.filter((l) => l.item.trim());
   const canNext = (step === 0 && name.trim().length > 0) || step === 1 || step === 2;
 
   async function handleCreate() {
@@ -282,6 +295,16 @@ export function CommonProjectWizard({
             <Button variant="outline" size="sm" onClick={addLine}>
               Add a scope line
             </Button>
+
+            {strandedLines.length > 0 && (
+              <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
+                {strandedLines.length === 1 ? "A line has" : `${strandedLines.length} lines have`} a
+                price but no description, so {strandedLines.length === 1 ? "it is" : "they are"} not
+                counted above and will not be saved. Describe{" "}
+                {strandedLines.length === 1 ? "it" : "them"} or remove{" "}
+                {strandedLines.length === 1 ? "it" : "them"}.
+              </p>
+            )}
 
             {byCategory.length > 0 && (
               <div className="space-y-1 rounded-card border border-border px-3 py-2">

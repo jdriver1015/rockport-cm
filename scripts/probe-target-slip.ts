@@ -58,6 +58,7 @@ async function targets(projectId: number) {
 async function main() {
   const fx = await loadFixtures();
   let projectId = 0;
+  let blankId = 0;
 
   try {
     const [p] = await db()
@@ -135,8 +136,11 @@ async function main() {
     check("recorded as a miss", events.every((e) => e.reason === "missed"));
 
     const totals = await readSlipTotals([projectId]);
-    check("cumulative slip counts the tail once", totals.get(projectId) === slip.days,
-      `${totals.get(projectId)} vs ${slip.days}`);
+    // One push moved three phases. The total is the project's slip, not the sum
+    // of the three rows it wrote.
+    check("cumulative slip counts one push once, not once per phase moved",
+      totals.get(projectId) === slip.days,
+      `${totals.get(projectId)} vs ${slip.days} (${events.length} rows written)`);
 
     // ---- idempotent
     const again = await db().transaction((tx) =>
@@ -164,7 +168,48 @@ async function main() {
     check("the re-base is recorded distinctly from the miss",
       reasons.some((r) => r.reason === "rebased") && reasons.some((r) => r.reason === "missed"),
       reasons.map((r) => r.reason).join(","));
+    // ---- a plan whose finish is undated still reports its slip
+    //
+    // readSlipTotals used to read the Complete phase alone, and relayout only
+    // moves a phase that HAS a target — so a project with Complete left blank,
+    // which both wizards invite, recorded no Complete event and reported zero
+    // however far it had really moved. One measured 16 working days and read as
+    // on time.
+    const [bare] = await db()
+      .insert(schema.projects)
+      .values({
+        propertyId: fx.propertyId,
+        kind: "common",
+        name: "ZZ probe — blank finish",
+        phase: "precon",
+      })
+      .returning({ id: schema.projects.id });
+    blankId = bare.id;
+    await db()
+      .insert(schema.projectMilestones)
+      .values(
+        defaultMilestoneRows(blankId).map((row) => ({
+          ...row,
+          plannedDate:
+            row.phase === "precon" ? "2026-09-07" : row.phase === "in_process" ? "2026-09-10" : null,
+        })),
+      );
+    const bareSlip = await db().transaction((tx) =>
+      slipOverdueTargets(tx, blankId, "precon", TODAY),
+    );
+    const bareTotal = await readSlipTotals([blankId]);
+    check(
+      "a project with no finish date still reports its slip",
+      !!bareSlip && bareTotal.get(blankId) === bareSlip.days,
+      `moved ${bareSlip?.days}, reported ${bareTotal.get(blankId)}`,
+    );
+
   } finally {
+    if (blankId) {
+      await db().delete(schema.milestoneSlipEvents).where(eq(schema.milestoneSlipEvents.projectId, blankId));
+      await db().delete(schema.projectMilestones).where(eq(schema.projectMilestones.projectId, blankId));
+      await db().delete(schema.projects).where(eq(schema.projects.id, blankId));
+    }
     if (projectId) {
       await db().delete(schema.milestoneSlipEvents).where(eq(schema.milestoneSlipEvents.projectId, projectId));
       await db().delete(schema.projectMilestones).where(eq(schema.projectMilestones.projectId, projectId));
