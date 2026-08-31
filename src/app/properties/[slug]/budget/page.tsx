@@ -10,6 +10,9 @@ import { BudgetViewSwitch } from "@/components/budget-view-switch";
 import { parseBudgetView } from "@/lib/budget-views";
 import { InteriorBudgetPivot } from "@/components/interior-budget-pivot";
 import { InteriorBudgetToolbar } from "@/components/interior-budget-toolbar";
+import { buttonVariants } from "@/components/ui/button";
+import { FileSpreadsheetIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { num } from "@/lib/format";
 import { computePropertyBudget } from "@/lib/property-budget";
 
@@ -65,22 +68,36 @@ export default async function BudgetPage({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <BudgetViewSwitch value={view} />
-          {view === "interior" ? (
-            <InteriorBudgetToolbar
-              propertyId={property.id}
-              propertySlug={property.slug}
-              floorplans={availableFloorplans}
-              tiers={availableTiers}
-              existingColumns={existingColumns}
-            />
-          ) : (
-            <AddBudgetLineDialog
-              propertyId={property.id}
-              categories={categoryOptions}
-              costCodes={costCodeOptions}
-              budgetedCostCodeIds={budgetedCostCodeIds}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {/* A link, not a button with an onClick: the route streams a
+                workbook, so letting the browser download it is the whole
+                behaviour. Always the full budget — both sheets — regardless
+                of which view tab is open, since Exterior/Interior are ways of
+                looking at one budget, not two different ones to export. */}
+            <a
+              href={`/api/properties/${property.id}/budget/export`}
+              className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
+            >
+              <FileSpreadsheetIcon className="size-3.5" />
+              Download budget
+            </a>
+            {view === "interior" ? (
+              <InteriorBudgetToolbar
+                propertyId={property.id}
+                propertySlug={property.slug}
+                floorplans={availableFloorplans}
+                tiers={availableTiers}
+                existingColumns={existingColumns}
+              />
+            ) : (
+              <AddBudgetLineDialog
+                propertyId={property.id}
+                categories={categoryOptions}
+                costCodes={costCodeOptions}
+                budgetedCostCodeIds={budgetedCostCodeIds}
+              />
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {view === "interior" ? (
