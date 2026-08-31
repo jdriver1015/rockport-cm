@@ -17,6 +17,18 @@ export function money(value: number | string | null | undefined): string {
   return n < 0 ? `(${usd0.format(Math.abs(n))})` : usd0.format(n);
 }
 
+/**
+ * Currency with $0 shown as $0, not elided to an em dash.
+ *
+ * money() treats zero as absent, which is right for an optional field nobody
+ * has set. It is wrong for a computed remainder: a budget category spent down
+ * to the last dollar is a real, common answer — "Roof: $0 left" — and money()
+ * rendered it as "Roof: — left", which reads as unknown rather than exhausted.
+ */
+export function moneyOrZero(value: number): string {
+  return value < 0 ? `(${usd0.format(Math.abs(value))})` : usd0.format(value);
+}
+
 /** Cent-precise display for transaction/budget detail rows */
 export function moneyExact(value: number | string | null | undefined): string {
   const n = typeof value === "string" ? parseFloat(value) : value;

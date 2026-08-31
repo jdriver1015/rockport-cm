@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { money } from "@/lib/format";
+import { moneyOrZero } from "@/lib/format";
 import { DIVISIONS } from "@/lib/divisions";
 import type { BudgetLineOption } from "@/components/common-project-wizard";
 
@@ -114,7 +114,7 @@ export function BudgetCategoryPicker({
                   )}
                   <span className="shrink-0 text-[11.5px] text-muted-foreground tabular-nums">
                     {g.rows.length} {g.rows.length === 1 ? "category" : "categories"} ·{" "}
-                    {money(left)} left
+                    {moneyOrZero(left)} left
                   </span>
                 </button>
 
@@ -153,8 +153,8 @@ export function BudgetCategoryPicker({
                           )}
                         >
                           {left < -0.005
-                            ? `over by ${money(Math.abs(left))}`
-                            : `${money(left)} left`}
+                            ? `over by ${moneyOrZero(Math.abs(left))}`
+                            : `${moneyOrZero(left)} left`}
                         </span>
                       </label>
                     );
@@ -171,8 +171,8 @@ export function BudgetCategoryPicker({
         ) : (
           <>
             {chosen.length} {chosen.length === 1 ? "category" : "categories"} selected ·{" "}
-            <span className="font-medium text-navy">{money(chosenTotal)}</span> available across
-            them
+            <span className="font-medium text-navy">{moneyOrZero(chosenTotal)}</span> available
+            across them
           </>
         )}
       </p>

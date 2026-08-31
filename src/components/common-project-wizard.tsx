@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { money } from "@/lib/format";
+import { money, moneyOrZero } from "@/lib/format";
 import { createCommonProject } from "@/lib/actions/common-projects";
 import { TargetPhasingStep } from "@/components/target-phasing-step";
 import { BudgetCategoryPicker } from "@/components/budget-category-picker";
@@ -392,9 +392,14 @@ export function CommonProjectWizard({
                       {money(c.amount)}
                       {c.remaining !== null && (
                         <span className="ml-1.5">
+                          {/* moneyOrZero, not money: a category spent to exactly
+                              zero is a real answer ("$0 left"), and money()
+                              elides zero to an em dash meant for an absent
+                              field — Roof and Garage hit this the moment either
+                              is picked, since both are already fully committed. */}
                           {c.remaining < 0
-                            ? `· ${money(Math.abs(c.remaining))} over`
-                            : `· ${money(c.remaining)} left`}
+                            ? `· ${moneyOrZero(Math.abs(c.remaining))} over`
+                            : `· ${moneyOrZero(c.remaining)} left`}
                         </span>
                       )}
                     </span>
