@@ -294,7 +294,14 @@ export function BudgetImportDialog(props: Props) {
         )}
 
         <div className="flex items-center justify-between border-t border-border pt-3">
-          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setOpen(false);
+              reset();
+            }}
+            disabled={busy}
+          >
             Cancel
           </Button>
           {parsed && (

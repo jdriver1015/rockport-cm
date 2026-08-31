@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
@@ -88,7 +88,7 @@ export async function createProperty(
         raw.every(
           (r) =>
             r && typeof r.costCodeId === "number" && Number.isInteger(r.costCodeId) &&
-            typeof r.uwAmount === "number" && Number.isFinite(r.uwAmount),
+            typeof r.uwAmount === "number" && Number.isFinite(r.uwAmount) && r.uwAmount > 0,
         )
       ) {
         budgetImportRows = raw;
@@ -146,23 +146,33 @@ export async function createProperty(
     const validCodes = await db()
       .select({ id: schema.costCodes.id })
       .from(schema.costCodes)
-      .where(eq(schema.costCodes.chartId, fields.chartOfAccountsId));
+      .where(and(eq(schema.costCodes.chartId, fields.chartOfAccountsId), eq(schema.costCodes.active, true)));
     const validIds = new Set(validCodes.map((c) => c.id));
     const usable = budgetImportRows.filter((r) => validIds.has(r.costCodeId));
-    budgetLinesSeeded = usable.length;
     if (usable.length > 0) {
-      await applyBudgetImport(
-        db(),
-        property.id,
-        usable.map((r) => ({
-          costCodeId: r.costCodeId,
-          code: "",
-          name: "",
-          categoryName: null,
-          from: null,
-          to: r.uwAmount,
-        })),
-      );
+      // Not fatal, like the seeding above: the property is real either way,
+      // and a DB error partway through (e.g. an out-of-range amount) should
+      // be reported, not left to throw uncaught and strand an unexplained
+      // partially-seeded property.
+      try {
+        await applyBudgetImport(
+          db(),
+          property.id,
+          usable.map((r) => ({
+            costCodeId: r.costCodeId,
+            code: "",
+            name: "",
+            categoryName: null,
+            from: null,
+            to: r.uwAmount,
+          })),
+        );
+        budgetLinesSeeded = usable.length;
+      } catch (err) {
+        notes.push(
+          `the uploaded budget could not be applied${err instanceof Error ? `: ${err.message}` : ""} — add lines manually from the Budget tab`,
+        );
+      }
     }
     if (usable.length < budgetImportRows.length) {
       notes.push(
