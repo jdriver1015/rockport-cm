@@ -15,6 +15,7 @@ import { FileSpreadsheetIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { num } from "@/lib/format";
 import { computePropertyBudget } from "@/lib/property-budget";
+import { BudgetImportDialog } from "@/components/budget-import-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,9 @@ export default async function BudgetPage({
               <FileSpreadsheetIcon className="size-3.5" />
               Download budget
             </a>
+            {/* Always available, like Download — it replaces the non-interior
+                budget regardless of which view tab happens to be open. */}
+            <BudgetImportDialog mode="overwrite" propertyId={property.id} chartOfAccountsId={property.chartOfAccountsId} />
             {view === "interior" ? (
               <InteriorBudgetToolbar
                 propertyId={property.id}

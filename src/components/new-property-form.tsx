@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createProperty } from "@/lib/actions/properties";
+import { BudgetImportDialog } from "@/components/budget-import-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,15 @@ export function NewPropertyForm({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const defaultChartId = charts.find((c) => c.isDefault)?.id ?? charts[0]?.id;
+  // The chart the budget-import dialog matches against has to track whatever
+  // is actually selected, not just the default — a person can change it
+  // before uploading, and the dialog needs to know which chart's cost codes
+  // to resolve names against.
+  const [chartId, setChartId] = useState<number | undefined>(defaultChartId);
+  const [preparedBudget, setPreparedBudget] = useState<{
+    rows: { costCodeId: number; uwAmount: number }[];
+    summary: string;
+  } | null>(null);
   // Pre-checked from the portfolio defaults, but every active type is offered:
   // the standard set is a starting point, not a restriction.
   const [checked, setChecked] = useState<Set<number>>(
@@ -45,9 +55,11 @@ export function NewPropertyForm({
       }
       // Seeding is best-effort, so say what actually landed rather than
       // letting a half-copied set of types read as the whole standard scope.
-      const seeded = result.seededTypes > 0
-        ? `${result.seededTypes} renovation type${result.seededTypes === 1 ? "" : "s"} seeded`
-        : "Property created";
+      const parts = [
+        result.seededTypes > 0 && `${result.seededTypes} renovation type${result.seededTypes === 1 ? "" : "s"}`,
+        result.budgetLinesSeeded > 0 && `${result.budgetLinesSeeded} budget line${result.budgetLinesSeeded === 1 ? "" : "s"}`,
+      ].filter(Boolean);
+      const seeded = parts.length > 0 ? `Property created — ${parts.join(", ")} seeded` : "Property created";
       if (result.notes.length > 0) {
         toast.warning(seeded, { description: result.notes.join(" · "), duration: 12000 });
       } else {
@@ -98,6 +110,13 @@ export function NewPropertyForm({
           name="chartOfAccountsId"
           required
           defaultValue={defaultChartId ?? ""}
+          onChange={(e) => {
+            const next = e.target.value ? Number(e.target.value) : undefined;
+            setChartId(next);
+            // A budget already resolved against the old chart no longer means
+            // anything once the chart changes underneath it.
+            if (preparedBudget) setPreparedBudget(null);
+          }}
           className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           {charts.length === 0 && (
@@ -116,6 +135,39 @@ export function NewPropertyForm({
           Budget lines and GL codes use this chart. It locks once GL activity is imported.
         </p>
       </div>
+      <div className="space-y-2 border-t border-border pt-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <Label>Non-interior budget</Label>
+            <p className="text-xs text-muted-foreground">
+              Starts the property&apos;s capex budget from an underwriting workbook instead of
+              adding each line by hand. Interior categories come from the renovation types below
+              instead.
+            </p>
+          </div>
+          {chartId != null && (
+            <BudgetImportDialog
+              mode="prepare"
+              chartOfAccountsId={chartId}
+              onResolved={(rows, summary) => setPreparedBudget({ rows, summary })}
+            />
+          )}
+        </div>
+        {preparedBudget && (
+          <p className="rounded-control bg-muted px-2.5 py-1.5 text-[12px] text-ink-600">
+            {preparedBudget.summary} will be created with this property.{" "}
+            <button
+              type="button"
+              className="underline hover:text-navy"
+              onClick={() => setPreparedBudget(null)}
+            >
+              Remove
+            </button>
+          </p>
+        )}
+        <input type="hidden" name="budgetImportRows" value={preparedBudget ? JSON.stringify(preparedBudget.rows) : ""} />
+      </div>
+
       <div className="space-y-2 border-t border-border pt-4">
         <div>
           <Label>Renovation types to start with</Label>

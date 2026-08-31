@@ -8,6 +8,7 @@ import type { ActionResult } from "@/lib/action-result";
 import { dedupeSlug, slugify } from "@/lib/slug";
 import { seedInteriorSettingsFromDefaults } from "@/lib/interior-defaults";
 import { createGroupFromTemplate } from "@/lib/actions/budget-groups";
+import { applyBudgetImport } from "@/lib/property-budget-import";
 
 /** A unique property slug for `name`, excluding `excludeId` (used on rename). */
 async function uniquePropertySlug(name: string, excludeId?: number): Promise<string> {
@@ -33,6 +34,13 @@ const createPropertySchema = z.object({
    * new property with types to archive before it could be read.
    */
   seedTemplateIds: z.array(z.coerce.number().int().positive()).default([]),
+  /**
+   * The budget lines a BudgetImportDialog(mode="prepare") already resolved
+   * against this chart, as JSON — `{costCodeId, uwAmount}[]`. Resolved before
+   * the property exists (matching against a chart needs no property row), and
+   * applied here, in the same non-fatal pass as everything else, once it does.
+   */
+  budgetImportRows: z.string().optional(),
 });
 
 export async function createProperty(
@@ -42,6 +50,7 @@ export async function createProperty(
     propertyId: number;
     slug: string;
     seededTypes: number;
+    budgetLinesSeeded: number;
     /** Non-fatal shortfalls worth telling the user about. */
     notes: string[];
   }>
@@ -55,6 +64,7 @@ export async function createProperty(
     unitCount: formData.get("unitCount") || undefined,
     pmSystem: formData.get("pmSystem") || undefined,
     seedTemplateIds: formData.getAll("seedTemplateIds"),
+    budgetImportRows: formData.get("budgetImportRows") || undefined,
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
@@ -64,7 +74,32 @@ export async function createProperty(
   });
   if (!chart) return { ok: false, error: "Selected chart of accounts no longer exists" };
 
-  const { seedTemplateIds, ...fields } = parsed.data;
+  const { seedTemplateIds, budgetImportRows: budgetImportRowsRaw, ...fields } = parsed.data;
+
+  // Parsed and validated before the insert, so a malformed payload is refused
+  // up front rather than discovered as a silent no-op after the property is
+  // already real.
+  let budgetImportRows: { costCodeId: number; uwAmount: number }[] = [];
+  if (budgetImportRowsRaw) {
+    try {
+      const raw = JSON.parse(budgetImportRowsRaw);
+      if (
+        Array.isArray(raw) &&
+        raw.every(
+          (r) =>
+            r && typeof r.costCodeId === "number" && Number.isInteger(r.costCodeId) &&
+            typeof r.uwAmount === "number" && Number.isFinite(r.uwAmount),
+        )
+      ) {
+        budgetImportRows = raw;
+      }
+    } catch {
+      // Malformed JSON is treated the same as none supplied — the dialog that
+      // produces this value is the only writer, so this only happens if
+      // something upstream is broken, and the property should still be
+      // creatable either way.
+    }
+  }
   const slug = await uniquePropertySlug(fields.name);
   const [property] = await db()
     .insert(schema.properties)
@@ -103,8 +138,48 @@ export async function createProperty(
     notes.push(`${unresolvedLines} priced line(s) had no matching cost code in this chart`);
   }
 
+  let budgetLinesSeeded = 0;
+  if (budgetImportRows.length > 0) {
+    // Re-validated against THIS chart rather than trusted from the client: the
+    // dialog resolved these against the chart the person had selected at the
+    // time, which is cheap to re-confirm and expensive to get wrong silently.
+    const validCodes = await db()
+      .select({ id: schema.costCodes.id })
+      .from(schema.costCodes)
+      .where(eq(schema.costCodes.chartId, fields.chartOfAccountsId));
+    const validIds = new Set(validCodes.map((c) => c.id));
+    const usable = budgetImportRows.filter((r) => validIds.has(r.costCodeId));
+    budgetLinesSeeded = usable.length;
+    if (usable.length > 0) {
+      await applyBudgetImport(
+        db(),
+        property.id,
+        usable.map((r) => ({
+          costCodeId: r.costCodeId,
+          code: "",
+          name: "",
+          categoryName: null,
+          from: null,
+          to: r.uwAmount,
+        })),
+      );
+    }
+    if (usable.length < budgetImportRows.length) {
+      notes.push(
+        `${budgetImportRows.length - usable.length} budget line(s) from the file no longer match this chart`,
+      );
+    }
+  }
+
   revalidatePath("/");
-  return { ok: true, propertyId: property.id, slug: property.slug, seededTypes, notes };
+  return {
+    ok: true,
+    propertyId: property.id,
+    slug: property.slug,
+    seededTypes,
+    budgetLinesSeeded,
+    notes,
+  };
 }
 
 const updatePropertySchema = z.object({
