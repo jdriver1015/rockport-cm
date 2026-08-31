@@ -80,6 +80,12 @@ export async function createProperty(
   // up front rather than discovered as a silent no-op after the property is
   // already real.
   let budgetImportRows: { costCodeId: number; uwAmount: number }[] = [];
+  // Distinct from "nothing was uploaded": the dialog that produces this value
+  // is the only writer, so a shape mismatch means something upstream is
+  // broken — worth telling the person about (below, once `notes` exists)
+  // rather than silently creating the property as if they'd never uploaded
+  // anything at all.
+  let budgetImportRowsRejected = false;
   if (budgetImportRowsRaw) {
     try {
       const raw = JSON.parse(budgetImportRowsRaw);
@@ -92,12 +98,11 @@ export async function createProperty(
         )
       ) {
         budgetImportRows = raw;
+      } else {
+        budgetImportRowsRejected = true;
       }
     } catch {
-      // Malformed JSON is treated the same as none supplied — the dialog that
-      // produces this value is the only writer, so this only happens if
-      // something upstream is broken, and the property should still be
-      // creatable either way.
+      budgetImportRowsRejected = true;
     }
   }
   const slug = await uniquePropertySlug(fields.name);
@@ -113,6 +118,9 @@ export async function createProperty(
   // unattributed uplift stops the pivot reconciling to the Interiors division,
   // and a partially-copied type looks like a type that simply costs less.
   const notes: string[] = [];
+  if (budgetImportRowsRejected) {
+    notes.push("the uploaded budget file's data didn't match the expected format — add lines manually from the Budget tab");
+  }
   const { unresolvedRefs } = await seedInteriorSettingsFromDefaults(
     property.id,
     fields.chartOfAccountsId,

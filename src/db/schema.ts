@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -267,34 +268,43 @@ export const costCodes = pgTable(
 // Properties (the assets)
 // ---------------------------------------------------------------------------
 
-export const properties = pgTable("properties", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  /** URL-safe handle derived from name, e.g. "retreat-at-westpark". Regenerated on rename. */
-  slug: text("slug").notNull().unique(),
-  // The chart this property's budget/GL codes live in. Chosen at creation and
-  // locked once GL activity exists.
-  chartOfAccountsId: integer("chart_of_accounts_id")
-    .notNull()
-    .references(() => chartsOfAccounts.id),
-  entity: text("entity"),
-  address: text("address"),
-  city: text("city"),
-  state: text("state"),
-  unitCount: integer("unit_count"),
-  /** Source property-management system for GL exports, e.g. "BH / Yardi" */
-  pmSystem: text("pm_system"),
-  /** Latest GL activity date reflected in actuals — "GL Updated Thru" */
-  glUpdatedThru: date("gl_updated_thru"),
-  /**
-   * Set while the non-interior budget is locked against edits; null = unlocked.
-   * Current state lives here for a cheap check at every write site; the full
-   * history of who locked/unlocked and when is budgetLockEvents below.
-   */
-  budgetLockedAt: timestamp("budget_locked_at", { withTimezone: true }),
-  budgetLockedBy: uuid("budget_locked_by").references(() => profiles.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const properties = pgTable(
+  "properties",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    /** URL-safe handle derived from name, e.g. "retreat-at-westpark". Regenerated on rename. */
+    slug: text("slug").notNull().unique(),
+    // The chart this property's budget/GL codes live in. Chosen at creation and
+    // locked once GL activity exists.
+    chartOfAccountsId: integer("chart_of_accounts_id")
+      .notNull()
+      .references(() => chartsOfAccounts.id),
+    entity: text("entity"),
+    address: text("address"),
+    city: text("city"),
+    state: text("state"),
+    unitCount: integer("unit_count"),
+    /** Source property-management system for GL exports, e.g. "BH / Yardi" */
+    pmSystem: text("pm_system"),
+    /** Latest GL activity date reflected in actuals — "GL Updated Thru" */
+    glUpdatedThru: date("gl_updated_thru"),
+    /**
+     * Set while the non-interior budget is locked against edits; null = unlocked.
+     * Current state lives here for a cheap check at every write site; the full
+     * history of who locked/unlocked and when is budgetLockEvents below.
+     */
+    budgetLockedAt: timestamp("budget_locked_at", { withTimezone: true }),
+    budgetLockedBy: uuid("budget_locked_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Both set or both null — never one without the other. applyBudgetLockChange
+    // is the only writer and always sets them together, but this is the backstop
+    // against a future hand-run fix or a different code path doing it wrong.
+    check("properties_budget_lock_pair_ck", sql`(${t.budgetLockedAt} is null) = (${t.budgetLockedBy} is null)`),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Budget (underwriting benchmarks) — one line per property per cost code

@@ -41,6 +41,10 @@ export default async function BudgetPage({
   // code and GL transaction hangs off it, so switching it would invalidate all of
   // them — there is deliberately no way to change it here.
 
+  // Kicked off alongside the budget computation below rather than after it —
+  // neither lock query depends on anything computePropertyBudget returns.
+  const lockPromise = Promise.all([fetchBudgetLockState(propertyId), fetchBudgetLockEvents(propertyId)]);
+
   const {
     budgetDivisions,
     codes,
@@ -56,10 +60,7 @@ export default async function BudgetPage({
     availableTiers,
   } = await computePropertyBudget(propertyId, property.chartOfAccountsId);
 
-  const [lockState, lockEvents] = await Promise.all([
-    fetchBudgetLockState(propertyId),
-    fetchBudgetLockEvents(propertyId),
-  ]);
+  const [lockState, lockEvents] = await lockPromise;
 
   // Exterior view = everything that isn't unit interiors. Their exterior workbook
   // includes clubhouse, pool, amenities, soft costs and contingency, so this is

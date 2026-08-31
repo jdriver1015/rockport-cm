@@ -96,6 +96,7 @@ export function BudgetImportDialog(props: Props) {
           : await previewBudgetImportForNewProperty(props.chartOfAccountsId, result.rows);
       if (!previewResult.ok) {
         toast.error(previewResult.error);
+        reset();
         return;
       }
       setPreview(previewResult);
@@ -144,7 +145,12 @@ export function BudgetImportDialog(props: Props) {
       <DialogTrigger
         render={
           props.mode === "overwrite" ? (
-            <Button size="sm" variant="outline" disabled={props.disabled}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={props.disabled}
+              title={props.disabled ? "Budget is locked — unlock it from the Consolidated or Exterior view" : undefined}
+            >
               <FileUpIcon className="size-3.5" />
               Upload / Replace
             </Button>
@@ -311,7 +317,12 @@ export function BudgetImportDialog(props: Props) {
               </Button>
               <Button
                 onClick={handleConfirm}
-                disabled={busy || !preview || (preview.matched.length === 0 && preview.toArchive.length === 0)}
+                disabled={
+                  busy ||
+                  (props.mode === "overwrite" && props.disabled) ||
+                  !preview ||
+                  (preview.matched.length === 0 && preview.toArchive.length === 0)
+                }
               >
                 {busy
                   ? "Working…"

@@ -6,14 +6,24 @@ import { db, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { canWriteProperty } from "@/lib/auth-rules";
 import { propertyPath } from "@/lib/property-path";
-import { fetchBudgetLockState, applyBudgetLockChange } from "@/lib/property-budget-lock";
+import { applyBudgetLockChange } from "@/lib/property-budget-lock";
 import type { ActionResult } from "@/lib/action-result";
 
-export async function lockBudget(propertyId: number, note?: string): Promise<ActionResult> {
+/**
+ * Shared body for lockBudget/unlockBudget below — the only differences
+ * between locking and unlocking are which permission-error string to use and
+ * which action to pass through, both parameterized here rather than
+ * duplicated across two near-identical functions.
+ */
+async function setBudgetLock(
+  propertyId: number,
+  action: "locked" | "unlocked",
+  note: string | undefined,
+): Promise<ActionResult> {
   const auth = await requireUser();
   if (!auth.ok) return auth;
   if (!canWriteProperty(auth.profile.role)) {
-    return { ok: false, error: "You don't have permission to lock this budget" };
+    return { ok: false, error: `You don't have permission to ${action === "locked" ? "lock" : "unlock"} this budget` };
   }
 
   const property = await db().query.properties.findFirst({
@@ -22,41 +32,23 @@ export async function lockBudget(propertyId: number, note?: string): Promise<Act
   });
   if (!property) return { ok: false, error: "Property not found" };
 
-  // fetchBudgetLockState, not a second relational-query read of budgetLockedAt
-  // here: db()'s drizzle client is memoized on globalThis to survive dev-mode
-  // hot reloads (see src/db/index.ts), which means its relational-query schema
-  // snapshot can predate a column added after the server started, silently
-  // reading it back as undefined. fetchBudgetLockState uses a plain select,
-  // which always resolves columns off the live schema module instead.
-  const state = await fetchBudgetLockState(propertyId);
-  if (state.locked) return { ok: false, error: "Budget is already locked" };
-
-  await applyBudgetLockChange(propertyId, "locked", auth.profile.id, note?.trim() || null);
+  // applyBudgetLockChange's own UPDATE is the check — its WHERE clause only
+  // matches a property still in the opposite state, so this can't race a
+  // concurrent lock/unlock call the way a separate read-then-write would.
+  const changed = await applyBudgetLockChange(propertyId, action, auth.profile.id, note?.trim() || null);
+  if (!changed) {
+    return { ok: false, error: action === "locked" ? "Budget is already locked" : "Budget is not locked" };
+  }
 
   const path = await propertyPath(propertyId, "/budget");
   if (path) revalidatePath(path);
   return { ok: true };
 }
 
+export async function lockBudget(propertyId: number, note?: string): Promise<ActionResult> {
+  return setBudgetLock(propertyId, "locked", note);
+}
+
 export async function unlockBudget(propertyId: number, note?: string): Promise<ActionResult> {
-  const auth = await requireUser();
-  if (!auth.ok) return auth;
-  if (!canWriteProperty(auth.profile.role)) {
-    return { ok: false, error: "You don't have permission to unlock this budget" };
-  }
-
-  const property = await db().query.properties.findFirst({
-    where: eq(schema.properties.id, propertyId),
-    columns: { id: true },
-  });
-  if (!property) return { ok: false, error: "Property not found" };
-
-  const state = await fetchBudgetLockState(propertyId);
-  if (!state.locked) return { ok: false, error: "Budget is not locked" };
-
-  await applyBudgetLockChange(propertyId, "unlocked", auth.profile.id, note?.trim() || null);
-
-  const path = await propertyPath(propertyId, "/budget");
-  if (path) revalidatePath(path);
-  return { ok: true };
+  return setBudgetLock(propertyId, "unlocked", note);
 }

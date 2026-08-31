@@ -218,7 +218,7 @@ export function AddBudgetLineDialog({
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={busy || (categoryId ? availableCodes.length === 0 : false)}>
+            <Button type="submit" disabled={busy || disabled || (categoryId ? availableCodes.length === 0 : false)}>
               {busy ? "Adding…" : "Add Budget Line"}
             </Button>
           </div>

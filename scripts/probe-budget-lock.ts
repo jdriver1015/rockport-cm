@@ -1,13 +1,15 @@
 /**
  * End-to-end probe of the non-interior budget lock, against the real database.
  *
- * lockBudget/unlockBudget (src/lib/actions/budget-lock.ts) require a real
- * Supabase session, which a script does not have. So — the same split
- * property-budget-import.ts uses for the same reason — the actual DB mutation
- * lives in property-budget-lock.ts's applyBudgetLockChange, callable directly
- * here. That leaves the "already locked" / "not locked" guards inside
- * lockBudget/unlockBudget themselves unexercised by this probe; they're a
- * single `if` each, read at the call site instead of run here.
+ * lockBudget/unlockBudget (src/lib/actions/budget-lock.ts) and
+ * createBudgetLine/updateBudgetLine/deleteBudgetLine/restoreBudgetLine
+ * (src/lib/actions/budget.ts) all now require a real Supabase session, which
+ * a script does not have. So — the same split property-budget-import.ts
+ * uses for the same reason — the actual DB logic lives in
+ * property-budget-lock.ts and budget-lines.ts, callable directly here. That
+ * leaves the auth/permission checks in the "use server" wrappers themselves
+ * unexercised by this probe; they're the same requireUser()/canWriteProperty()
+ * pattern already covered by other probes in this codebase.
  *
  * Every mutation below runs against a throwaway property this probe creates
  * and destroys itself. Aston is touched only by the two read-only fetches,
@@ -28,9 +30,15 @@ import {
   fetchBudgetLockState,
   fetchBudgetLockEvents,
   assertBudgetUnlocked,
+  assertBudgetUnlockedForUpdate,
   applyBudgetLockChange,
 } from "../src/lib/property-budget-lock";
-import { createBudgetLine, updateBudgetLine, deleteBudgetLine, restoreBudgetLine } from "../src/lib/actions/budget";
+import {
+  createBudgetLineCore,
+  updateBudgetLineCore,
+  deleteBudgetLineCore,
+  restoreBudgetLineCore,
+} from "../src/lib/budget-lines";
 import { loadFixtures } from "./probe-fixtures";
 
 let pass = 0;
@@ -45,19 +53,13 @@ function check(label: string, ok: boolean, detail?: string) {
   }
 }
 
-function fd(values: Record<string, string>): FormData {
-  const f = new FormData();
-  for (const [k, v] of Object.entries(values)) f.append(k, v);
-  return f;
-}
-
 /**
- * budget.ts's actions call revalidatePath as their last step, which throws
- * outside a real Next.js request — there is no static-generation store in a
- * bare script. By the time that throws, the DB write it's reporting on has
- * already committed (revalidatePath is the last line before `return`), so
- * this treats that one specific invariant as a success rather than avoiding
- * the real action altogether.
+ * budget-lines.ts's core functions call revalidatePath as their last step,
+ * which throws outside a real Next.js request — there is no static-generation
+ * store in a bare script. By the time that throws, the DB write it's
+ * reporting on has already committed (revalidatePath is the last line before
+ * `return`), so this treats that one specific invariant as a success rather
+ * than avoiding the real function altogether.
  */
 async function runAction<T extends { ok: boolean }>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -89,7 +91,7 @@ async function main() {
   const astonEvents = await fetchBudgetLockEvents(fx.propertyId);
   check("Aston: event fetch returns an array", Array.isArray(astonEvents));
 
-  // ---- the write path: lock, gate every budget.ts mutation, unlock — on a
+  // ---- the write path: lock, gate every budget-line mutation, unlock — on a
   // throwaway property this probe owns start to finish.
   let throwawayId = 0;
   let lineId = 0;
@@ -111,10 +113,13 @@ async function main() {
     const guardWhenUnlocked = await assertBudgetUnlocked(throwawayId);
     check("assertBudgetUnlocked: ok while unlocked", guardWhenUnlocked.ok === true);
 
+    const guardForUpdateWhenUnlocked = await db().transaction((tx) => assertBudgetUnlockedForUpdate(tx, throwawayId));
+    check("assertBudgetUnlockedForUpdate: ok while unlocked", guardForUpdateWhenUnlocked.ok === true);
+
     const created = await runAction(() =>
-      createBudgetLine(fd({ propertyId: String(throwawayId), costCodeId: String(fx.codeA), uwAmount: "10000" })),
+      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeA, uwAmount: 10000 }),
     );
-    check("createBudgetLine: succeeds while unlocked", created.ok === true);
+    check("createBudgetLineCore: succeeds while unlocked", created.ok === true);
 
     const line = await db().query.budgetLines.findFirst({
       where: eq(schema.budgetLines.propertyId, throwawayId),
@@ -126,7 +131,15 @@ async function main() {
     const someProfile = await db().query.profiles.findFirst();
     if (!someProfile) throw new Error("no profiles in the database to attribute a lock to");
 
-    await applyBudgetLockChange(throwawayId, "locked", someProfile.id, "probe: locking for a test");
+    const locked = await applyBudgetLockChange(throwawayId, "locked", someProfile.id, "probe: locking for a test");
+    check("applyBudgetLockChange: locking an unlocked property succeeds", locked === true);
+
+    // Simulates the race this compare-and-swap closes: a second lock attempt
+    // arriving after the first already committed. If this ever returned true,
+    // two concurrent lockBudget calls could both succeed and silently
+    // overwrite each other's attribution.
+    const relocked = await applyBudgetLockChange(throwawayId, "locked", someProfile.id, "probe: second lock attempt");
+    check("applyBudgetLockChange: locking an already-locked property is refused, not silently reapplied", relocked === false);
 
     const lockedState = await fetchBudgetLockState(throwawayId);
     check(
@@ -136,7 +149,7 @@ async function main() {
     );
     const eventsAfterLock = await fetchBudgetLockEvents(throwawayId);
     check(
-      "throwaway: locking wrote one event carrying the note",
+      "throwaway: only the first lock wrote an event, carrying its note",
       eventsAfterLock.length === 1 && eventsAfterLock[0].action === "locked" && eventsAfterLock[0].note === "probe: locking for a test",
     );
 
@@ -146,19 +159,25 @@ async function main() {
       guardWhenLocked.ok === false && guardWhenLocked.error.includes(lockedState.lockedByName ?? "\0"),
     );
 
-    const createWhileLocked = await runAction(() =>
-      createBudgetLine(fd({ propertyId: String(throwawayId), costCodeId: String(fx.codeB), uwAmount: "999" })),
+    const guardForUpdateWhenLocked = await db().transaction((tx) => assertBudgetUnlockedForUpdate(tx, throwawayId));
+    check(
+      "assertBudgetUnlockedForUpdate: refused while locked, names the locker",
+      guardForUpdateWhenLocked.ok === false && guardForUpdateWhenLocked.error.includes(lockedState.lockedByName ?? "\0"),
     );
-    check("createBudgetLine: refused while locked", createWhileLocked.ok === false);
 
-    const updateWhileLocked = await runAction(() => updateBudgetLine({ id: lineId, propertyId: throwawayId, uwAmount: 55555 }));
-    check("updateBudgetLine: refused while locked", updateWhileLocked.ok === false);
+    const createWhileLocked = await runAction(() =>
+      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeB, uwAmount: 999 }),
+    );
+    check("createBudgetLineCore: refused while locked", createWhileLocked.ok === false);
 
-    const deleteWhileLocked = await runAction(() => deleteBudgetLine({ id: lineId, propertyId: throwawayId }));
-    check("deleteBudgetLine: refused while locked", deleteWhileLocked.ok === false);
+    const updateWhileLocked = await runAction(() => updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 55555 }));
+    check("updateBudgetLineCore: refused while locked", updateWhileLocked.ok === false);
 
-    const restoreWhileLocked = await runAction(() => restoreBudgetLine({ id: lineId, propertyId: throwawayId }));
-    check("restoreBudgetLine: refused while locked", restoreWhileLocked.ok === false);
+    const deleteWhileLocked = await runAction(() => deleteBudgetLineCore({ id: lineId, propertyId: throwawayId }));
+    check("deleteBudgetLineCore: refused while locked", deleteWhileLocked.ok === false);
+
+    const restoreWhileLocked = await runAction(() => restoreBudgetLineCore({ id: lineId, propertyId: throwawayId }));
+    check("restoreBudgetLineCore: refused while locked", restoreWhileLocked.ok === false);
 
     const untouchedLine = await db().query.budgetLines.findFirst({ where: eq(schema.budgetLines.id, lineId) });
     check(
@@ -166,18 +185,26 @@ async function main() {
       Number(untouchedLine?.uwAmount) === 10000 && !untouchedLine?.archivedAt,
     );
 
-    await applyBudgetLockChange(throwawayId, "unlocked", someProfile.id, null);
+    const unlocked = await applyBudgetLockChange(throwawayId, "unlocked", someProfile.id, null);
+    check("applyBudgetLockChange: unlocking a locked property succeeds", unlocked === true);
+
+    const reunlocked = await applyBudgetLockChange(throwawayId, "unlocked", someProfile.id, null);
+    check("applyBudgetLockChange: unlocking an already-unlocked property is refused", reunlocked === false);
 
     const unlockedState = await fetchBudgetLockState(throwawayId);
     check("throwaway: unlocked state clears lockedAt and the actor", unlockedState.locked === false && unlockedState.lockedByName === null);
     const eventsAfterUnlock = await fetchBudgetLockEvents(throwawayId);
     check(
-      "throwaway: unlocking appended a second event, oldest last",
+      "throwaway: only the first unlock appended an event, oldest last",
       eventsAfterUnlock.length === 2 && eventsAfterUnlock[0].action === "unlocked" && eventsAfterUnlock[1].action === "locked",
     );
+    check(
+      "throwaway: the lock event and the unlock event carry the same clock's timestamps as properties did at the time",
+      eventsAfterUnlock[1].createdAt.getTime() === lockedState.lockedAt!.getTime(),
+    );
 
-    const updateAfterUnlock = await runAction(() => updateBudgetLine({ id: lineId, propertyId: throwawayId, uwAmount: 12000 }));
-    check("updateBudgetLine: succeeds again once unlocked", updateAfterUnlock.ok === true);
+    const updateAfterUnlock = await runAction(() => updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 12000 }));
+    check("updateBudgetLineCore: succeeds again once unlocked", updateAfterUnlock.ok === true);
   } finally {
     if (throwawayId) {
       await db().delete(schema.budgetLockEvents).where(eq(schema.budgetLockEvents.propertyId, throwawayId));

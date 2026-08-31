@@ -1,12 +1,15 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
-import { propertyPath } from "@/lib/property-path";
-import { assertBudgetUnlocked } from "@/lib/property-budget-lock";
+import { requireUser } from "@/lib/auth";
+import { canWriteProperty } from "@/lib/auth-rules";
+import {
+  createBudgetLineCore,
+  updateBudgetLineCore,
+  deleteBudgetLineCore,
+  restoreBudgetLineCore,
+} from "@/lib/budget-lines";
 
 const createBudgetLineSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -18,6 +21,15 @@ const createBudgetLineSchema = z.object({
 });
 
 export async function createBudgetLine(formData: FormData): Promise<ActionResult> {
+  // Auth gate: every action that mutates a budget line must require a
+  // signed-in user with write scope. (See src/lib/auth.ts for the helper and
+  // src/lib/auth-rules.ts for the matrix.)
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to edit this budget" };
+  }
+
   const parsed = createBudgetLineSchema.safeParse({
     propertyId: formData.get("propertyId"),
     costCodeId: formData.get("costCodeId"),
@@ -29,61 +41,7 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { propertyId, costCodeId, perUnitAmount, plannedUnits, note } = parsed.data;
-
-  const costCode = await db().query.costCodes.findFirst({
-    where: eq(schema.costCodes.id, costCodeId),
-  });
-  if (!costCode) return { ok: false, error: "Cost code not found" };
-
-  // The code must belong to this property's chart of accounts.
-  const property = await db().query.properties.findFirst({
-    where: eq(schema.properties.id, propertyId),
-    columns: { chartOfAccountsId: true },
-  });
-  if (!property) return { ok: false, error: "Property not found" };
-  if (costCode.chartId !== property.chartOfAccountsId) {
-    return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
-  }
-
-  const lockCheck = await assertBudgetUnlocked(propertyId);
-  if (!lockCheck.ok) return lockCheck;
-
-  const existing = await db().query.budgetLines.findFirst({
-    where: and(
-      eq(schema.budgetLines.propertyId, propertyId),
-      eq(schema.budgetLines.costCodeId, costCodeId),
-      isNull(schema.budgetLines.archivedAt),
-    ),
-  });
-  if (existing) {
-    return { ok: false, error: `${costCode.name} already has a budget line for this property` };
-  }
-
-  const uwAmount =
-    perUnitAmount !== undefined && plannedUnits !== undefined
-      ? perUnitAmount * plannedUnits
-      : (parsed.data.uwAmount ?? 0);
-
-  if (uwAmount <= 0) {
-    return { ok: false, error: "Enter a budgeted amount" };
-  }
-
-  await db()
-    .insert(schema.budgetLines)
-    .values({
-      propertyId,
-      costCodeId,
-      uwAmount: uwAmount.toFixed(2),
-      perUnitAmount: perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : undefined,
-      plannedUnits,
-      note,
-    });
-
-  const path = await propertyPath(propertyId, "/budget");
-  if (path) revalidatePath(path);
-  revalidatePath("/");
-  return { ok: true };
+  return createBudgetLineCore(parsed.data);
 }
 
 const updateBudgetLineSchema = z.object({
@@ -103,72 +61,29 @@ export async function updateBudgetLine(input: {
   plannedUnits?: string | number;
   note?: string;
 }): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to edit this budget" };
+  }
+
   const parsed = updateBudgetLineSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { id, propertyId, perUnitAmount, plannedUnits, note } = parsed.data;
-
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, id),
-  });
-  if (!line || line.propertyId !== propertyId) {
-    return { ok: false, error: "Budget line not found" };
-  }
-
-  const lockCheck = await assertBudgetUnlocked(propertyId);
-  if (!lockCheck.ok) return lockCheck;
-
-  // Interior lines budget per unit; others take a direct amount.
-  const uwAmount =
-    perUnitAmount !== undefined && plannedUnits !== undefined
-      ? perUnitAmount * plannedUnits
-      : (parsed.data.uwAmount ?? 0);
-
-  if (uwAmount <= 0) {
-    return { ok: false, error: "Enter a budgeted amount" };
-  }
-
-  await db()
-    .update(schema.budgetLines)
-    .set({
-      uwAmount: uwAmount.toFixed(2),
-      perUnitAmount: perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : null,
-      plannedUnits: plannedUnits ?? null,
-      note: note ?? null,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.budgetLines.id, id));
-
-  const path = await propertyPath(propertyId, "/budget");
-  if (path) revalidatePath(path);
-  revalidatePath("/");
-  return { ok: true };
+  return updateBudgetLineCore(parsed.data);
 }
 
 export async function deleteBudgetLine(input: {
   id: number;
   propertyId: number;
 }): Promise<ActionResult> {
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, input.id),
-  });
-  if (!line || line.propertyId !== input.propertyId) {
-    return { ok: false, error: "Budget line not found" };
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to edit this budget" };
   }
-
-  const lockCheck = await assertBudgetUnlocked(input.propertyId);
-  if (!lockCheck.ok) return lockCheck;
-
-  await db()
-    .update(schema.budgetLines)
-    .set({ archivedAt: new Date() })
-    .where(eq(schema.budgetLines.id, input.id));
-
-  const path = await propertyPath(input.propertyId, "/budget");
-  if (path) revalidatePath(path);
-  revalidatePath("/");
-  return { ok: true };
+  return deleteBudgetLineCore(input);
 }
 
 /** Reverses deleteBudgetLine — used by the delete toast's Undo action. */
@@ -176,23 +91,10 @@ export async function restoreBudgetLine(input: {
   id: number;
   propertyId: number;
 }): Promise<ActionResult> {
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, input.id),
-  });
-  if (!line || line.propertyId !== input.propertyId) {
-    return { ok: false, error: "Budget line not found" };
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to edit this budget" };
   }
-
-  const lockCheck = await assertBudgetUnlocked(input.propertyId);
-  if (!lockCheck.ok) return lockCheck;
-
-  await db()
-    .update(schema.budgetLines)
-    .set({ archivedAt: null })
-    .where(eq(schema.budgetLines.id, input.id));
-
-  const path = await propertyPath(input.propertyId, "/budget");
-  if (path) revalidatePath(path);
-  revalidatePath("/");
-  return { ok: true };
+  return restoreBudgetLineCore(input);
 }

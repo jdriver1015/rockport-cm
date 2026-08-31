@@ -21,7 +21,7 @@ import {
   type ArchiveLine,
 } from "@/lib/property-budget-import";
 import { propertyPath } from "@/lib/property-path";
-import { assertBudgetUnlocked } from "@/lib/property-budget-lock";
+import { assertBudgetUnlockedForUpdate } from "@/lib/property-budget-lock";
 import type { ActionResult } from "@/lib/action-result";
 
 export type BudgetWorkbookParse = {
@@ -125,9 +125,6 @@ export async function applyBudgetOverwrite(
   const property = await db().query.properties.findFirst({ where: eq(schema.properties.id, propertyId) });
   if (!property) return { ok: false, error: "Property not found" };
 
-  const lockCheck = await assertBudgetUnlocked(propertyId);
-  if (!lockCheck.ok) return lockCheck;
-
   // Every matched code has to still belong to this property's chart — the
   // preview could be stale if the chart changed underneath it between preview
   // and confirm, which a re-check here is cheap enough to always do.
@@ -143,7 +140,17 @@ export async function applyBudgetOverwrite(
     }
   }
 
-  await db().transaction((tx) => applyBudgetImport(tx, propertyId, matched, toArchive));
+  // The lock check runs inside the same transaction as the write, via a row
+  // lock on the property — not a plain read beforehand, which would leave a
+  // gap for a concurrent lockBudget to land in unnoticed.
+  const result = await db().transaction(async (tx): Promise<ActionResult> => {
+    const lockCheck = await assertBudgetUnlockedForUpdate(tx, propertyId);
+    if (!lockCheck.ok) return lockCheck;
+
+    await applyBudgetImport(tx, propertyId, matched, toArchive);
+    return { ok: true };
+  });
+  if (!result.ok) return result;
 
   const path = await propertyPath(propertyId, "/budget");
   if (path) revalidatePath(path);

@@ -175,7 +175,7 @@ function DialogBody({
             <Button type="button" variant="outline" disabled={busy} onClick={() => setEditing(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || locked}>
               {busy ? "Saving…" : "Save"}
             </Button>
           </div>
