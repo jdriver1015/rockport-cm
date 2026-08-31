@@ -75,10 +75,13 @@ export function BudgetView({
   propertyId,
   propertySlug,
   divisions,
+  locked,
 }: {
   propertyId: number;
   propertySlug: string;
   divisions: BudgetDivision[];
+  /** True while the budget is locked — line detail opens read-only. */
+  locked?: boolean;
 }) {
   const [selected, setSelected] = useState<BudgetLineRow | null>(null);
 
@@ -198,6 +201,7 @@ export function BudgetView({
         propertyId={propertyId}
         propertySlug={propertySlug}
         line={selected}
+        locked={locked ?? false}
         onClose={() => setSelected(null)}
       />
     </>

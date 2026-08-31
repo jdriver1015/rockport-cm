@@ -31,11 +31,14 @@ export function AddBudgetLineDialog({
   categories,
   costCodes,
   budgetedCostCodeIds,
+  disabled,
 }: {
   propertyId: number;
   categories: CategoryOption[];
   costCodes: CostCodeOption[];
   budgetedCostCodeIds: number[];
+  /** True while the budget is locked — the server refuses the write either way. */
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -97,7 +100,7 @@ export function AddBudgetLineDialog({
         if (!next) reset();
       }}
     >
-      <DialogTrigger render={<Button size="sm" />}>Add Budget Line</DialogTrigger>
+      <DialogTrigger render={<Button size="sm" disabled={disabled} />}>Add Budget Line</DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add budget line</DialogTitle>

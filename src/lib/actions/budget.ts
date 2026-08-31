@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath } from "@/lib/property-path";
+import { assertBudgetUnlocked } from "@/lib/property-budget-lock";
 
 const createBudgetLineSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
@@ -44,6 +45,9 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
   if (costCode.chartId !== property.chartOfAccountsId) {
     return { ok: false, error: "That cost code isn't in this property's chart of accounts" };
   }
+
+  const lockCheck = await assertBudgetUnlocked(propertyId);
+  if (!lockCheck.ok) return lockCheck;
 
   const existing = await db().query.budgetLines.findFirst({
     where: and(
@@ -112,6 +116,9 @@ export async function updateBudgetLine(input: {
     return { ok: false, error: "Budget line not found" };
   }
 
+  const lockCheck = await assertBudgetUnlocked(propertyId);
+  if (!lockCheck.ok) return lockCheck;
+
   // Interior lines budget per unit; others take a direct amount.
   const uwAmount =
     perUnitAmount !== undefined && plannedUnits !== undefined
@@ -150,6 +157,9 @@ export async function deleteBudgetLine(input: {
     return { ok: false, error: "Budget line not found" };
   }
 
+  const lockCheck = await assertBudgetUnlocked(input.propertyId);
+  if (!lockCheck.ok) return lockCheck;
+
   await db()
     .update(schema.budgetLines)
     .set({ archivedAt: new Date() })
@@ -172,6 +182,9 @@ export async function restoreBudgetLine(input: {
   if (!line || line.propertyId !== input.propertyId) {
     return { ok: false, error: "Budget line not found" };
   }
+
+  const lockCheck = await assertBudgetUnlocked(input.propertyId);
+  if (!lockCheck.ok) return lockCheck;
 
   await db()
     .update(schema.budgetLines)

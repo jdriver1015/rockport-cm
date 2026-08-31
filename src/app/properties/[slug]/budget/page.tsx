@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { num } from "@/lib/format";
 import { computePropertyBudget } from "@/lib/property-budget";
 import { BudgetImportDialog } from "@/components/budget-import-dialog";
+import { BudgetLockControl } from "@/components/budget-lock-control";
+import { fetchBudgetLockState, fetchBudgetLockEvents } from "@/lib/property-budget-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,11 @@ export default async function BudgetPage({
     availableTiers,
   } = await computePropertyBudget(propertyId, property.chartOfAccountsId);
 
+  const [lockState, lockEvents] = await Promise.all([
+    fetchBudgetLockState(propertyId),
+    fetchBudgetLockEvents(propertyId),
+  ]);
+
   // Exterior view = everything that isn't unit interiors. Their exterior workbook
   // includes clubhouse, pool, amenities, soft costs and contingency, so this is
   // the whole non-interior budget, not just division 'exterior'.
@@ -70,6 +77,18 @@ export default async function BudgetPage({
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <BudgetViewSwitch value={view} />
           <div className="flex items-center gap-2">
+            {/* Interior pricing has its own toolbar and isn't covered by this
+                lock, so the control only makes sense next to the views it
+                actually affects. */}
+            {view !== "interior" && (
+              <BudgetLockControl
+                propertyId={property.id}
+                locked={lockState.locked}
+                lockedByName={lockState.lockedByName}
+                lockedAt={lockState.lockedAt ? lockState.lockedAt.toISOString() : null}
+                events={lockEvents}
+              />
+            )}
             {/* A link, not a button with an onClick: the route streams a
                 workbook, so letting the browser download it is the whole
                 behaviour. Always the full budget — both sheets — regardless
@@ -84,7 +103,12 @@ export default async function BudgetPage({
             </a>
             {/* Always available, like Download — it replaces the non-interior
                 budget regardless of which view tab happens to be open. */}
-            <BudgetImportDialog mode="overwrite" propertyId={property.id} chartOfAccountsId={property.chartOfAccountsId} />
+            <BudgetImportDialog
+              mode="overwrite"
+              propertyId={property.id}
+              chartOfAccountsId={property.chartOfAccountsId}
+              disabled={lockState.locked}
+            />
             {view === "interior" ? (
               <InteriorBudgetToolbar
                 propertyId={property.id}
@@ -99,6 +123,7 @@ export default async function BudgetPage({
                 categories={categoryOptions}
                 costCodes={costCodeOptions}
                 budgetedCostCodeIds={budgetedCostCodeIds}
+                disabled={lockState.locked}
               />
             )}
           </div>
@@ -172,6 +197,7 @@ export default async function BudgetPage({
                 propertyId={property.id}
                 propertySlug={property.slug}
                 divisions={visibleDivisions}
+                locked={lockState.locked}
               />
             </>
           )}

@@ -43,6 +43,8 @@ type Props =
       mode: "overwrite";
       propertyId: number;
       chartOfAccountsId: number;
+      /** True while the budget is locked — the server refuses the write either way. */
+      disabled?: boolean;
     }
   | {
       mode: "prepare";
@@ -142,7 +144,7 @@ export function BudgetImportDialog(props: Props) {
       <DialogTrigger
         render={
           props.mode === "overwrite" ? (
-            <Button size="sm" variant="outline">
+            <Button size="sm" variant="outline" disabled={props.disabled}>
               <FileUpIcon className="size-3.5" />
               Upload / Replace
             </Button>

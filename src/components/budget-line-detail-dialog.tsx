@@ -24,18 +24,20 @@ export function BudgetLineDetailDialog({
   propertyId,
   propertySlug,
   line,
+  locked,
   onClose,
 }: {
   propertyId: number;
   propertySlug: string;
   line: BudgetLineRow | null;
+  locked: boolean;
   onClose: () => void;
 }) {
   return (
     <Dialog open={line !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
         {line && (
-          <DialogBody propertyId={propertyId} propertySlug={propertySlug} line={line} onClose={onClose} />
+          <DialogBody propertyId={propertyId} propertySlug={propertySlug} line={line} locked={locked} onClose={onClose} />
         )}
       </DialogContent>
     </Dialog>
@@ -47,11 +49,13 @@ function DialogBody({
   propertyId,
   propertySlug,
   line,
+  locked,
   onClose,
 }: {
   propertyId: number;
   propertySlug: string;
   line: BudgetLineRow;
+  locked: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -222,11 +226,12 @@ function DialogBody({
             )}
           </div>
 
-          <div className="flex justify-end gap-2 border-t pt-4">
-            <Button variant="outline" disabled={busy} onClick={handleDelete}>
+          <div className="flex items-center justify-end gap-2 border-t pt-4">
+            {locked && <p className="mr-auto text-xs text-alert">Budget is locked — unlock it to make changes.</p>}
+            <Button variant="outline" disabled={busy || locked} onClick={handleDelete}>
               Delete
             </Button>
-            <Button disabled={busy} onClick={() => setEditing(true)}>
+            <Button disabled={busy || locked} onClick={() => setEditing(true)}>
               Edit
             </Button>
           </div>

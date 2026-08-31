@@ -53,6 +53,7 @@ export const projectStage = pgEnum("project_stage", [
  */
 /** Why a target date moved without a person moving it. */
 export const slipReason = pgEnum("slip_reason", ["missed", "rebased"]);
+export const budgetLockAction = pgEnum("budget_lock_action", ["locked", "unlocked"]);
 
 export const projectPhase = pgEnum("project_phase", [
   "precon",
@@ -285,6 +286,13 @@ export const properties = pgTable("properties", {
   pmSystem: text("pm_system"),
   /** Latest GL activity date reflected in actuals — "GL Updated Thru" */
   glUpdatedThru: date("gl_updated_thru"),
+  /**
+   * Set while the non-interior budget is locked against edits; null = unlocked.
+   * Current state lives here for a cheap check at every write site; the full
+   * history of who locked/unlocked and when is budgetLockEvents below.
+   */
+  budgetLockedAt: timestamp("budget_locked_at", { withTimezone: true }),
+  budgetLockedBy: uuid("budget_locked_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -319,6 +327,28 @@ export const budgetLines = pgTable(
       .on(t.propertyId, t.costCodeId)
       .where(sql`${t.archivedAt} is null`),
   ],
+);
+
+/**
+ * Audit trail behind properties.budgetLockedAt/By — every lock and unlock of
+ * a property's non-interior budget, who did it and when. The property's own
+ * columns are only ever the latest state; this is what answers "who locked
+ * this and when did it change" after the fact, mirroring projectActivityLog's
+ * reasoning for the same kind of question on a project.
+ */
+export const budgetLockEvents = pgTable(
+  "budget_lock_events",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    action: budgetLockAction("action").notNull(),
+    userId: uuid("user_id").references(() => profiles.id),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("budget_lock_events_property_idx").on(t.propertyId)],
 );
 
 // ---------------------------------------------------------------------------
