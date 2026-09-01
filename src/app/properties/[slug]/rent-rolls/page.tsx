@@ -14,6 +14,8 @@ import { parsePerformanceView } from "@/lib/performance-views";
 import { buildInteriorKpis } from "@/lib/interior-kpis";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 import { computeTurnPerformanceFor } from "@/lib/turn-performance-data";
+import { computeRentRollTrendFor } from "@/lib/rent-roll-trend";
+import { RentRollTrend } from "@/components/rent-roll-trend-panel";
 import {
   AwaitingLease,
   LatestLeases,
@@ -138,7 +140,7 @@ export default async function PerformancePage({
  * turned unit across successive rent rolls.
  */
 async function PerformanceView({ propertyId, slug }: { propertyId: number; slug: string }) {
-  const [interiorProjects, jtdRows, budget, perf] = await Promise.all([
+  const [interiorProjects, jtdRows, budget, perf, trend] = await Promise.all([
     db()
       .select({
         id: schema.projects.id,
@@ -176,6 +178,7 @@ async function PerformanceView({ propertyId, slug }: { propertyId: number; slug:
       return null;
     }),
     computeTurnPerformanceFor(propertyId),
+    computeRentRollTrendFor(propertyId),
   ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
@@ -233,6 +236,11 @@ async function PerformanceView({ propertyId, slug }: { propertyId: number; slug:
           </CardContent>
         </Card>
       )}
+
+      {/* Outside the trade-out gate on purpose: a single snapshot cannot show a
+          trade-out but is still a real occupancy and rent picture, and that is
+          the half of the tab a property can use from day one. */}
+      <RentRollTrend points={trend} propertySlug={slug} />
     </div>
   );
 }
