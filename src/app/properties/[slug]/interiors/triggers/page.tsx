@@ -42,7 +42,7 @@ export default async function TriggersPage({
     <div className="space-y-6">
       <PropertyHeader property={property} />
       <PropertyNav slug={property.slug} />
-      <BackLink href={`/properties/${slug}/interiors`} label="Unit Upgrades" />
+      <BackLink href={`/properties/${slug}/interiors/types`} label="Renovation types" />
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between gap-3">

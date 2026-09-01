@@ -38,7 +38,9 @@ async function revalidateOwner(owner: ScopeOwnerRef) {
     revalidatePath(`/settings/renovation-types/${owner.templateId}`);
     return;
   }
-  const path = await propertyPath(owner.propertyId, "/interiors");
+  // The renovation type's own page is what renders this, not the retired
+  // Turn Plan tab.
+  const path = await propertyPath(owner.propertyId, `/interiors/types/${owner.budgetGroupId}`);
   if (path) revalidatePath(path);
 }
 

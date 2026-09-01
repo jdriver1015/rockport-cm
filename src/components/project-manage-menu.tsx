@@ -56,7 +56,6 @@ export function ProjectManageMenu({
   propertySlug,
   projectId,
   projectName,
-  projectKind,
   archived,
   documents,
   activityLog,
@@ -71,7 +70,6 @@ export function ProjectManageMenu({
   propertySlug: string;
   projectId: number;
   projectName: string;
-  projectKind: string;
   archived: boolean;
   documents: DocumentRow[];
   activityLog: ActivityLogRow[];
@@ -86,8 +84,8 @@ export function ProjectManageMenu({
   const [panel, setPanel] = useState<Panel>(null);
   const close = () => setPanel(null);
 
-  const redirectTo =
-    projectKind === "unit" ? `/properties/${propertySlug}/interiors` : `/properties/${propertySlug}`;
+  // Both kinds live on the Projects board, so archiving either returns there.
+  const redirectTo = `/properties/${propertySlug}`;
 
   return (
     <div className="flex items-center gap-2">
