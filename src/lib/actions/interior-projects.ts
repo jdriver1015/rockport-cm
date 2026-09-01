@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
@@ -166,6 +166,73 @@ export async function createInteriorProject(
           .values({ propertyId: d.propertyId, unitNumber: d.unitNumber, ...meta })
           .returning({ id: schema.units.id });
         unitId = unit.id;
+      }
+
+      // Ensure this floorplan has a column for this tier in the interior budget
+      // pivot before the project that spends against it exists — otherwise the
+      // scope lines seeded below price out fine on the project itself but the
+      // pivot (computeInteriorBudget) only shows a (unit group, tier) cell when
+      // an interiorBudgetPlan row exists for it, so the spend would be real but
+      // invisible everywhere else, discoverable only by noticing the Interior
+      // Budget tab stayed empty. Mirrors addUnitRenovation's group-creation
+      // (src/lib/actions/interior-budget-plan.ts), using the wizard's own
+      // floorplan/bedrooms/baths instead of a rent-roll lookup since they're
+      // already at hand.
+      if (d.floorplan) {
+        const [floorplanMap] = await tx
+          .select({ unitGroupId: schema.interiorUnitGroupFloorplans.unitGroupId })
+          .from(schema.interiorUnitGroupFloorplans)
+          .where(
+            and(
+              eq(schema.interiorUnitGroupFloorplans.propertyId, d.propertyId),
+              eq(schema.interiorUnitGroupFloorplans.floorPlanCode, d.floorplan),
+            ),
+          );
+
+        let unitGroupId = floorplanMap?.unitGroupId;
+        if (!unitGroupId) {
+          const [{ maxOrder }] = await tx
+            .select({
+              maxOrder: sql<number>`coalesce(max(${schema.interiorUnitGroups.sortOrder}), -1)::int`,
+            })
+            .from(schema.interiorUnitGroups)
+            .where(eq(schema.interiorUnitGroups.propertyId, d.propertyId));
+
+          const [group] = await tx
+            .insert(schema.interiorUnitGroups)
+            .values({
+              propertyId: d.propertyId,
+              name: d.floorplan,
+              bedrooms: d.bedrooms ?? null,
+              baths: d.baths != null ? d.baths.toFixed(1) : null,
+              sortOrder: maxOrder + 1,
+            })
+            .returning({ id: schema.interiorUnitGroups.id });
+          unitGroupId = group.id;
+
+          await tx.insert(schema.interiorUnitGroupFloorplans).values({
+            propertyId: d.propertyId,
+            unitGroupId,
+            floorPlanCode: d.floorplan,
+          });
+        }
+
+        // Widen the plan to cover this unit rather than assuming it's the first
+        // — a floorplan can already have some units planned into this same tier
+        // from an earlier turn, and plannedUnits tracks "committed to this tier",
+        // not something a second turn should shrink back down.
+        await tx
+          .insert(schema.interiorBudgetPlan)
+          .values({
+            propertyId: d.propertyId,
+            unitGroupId,
+            budgetGroupId: d.budgetGroupId,
+            plannedUnits: 1,
+          })
+          .onConflictDoUpdate({
+            target: [schema.interiorBudgetPlan.unitGroupId, schema.interiorBudgetPlan.budgetGroupId],
+            set: { plannedUnits: sql`${schema.interiorBudgetPlan.plannedUnits} + 1` },
+          });
       }
 
       const projectName = d.name?.trim() || `Unit ${d.unitNumber} Interior`;
