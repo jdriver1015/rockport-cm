@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 // project Manage menu), which is where they are actually used — the feature
 // itself still backs pre-walks and the phase gates.
 const tabs = [
+  { href: "/executive", label: "Executive" },
   { href: "/budget", label: "Budget" },
   { href: "", label: "Projects" },
   { href: "/gl", label: "Ledger" },
