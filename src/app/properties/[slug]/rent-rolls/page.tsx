@@ -13,6 +13,15 @@ import { PerformanceViewSwitch } from "@/components/performance-view-switch";
 import { parsePerformanceView } from "@/lib/performance-views";
 import { buildInteriorKpis } from "@/lib/interior-kpis";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
+import { computeTurnPerformanceFor } from "@/lib/turn-performance-data";
+import {
+  AwaitingLease,
+  LatestLeases,
+  OutcomeLegend,
+  TradeOutByFloorplan,
+  TurnPerformanceKpis,
+  TurnPerformancePending,
+} from "@/components/turn-performance-panels";
 import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -77,9 +86,7 @@ export default async function PerformancePage({
       </div>
 
       {view === "performance" ? (
-        <TurnPerformance propertyId={propertyId} slug={slug} committedBatches={
-          batches.filter((b) => b.status === "committed").length
-        } />
+        <PerformanceView propertyId={propertyId} slug={slug} />
       ) : (
         <Card>
           <CardHeader>
@@ -122,25 +129,16 @@ export default async function PerformancePage({
 }
 
 /**
- * The turn programme's headline figures — carried over from the Turn Plan tab
- * this page replaced, so the one thing that page computed and nothing else did
- * (turns started against plan, average days to turn, budget reconciled) is not
- * lost with it.
+ * How the turn programme is actually doing.
  *
- * Trade-out, realised ROI and the lease history land here next; they are
- * derived by matching a turned unit across successive rent rolls, which needs
- * at least two committed snapshots to compare.
+ * Two halves that answer different questions and come from different places:
+ * the KPI strip is execution (how many turns, how fast, against what budget),
+ * carried over from the Turn Plan tab this page replaced. Everything below it
+ * is return — trade-out, goal attainment and yield — derived by tracking a
+ * turned unit across successive rent rolls.
  */
-async function TurnPerformance({
-  propertyId,
-  slug,
-  committedBatches,
-}: {
-  propertyId: number;
-  slug: string;
-  committedBatches: number;
-}) {
-  const [interiorProjects, jtdRows, budget] = await Promise.all([
+async function PerformanceView({ propertyId, slug }: { propertyId: number; slug: string }) {
+  const [interiorProjects, jtdRows, budget, perf] = await Promise.all([
     db()
       .select({
         id: schema.projects.id,
@@ -177,6 +175,7 @@ async function TurnPerformance({
       console.error("performance: interior plan failed to load", err);
       return null;
     }),
+    computeTurnPerformanceFor(propertyId),
   ]);
 
   const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
@@ -192,35 +191,48 @@ async function TurnPerformance({
     })),
   });
 
+  // Trade-out is a comparison BETWEEN snapshots, so one roll can never produce
+  // one. Saying that plainly beats a screen of em dashes that looks broken.
+  const canMeasure = perf.snapshotCount >= 2;
+
   return (
     <div className="space-y-6">
       <KpiStrip items={kpis} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-navy">Trade-out & ROI</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="py-6 text-center text-[13px] text-muted-foreground">
-            {committedBatches < 2 ? (
-              <>
-                Trade-out is measured by comparing a unit&apos;s rent before its turn against the
-                lease signed after it, so it needs at least two committed rent rolls.{" "}
-                {committedBatches === 0 ? "None have been committed yet." : "One is committed so far."}{" "}
-                <Link
-                  href={`/properties/${slug}/rent-rolls?view=rent-rolls`}
-                  className="text-link underline underline-offset-2 hover:text-navy"
-                >
-                  Upload the next snapshot
-                </Link>{" "}
-                and these figures start filling in.
-              </>
-            ) : (
-              <>Trade-out, goal attainment by floorplan, realised ROI and recent leases land here next.</>
-            )}
-          </p>
-        </CardContent>
-      </Card>
+      {canMeasure ? (
+        <>
+          <TurnPerformanceKpis perf={perf} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <OutcomeLegend perf={perf} />
+            <TurnPerformancePending perf={perf} />
+          </div>
+          <TradeOutByFloorplan rows={perf.byFloorplan} />
+          <LatestLeases outcomes={perf.outcomes} propertySlug={slug} />
+          <AwaitingLease outcomes={perf.outcomes} propertySlug={slug} />
+        </>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-navy">Trade-out &amp; ROI</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="py-6 text-center text-[13px] text-muted-foreground">
+              Trade-out is measured by comparing a unit&apos;s rent before its turn against the
+              lease signed after it, so it needs at least two committed rent rolls.{" "}
+              {perf.snapshotCount === 0
+                ? "None have been committed yet."
+                : "One is committed so far."}{" "}
+              <Link
+                href={`/properties/${slug}/rent-rolls?view=rent-rolls`}
+                className="text-link underline underline-offset-2 hover:text-navy"
+              >
+                Upload the next snapshot
+              </Link>{" "}
+              and these figures start filling in.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
