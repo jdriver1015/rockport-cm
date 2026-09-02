@@ -138,7 +138,7 @@ export default async function PortfolioPage() {
             const turnPct = target > 0 ? Math.round((turns.done / target) * 100) : 0;
             const sched = scheduleBy.get(p.id);
             return (
-              <Link key={p.id} href={`/properties/${p.slug}/budget`} className="group">
+              <Link key={p.id} href={`/properties/${p.slug}/executive`} className="group">
                 <Card className="h-full transition-shadow group-hover:shadow-md">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base text-navy">{p.name}</CardTitle>
