@@ -16,10 +16,13 @@ export const KIND_LABEL: Record<string, string> = {
  * in_progress → in_process, punch stays, complete/invoiced/closed → complete.
  */
 export const PROJECT_PHASES = [
-  { key: "precon", label: "Pre-Construction", gate: "Scoped, budgeted, contracted, vendor assigned" },
-  { key: "in_process", label: "In Process", gate: "Work substantially complete" },
-  { key: "punch", label: "Punch and Sign Off", gate: "All punch items resolved" },
-  { key: "complete", label: "Complete", gate: "Costs posted and reconciled" },
+  { key: "precon", label: "Pre-Construction", short: "Pre-Con", gate: "Scoped, budgeted, contracted, vendor assigned" },
+  { key: "in_process", label: "In Process", short: "In Process", gate: "Work substantially complete" },
+  // "Advance to Punch and Sign Off" was clipped in the board's Next Step column
+  // at 187px. Only this phase's name is long enough to need a compact form, but
+  // all four carry one so no caller has to know which.
+  { key: "punch", label: "Punch and Sign Off", short: "Punch", gate: "All punch items resolved" },
+  { key: "complete", label: "Complete", short: "Complete", gate: "Costs posted and reconciled" },
 ] as const;
 
 export type ProjectPhaseKey = (typeof PROJECT_PHASES)[number]["key"];

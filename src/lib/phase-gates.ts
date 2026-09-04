@@ -89,7 +89,19 @@ export type PreconGateState = {
 
 /** The rest of what the later transitions check. */
 export type ProgressGateState = {
-  hasStartMilestoneActual: boolean;
+  /**
+   * An actual start has been recorded — from EITHER projects.start_date or the
+   * in_process milestone's actual_date.
+   *
+   * Both record the same fact and only one path writes both. setProjectPhase
+   * stamps the pair, but a project that arrived in In Process any other way — an
+   * import, a seed, a phase set before milestones existed — has the column and
+   * not the milestone. Reading only the milestone made this gate unmet for 11 of
+   * the 13 in-process projects in the portfolio, every one of which had a real
+   * start date on it, and the board's Next Step told all 11 to go and record a
+   * date they had already recorded.
+   */
+  hasActualStart: boolean;
   openFindingCount: number;
   postedGlTotal: number;
 };
@@ -341,8 +353,8 @@ export function evaluateGates(
       {
         label: "In Process date recorded",
         short: "Record start date",
-        met: data.hasStartMilestoneActual,
-        detail: data.hasStartMilestoneActual ? "Recorded" : "No actual start date",
+        met: data.hasActualStart,
+        detail: data.hasActualStart ? "Recorded" : "No actual start date",
       },
     ];
   } else if (fromPhase === "punch" && toPhase === "complete") {
@@ -440,15 +452,22 @@ function targetForCheck(check: GateCheck): "workflow" | "audits" | "gl" {
  */
 export function nextStep(
   gate: GateResult | null,
-  upcoming: { key: ProjectPhaseKey; label: string } | null,
+  upcoming: { key: ProjectPhaseKey; label: string; short?: string } | null,
 ): NextStep {
   if (!upcoming) return { kind: "none" };
-  if (!gate) return { kind: "advance", label: `Advance to ${upcoming.label}`, toPhase: upcoming.key };
+  // The compact phase name, for the same reason the gates have a `short`: this
+  // label lives in a table column, and "Advance to Punch and Sign Off" does not
+  // fit one. The project page's own advance button keeps the full name.
+  const advance = (): NextStep => ({
+    kind: "advance",
+    label: `Advance to ${upcoming.short ?? upcoming.label}`,
+    toPhase: upcoming.key,
+  });
+
+  if (!gate) return advance();
 
   const blocking = gate.checks.find((c) => c.next);
-  if (!blocking) {
-    return { kind: "advance", label: `Advance to ${upcoming.label}`, toPhase: upcoming.key };
-  }
+  if (!blocking) return advance();
 
   return {
     kind: "goto",

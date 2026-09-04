@@ -409,9 +409,10 @@ export default async function ProjectDetailPage({
   // the page already loaded, so the checks cannot disagree with what the rest of
   // the screen shows. src/lib/phase-gates.ts held these but nothing rendered
   // them — they were only reachable from a dialog no page mounted.
-  const startMilestone = milestones.find((m) => m.phase === "in_process");
   // The same reader the server-side check uses, so what the section shows and
-  // what an advance is allowed to do cannot drift apart.
+  // what an advance is allowed to do cannot drift apart. It reads the actual
+  // start itself now, from both the milestone and projects.start_date, which is
+  // why this page no longer picks the in_process milestone out separately.
   const precon = await readPreconGateState(projectId);
   // The Define Scope gate offers the walk's findings, so they load with the
   // page rather than on opening the dialog — it is one small query and the
@@ -441,7 +442,10 @@ export default async function ProjectDetailPage({
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,
-        hasStartMilestoneActual: !!startMilestone?.actualDate,
+        // hasActualStart is deliberately NOT overridden. readGateStates reads
+        // both the in_process milestone and projects.start_date; overriding it
+        // from the milestone alone here is exactly the drift that had this page
+        // and the board disagreeing about whether a start had been recorded.
         openFindingCount: openFindings.length,
         postedGlTotal: spentAmt,
       })

@@ -41,7 +41,7 @@ const base = {
   scopeNotStartedCount: 0,
   scopeCompleteCount: 0,
   scopeTotalCount: 5,
-  hasStartMilestoneActual: false,
+  hasActualStart: false,
   openFindingCount: 0,
   postedGlTotal: 0,
 };

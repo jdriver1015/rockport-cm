@@ -38,7 +38,7 @@ const fresh = {
   contractsExecuted: 0,
   contractSignedAt: null,
   bidsOutstanding: 0,
-  hasStartMilestoneActual: false,
+  hasActualStart: false,
   openFindingCount: 0,
   postedGlTotal: 0,
 };
@@ -192,10 +192,10 @@ describe("the later phases", () => {
   });
 
   test("in process with a start date — advance to punch", () => {
-    const step = stepFrom("in_process", { ...preconDone, hasStartMilestoneActual: true });
+    const step = stepFrom("in_process", { ...preconDone, hasActualStart: true });
     expect(step).toEqual({
       kind: "advance",
-      label: "Advance to Punch and Sign Off",
+      label: "Advance to Punch",
       toPhase: "punch",
     });
   });
@@ -239,11 +239,26 @@ describe("nextStep's own contract", () => {
   });
 
   test("no gate result means the advance — a transition with no checks", () => {
+    // No `short` on this literal, so the full phase label is what's left to use.
     expect(nextStep(null, { key: "punch", label: "Punch and Sign Off" })).toEqual({
       kind: "advance",
       label: "Advance to Punch and Sign Off",
       toPhase: "punch",
     });
+  });
+
+  test("the compact phase name wins where there is one", () => {
+    // "Advance to Punch and Sign Off" was clipped in a 187px column; this is the
+    // pair of behaviours that fixed it, pinned so they cannot drift back.
+    expect(
+      nextStep(null, { key: "punch", label: "Punch and Sign Off", short: "Punch" }),
+    ).toMatchObject({ label: "Advance to Punch" });
+  });
+
+  test("every phase carries a compact name no longer than its label", () => {
+    for (const phase of PROJECT_PHASES) {
+      expect(phase.short.length).toBeLessThanOrEqual(phase.label.length);
+    }
   });
 
   test("every phase but the last offers something", () => {

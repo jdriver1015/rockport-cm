@@ -167,7 +167,7 @@ async function main() {
     let state = await readPreconGateState(projectId);
     let gate = evaluateGates("precon", "in_process", {
       ...state,
-      hasStartMilestoneActual: false,
+      hasActualStart: false,
       openFindingCount: 0,
       postedGlTotal: 0,
     });
@@ -200,7 +200,7 @@ async function main() {
     state = await readPreconGateState(projectId);
     gate = evaluateGates("precon", "in_process", {
       ...state,
-      hasStartMilestoneActual: false,
+      hasActualStart: false,
       openFindingCount: 0,
       postedGlTotal: 0,
     });
@@ -217,7 +217,7 @@ async function main() {
     state = await readPreconGateState(projectId);
     gate = evaluateGates("precon", "in_process", {
       ...state,
-      hasStartMilestoneActual: false,
+      hasActualStart: false,
       openFindingCount: 0,
       postedGlTotal: 0,
     });

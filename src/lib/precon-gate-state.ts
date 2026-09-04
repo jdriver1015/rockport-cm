@@ -54,6 +54,8 @@ export async function readGateStates(
         contractSignedAt: schema.projects.contractSignedAt,
         scopeConfirmedAt: schema.projects.scopeConfirmedAt,
         budgetAmount: schema.projects.budgetAmount,
+        // The other half of hasActualStart, alongside the in_process milestone.
+        startDate: schema.projects.startDate,
       })
       .from(schema.projects)
       .where(inArray(schema.projects.id, ids)),
@@ -269,7 +271,10 @@ export async function readGateStates(
       contractSignedAt: project.contractSignedAt ?? null,
       scopeConfirmedAt: project.scopeConfirmedAt ?? null,
       approvedBudget: Number(project.budgetAmount ?? 0),
-      hasStartMilestoneActual: !!startBy.get(project.id),
+      // Either source counts — see hasActualStart in phase-gates.ts. The
+      // milestone is the richer record where it exists; projects.start_date is
+      // what every other path actually wrote.
+      hasActualStart: !!(startBy.get(project.id) ?? project.startDate),
       openFindingCount: findingsBy.get(project.id) ?? 0,
       postedGlTotal: glBy.get(project.id) ?? 0,
     });
@@ -287,9 +292,7 @@ export async function readGateStates(
  * disagreement would look like the gate refusing something the screen says is
  * done. A thin wrapper over the batch for exactly that reason.
  */
-export async function readPreconGateState(
-  projectId: number,
-): Promise<PreconGateState & PreconGateExtras> {
+export async function readPreconGateState(projectId: number): Promise<FullGateState> {
   const states = await readGateStates([projectId]);
   return states.get(projectId) ?? EMPTY_STATE;
 }
@@ -322,7 +325,7 @@ const EMPTY_STATE: FullGateState = {
   contractsExecuted: 0,
   bidsOutstanding: 0,
   contractSignedAt: null,
-  hasStartMilestoneActual: false,
+  hasActualStart: false,
   openFindingCount: 0,
   postedGlTotal: 0,
 };
