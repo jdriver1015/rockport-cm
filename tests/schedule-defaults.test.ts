@@ -137,7 +137,7 @@ describe("scheduleWarnings", () => {
       in_process: "2026-08-07",
       complete: "2026-08-14",
     });
-    expect(warnings).toContain("Work Commence is before Pre-walk");
+    expect(warnings).toContain("In Process is before Pre-walk");
   });
 
   it("says nothing about blank dates", () => {
@@ -148,6 +148,6 @@ describe("scheduleWarnings", () => {
     // punch is blank, so complete is checked against in_process instead.
     expect(
       scheduleWarnings({ in_process: "2026-09-01", punch: "", complete: "2026-08-01" }),
-    ).toEqual(["Punch and Sign Off is before Work Commence"]);
+    ).toEqual(["Complete is before In Process"]);
   });
 });
