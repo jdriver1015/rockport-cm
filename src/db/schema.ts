@@ -448,6 +448,16 @@ export const projects = pgTable("projects", {
   /** Contracted amount (approved bid); actuals come from posted GL transactions */
   committedCost: numeric("committed_cost", { precision: 12, scale: 2 }).notNull().default("0"),
   vendorId: integer("vendor_id").references(() => vendors.id),
+  /**
+   * The person accountable for this project.
+   *
+   * The first ASSIGNMENT in this schema — every other profiles reference here
+   * (createdBy, uploadedBy, budgetLockedBy) records who did a thing, not who
+   * owns one. Nullable and staying that way: projects predating this column have
+   * nobody named, and "unassigned" is a real state the board has to be able to
+   * show and filter on, not a gap to backfill with a guess.
+   */
+  managerId: uuid("manager_id").references(() => profiles.id),
   budgetGroupId: integer("budget_group_id").references(() => budgetGroups.id),
   /** Interior turns: walk-through before work starts */
   /**
@@ -505,6 +515,7 @@ export const projects = pgTable("projects", {
 }, (t) => [
   index("projects_property_idx").on(t.propertyId),
   index("projects_cost_code_idx").on(t.costCodeId),
+  index("projects_manager_idx").on(t.managerId),
 ]);
 
 /** Legacy phase log — superseded by projectActivityLog below (2026-08-19); kept

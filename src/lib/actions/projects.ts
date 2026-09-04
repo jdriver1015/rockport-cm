@@ -14,6 +14,8 @@ import { projectSlug } from "@/lib/slug";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { slipOverdueTargets } from "@/lib/target-slip";
 import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
+import { isAssignableManager } from "@/lib/manager-roster";
+import { managerName } from "@/lib/project-managers";
 import { money, fmtDate } from "@/lib/format";
 
 /**
@@ -354,6 +356,88 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
   }
   revalidatePath("/");
   return { ok: true };
+}
+
+const setManagerSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  /** Absent clears the assignment — the picker's "Unassigned" choice. */
+  managerId: z.string().uuid("That isn't a person on the roster").optional(),
+});
+
+/**
+ * Name (or clear) the project's manager.
+ *
+ * Its own action rather than a field on updateProject, because the board assigns
+ * inline: the alternative to one small write here is opening every project's
+ * page to do a first pass over thirteen of them.
+ */
+export async function setProjectManager(formData: FormData): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to assign a project manager" };
+  }
+
+  // "" is the Unassigned choice, and z.string().uuid() would reject it. Mapped
+  // to undefined before parsing so clearing is a valid input rather than an
+  // error the picker has no way to show.
+  const raw = formData.get("managerId");
+  const parsed = setManagerSchema.safeParse({
+    projectId: formData.get("projectId"),
+    managerId: typeof raw === "string" && raw.trim() !== "" ? raw.trim() : undefined,
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const managerId = parsed.data.managerId ?? null;
+
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, parsed.data.projectId),
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+  if ((project.managerId ?? null) === managerId) return { ok: true };
+
+  // The picker only ever offers the roster, so a value that fails this came from
+  // somewhere else — re-checked here rather than trusting the id.
+  if (managerId && !(await isAssignableManager(managerId))) {
+    return { ok: false, error: "That person can't be assigned as a project manager" };
+  }
+
+  const [was, now] = await Promise.all([
+    readManagerLabel(project.managerId),
+    readManagerLabel(managerId),
+  ]);
+
+  await db()
+    .update(schema.projects)
+    .set({ managerId })
+    .where(eq(schema.projects.id, parsed.data.projectId));
+
+  await logFieldChange({
+    projectId: parsed.data.projectId,
+    userId: auth.profile.id,
+    field: "managerId",
+    fieldLabel: "Project Manager",
+    from: was,
+    to: now,
+  });
+
+  const _base = await propertyPath(project.propertyId);
+  if (_base) {
+    revalidatePath(_base);
+    revalidatePath(`${_base}/projects/${projectSlug(project)}`);
+  }
+  return { ok: true };
+}
+
+/** The name to write into the activity log — an id there would be unreadable. */
+async function readManagerLabel(profileId: string | null): Promise<string | null> {
+  if (!profileId) return null;
+  const row = await db().query.profiles.findFirst({
+    where: eq(schema.profiles.id, profileId),
+    columns: { fullName: true, email: true },
+  });
+  return row ? managerName(row.fullName, row.email) : null;
 }
 
 const projectIdSchema = z.object({ projectId: z.coerce.number().int().positive() });
