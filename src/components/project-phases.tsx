@@ -108,6 +108,7 @@ export function ProjectPhases({
   currentPhase,
   gate,
   gateContext,
+  initialGate,
   nextPhaseLabel,
 }: {
   projectId: number;
@@ -116,6 +117,11 @@ export function ProjectPhases({
   currentPhase: string;
   /** Everything the gate dialogs need. Absent for a project with no gates. */
   gateContext?: GateContext;
+  /**
+   * A gate to open straight away, from ?gate= in the URL. How the board's Next
+   * Step button lands on the dialog it named rather than on the page in general.
+   */
+  initialGate?: PreconGateKey | null;
   /**
    * Gate checks for leaving the current phase. Null when the project is in its
    * last phase, or when the transition has no checks defined.
@@ -267,6 +273,7 @@ export function ProjectPhases({
                 {isCurrent && gate && gate.checks.length > 0 && (
                   <GateRow
                     gate={gate}
+                    initialGate={initialGate}
                     nextPhaseLabel={nextPhaseLabel}
                     projectId={projectId}
                     context={gateContext}
@@ -605,13 +612,18 @@ function GateRow({
   nextPhaseLabel,
   projectId,
   context,
+  initialGate,
 }: {
   gate: GateResult;
   nextPhaseLabel: string | null;
   projectId: number;
   context?: GateContext;
+  initialGate?: PreconGateKey | null;
 }) {
-  const [openGate, setOpenGate] = useState<PreconGateKey | null>(null);
+  // Seeded from the URL so arriving from the board opens the gate the button
+  // named. Ordinary state after that — closing it must not reopen on rerender,
+  // and the ?gate= param is a starting position, not a controlled value.
+  const [openGate, setOpenGate] = useState<PreconGateKey | null>(initialGate ?? null);
 
   return (
     <>

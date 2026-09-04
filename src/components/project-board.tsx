@@ -22,6 +22,10 @@ import {
 import { cn } from "@/lib/utils";
 import { fmtDate, money } from "@/lib/format";
 import { KIND_LABEL, PROJECT_PHASES, phaseIndex } from "@/lib/stages";
+import { ProjectManagerCell } from "@/components/project-manager-cell";
+import { NextStepCell } from "@/components/next-step-cell";
+import type { ManagerOption } from "@/lib/project-managers";
+import type { NextStep } from "@/lib/phase-gates";
 import { DIVISIONS } from "@/lib/divisions";
 import type { ScheduleHealth } from "@/lib/target-slip";
 import { projectSlug } from "@/lib/slug";
@@ -31,10 +35,17 @@ export type BoardProject = {
   name: string;
   phase: string;
   budget: number;
-  committed: number;
   jtd: number;
   startDate: string | null;
   completeDate: string | null;
+  /** The assigned PM, or null. Nobody is a real state, not missing data. */
+  managerId: string | null;
+  /**
+   * The assigned person's name. Carried on the row rather than resolved from the
+   * roster in the cell: somebody who has left the roster still holds the
+   * projects they were running, and the column has to keep naming them.
+   */
+  managerName: string | null;
   division: string | null;
   categoryLabel: string;
   lineItem: string;
@@ -46,12 +57,21 @@ export type BoardProject = {
   unitLabel: string | null;
   /** The renovation type a turn was priced from. Null on common-area work. */
   renovationType: string | null;
+  /**
+   * The one thing to do next — the first unmet gate, or the advance when there
+   * is none. Derived on the server from the same evaluateGates the project
+   * page's gate list draws, so the two cannot disagree.
+   */
+  nextStep: NextStep;
 };
 
 type ViewMode = "table" | "gantt";
-type GroupBy = "phase" | "kind" | "division" | "category" | "none";
-type SortKey = "name" | "budget" | "committed" | "jtd" | "phase" | "schedule";
+type GroupBy = "phase" | "kind" | "manager" | "division" | "category" | "none";
+type SortKey = "name" | "budget" | "jtd" | "manager" | "phase" | "schedule";
 type Dir = "asc" | "desc";
+
+/** Sorts and groups unassigned rows last, whichever direction is chosen. */
+const UNASSIGNED = "Unassigned";
 
 const VIEWS: { key: ViewMode; label: string }[] = [
   { key: "table", label: "Table" },
@@ -63,15 +83,26 @@ function isView(v: string | undefined): v is ViewMode {
 }
 function isGroup(v: string | undefined): v is GroupBy {
   return (
-    v === "phase" || v === "kind" || v === "division" || v === "category" || v === "none"
+    v === "phase" ||
+    v === "kind" ||
+    v === "manager" ||
+    v === "division" ||
+    v === "category" ||
+    v === "none"
   );
 }
+/**
+ * `committed` was a sort key until the Committed column came off the board. A
+ * bookmarked `?sort=committed` fails this guard and falls back to Name, which is
+ * the right outcome — better a shared link that opens on the default order than
+ * one that opens on a column nobody can see.
+ */
 function isSort(v: string | undefined): v is SortKey {
   return (
     v === "name" ||
     v === "budget" ||
-    v === "committed" ||
     v === "jtd" ||
+    v === "manager" ||
     v === "phase" ||
     v === "schedule"
   );
@@ -81,6 +112,8 @@ export function ProjectBoard({
   ganttProjects,
   projects,
   propertySlug,
+  roster,
+  canAssign,
   initialView,
   initialGroup,
   initialSort,
@@ -98,6 +131,9 @@ export function ProjectBoard({
   ganttProjects: ScheduleProject[];
   projects: BoardProject[];
   propertySlug: string;
+  /** Who can be assigned. Empty for a reader who cannot assign anyway. */
+  roster: ManagerOption[];
+  canAssign: boolean;
   initialView?: string;
   initialGroup?: string;
   initialSort?: string;
@@ -144,7 +180,7 @@ export function ProjectBoard({
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       const hay =
-        `${p.name} ${p.lineItem} ${p.categoryLabel} ${p.unitLabel ?? ""} ${p.renovationType ?? ""} ${KIND_LABEL[p.kind] ?? ""}`.toLowerCase();
+        `${p.name} ${p.lineItem} ${p.categoryLabel} ${p.unitLabel ?? ""} ${p.renovationType ?? ""} ${KIND_LABEL[p.kind] ?? ""} ${p.managerName ?? ""}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -159,11 +195,19 @@ export function ProjectBoard({
       case "budget":
         cmp = a.budget - b.budget;
         break;
-      case "committed":
-        cmp = a.committed - b.committed;
-        break;
       case "jtd":
         cmp = a.jtd - b.jtd;
+        break;
+      case "manager":
+        // Unassigned rows sort to the end in BOTH directions rather than
+        // flipping to the top on descending. Sorting by manager is how somebody
+        // finds their own work; a screenful of nobody's work is never the answer
+        // they wanted, in either order.
+        if (!a.managerName !== !b.managerName) return a.managerName ? -1 : 1;
+        cmp = (a.managerName ?? "").localeCompare(b.managerName ?? "");
+        // Same manager: name order, so a person's projects read alphabetically
+        // rather than in whatever order the rows arrived.
+        if (cmp === 0) cmp = a.name.localeCompare(b.name);
         break;
       case "phase":
         cmp = phaseIndex(a.phase) - phaseIndex(b.phase);
@@ -227,6 +271,7 @@ export function ProjectBoard({
             options={[
               ["phase", "Phase"],
               ["kind", "Type"],
+              ["manager", "Manager"],
               ["division", "Division"],
               ["category", "Category"],
               ["none", "None"],
@@ -244,9 +289,11 @@ export function ProjectBoard({
             }}
             options={[
               ["name", "Name"],
-              ["budget", "Budgeted"],
-              ["committed", "Committed cost"],
-              ["jtd", "Completed"],
+              ["budget", "Planned cost"],
+              // Was "Completed", while the column it sorts has always been
+              // headed Reconciled Cost. One number, one name.
+              ["jtd", "Reconciled cost"],
+              ["manager", "Manager"],
               ["phase", "Phase"],
               ["schedule", "Schedule"],
             ]}
@@ -281,7 +328,13 @@ export function ProjectBoard({
           No projects yet — add the first one with “New project”.
         </p>
       ) : view === "table" ? (
-        <TableView groups={groups} propertySlug={propertySlug} groupBy={group} />
+        <TableView
+          groups={groups}
+          propertySlug={propertySlug}
+          groupBy={group}
+          roster={roster}
+          canAssign={canAssign}
+        />
       ) : (
         /* The Schedule tab's Gantt, not a second one. This used to draw its own
            bars from startDate and completeDate — actuals only — so a project
@@ -323,6 +376,24 @@ function buildGroups(projects: BoardProject[], groupBy: GroupBy): Group[] {
         projects: projects.filter((p) => p.kind === k),
       }))
       .filter((g) => g.projects.length > 0);
+  }
+  if (groupBy === "manager") {
+    // Roster order comes from the rows themselves, so a manager with nothing on
+    // this property gets no empty band. Unassigned goes last — it is a bucket to
+    // clear, not a person.
+    const named = Array.from(
+      new Set(projects.map((p) => p.managerName).filter((n): n is string => !!n)),
+    ).sort((a, b) => a.localeCompare(b));
+    const groups: Group[] = named.map((name) => ({
+      key: name,
+      label: name,
+      projects: projects.filter((p) => p.managerName === name),
+    }));
+    const unassigned = projects.filter((p) => !p.managerName);
+    if (unassigned.length) {
+      groups.push({ key: "unassigned", label: UNASSIGNED, projects: unassigned });
+    }
+    return groups;
   }
   if (groupBy === "division") {
     const groups: Group[] = DIVISIONS.map((d) => ({
@@ -491,10 +562,14 @@ function TableView({
   groups,
   propertySlug,
   groupBy,
+  roster,
+  canAssign,
 }: {
   groups: Group[];
   propertySlug: string;
   groupBy: GroupBy;
+  roster: ManagerOption[];
+  canAssign: boolean;
 }) {
   const router = useRouter();
   const shown = groups.filter((g) => g.projects.length > 0);
@@ -507,14 +582,21 @@ function TableView({
     <TableCard>
       <Table className="table-fixed">
         <TableHeader>
+          {/*
+            Est. Start came off with Committed. It read projects.start_date,
+            which is an ACTUAL start — the activity log calls it "Actual Start"
+            and the target lives on the in_process milestone — so the column had
+            been promising an estimate and showing a fact. The Schedule cell
+            already carries the date that matters, the forecast finish.
+          */}
           <TableRow>
-            <TableHead className="w-[24%]">Project</TableHead>
-            <TableHead className="w-[15%]">Schedule</TableHead>
-            <TableHead className="w-[10%]">Est. Start</TableHead>
-            <TableHead className="w-[13%] text-right">Planned Cost</TableHead>
-            <TableHead className="w-[13%] text-right">Committed</TableHead>
-            <TableHead className="w-[13%] text-right">Reconciled Cost</TableHead>
-            <TableHead className="w-[12%] text-right">Variance</TableHead>
+            <TableHead className="w-[21%]">Project</TableHead>
+            <TableHead className="w-[14%]">Schedule</TableHead>
+            <TableHead className="w-[13%]">Project Mgr.</TableHead>
+            <TableHead className="w-[12%] text-right">Planned Cost</TableHead>
+            <TableHead className="w-[12%] text-right">Reconciled Cost</TableHead>
+            <TableHead className="w-[11%] text-right">Variance</TableHead>
+            <TableHead className="w-[17%]">Next Step</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -522,10 +604,6 @@ function TableView({
             <Fragment key={g.key}>
               <TableGroupRow label={g.label} count={g.projects.length} colSpan={7} />
               {g.projects.map((p) => {
-                // Never hide real spend: a project can have posted GL before its
-                // contract amount was recorded, so Committed shows whichever is
-                // larger — the signed contract or actual spend so far.
-                const committed = Math.max(p.committed, p.jtd);
                 return (
                   <TableRow
                     key={p.id}
@@ -563,18 +641,42 @@ function TableView({
                     <TableCell>
                       <ScheduleCell health={p.health} />
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{fmtDate(p.startDate)}</TableCell>
+                    <TableCell>
+                      {/* Suppressed when the list is already grouped by manager,
+                          where the band header names them — the same rule the
+                          renovation-type subtitle follows. */}
+                      {groupBy === "manager" ? (
+                        <span className="text-[13px] text-ink-300">—</span>
+                      ) : (
+                        <ProjectManagerCell
+                          projectId={p.id}
+                          managerId={p.managerId}
+                          managerName={p.managerName}
+                          roster={roster}
+                          canAssign={canAssign}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <AmountCell value={p.budget} />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={committed} />
-                    </TableCell>
-                    <TableCell>
-                      <AmountCell value={p.jtd} positive />
+                      {/* Not `positive`. Green is this app's "good news" colour
+                          and this is money spent — a large reconciled figure is
+                          not an achievement, it is just the number. Variance is
+                          the column that earns a colour. */}
+                      <AmountCell value={p.jtd} />
                     </TableCell>
                     <TableCell>
                       <VarianceCell budget={p.budget} actual={p.jtd} />
+                    </TableCell>
+                    <TableCell>
+                      <NextStepCell
+                        projectId={p.id}
+                        projectHref={`/properties/${propertySlug}/projects/${projectSlug(p)}`}
+                        propertySlug={propertySlug}
+                        step={p.nextStep}
+                      />
                     </TableCell>
                   </TableRow>
                 );

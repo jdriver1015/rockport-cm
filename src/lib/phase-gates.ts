@@ -31,6 +31,14 @@ export type GateCheck = {
    * as a status.
    */
   label: string;
+  /**
+   * The same requirement in as few words as a table column can hold, for the
+   * board's Next Step button. Set alongside `label` rather than mapped from it
+   * afterwards: the state and its two spellings are one decision, and deriving
+   * one from the other by string match would break the first time a label was
+   * reworded. Absent where `label` is already short enough.
+   */
+  short?: string;
   met: boolean;
   detail: string;
 };
@@ -98,12 +106,30 @@ function preWalkCheck(state: PreconGateState): GateCheck {
     return { key: "pre_walk", label: "Pre-Walk Complete", met: true, detail: "Walked" };
   }
   if (state.preWalkAuditStatus === "draft") {
-    return { key: "pre_walk", label: "Pre-Walk Started", met: false, detail: "Walk in progress" };
+    return {
+      key: "pre_walk",
+      label: "Pre-Walk Started",
+      short: "Finish pre-walk",
+      met: false,
+      detail: "Walk in progress",
+    };
   }
   if (state.preWalkDate) {
-    return { key: "pre_walk", label: "Pre-Walk Scheduled", met: false, detail: state.preWalkDate };
+    return {
+      key: "pre_walk",
+      label: "Pre-Walk Scheduled",
+      short: "Do pre-walk",
+      met: false,
+      detail: state.preWalkDate,
+    };
   }
-  return { key: "pre_walk", label: "Schedule Pre-Walk", met: false, detail: "Not scheduled" };
+  return {
+    key: "pre_walk",
+    label: "Schedule Pre-Walk",
+    short: "Schedule pre-walk",
+    met: false,
+    detail: "Not scheduled",
+  };
 }
 
 /**
@@ -130,11 +156,18 @@ function scopeCheck(state: PreconGateState): GateCheck {
     return { key: "scope", label: "Scope & Budget Set", met: true, detail: `${lines} · ${money}` };
   }
   if (state.scopeLineCount === 0) {
-    return { key: "scope", label: "Confirm Scope & Budget", met: false, detail: "No scope yet" };
+    return {
+      key: "scope",
+      label: "Confirm Scope & Budget",
+      short: "Write scope",
+      met: false,
+      detail: "No scope yet",
+    };
   }
   return {
     key: "scope",
     label: "Confirm Scope & Budget",
+    short: "Confirm scope",
     met: false,
     detail: state.approvedBudget > 0 ? `${lines} drafted · ${money}` : `${lines} · no budget set`,
   };
@@ -157,6 +190,7 @@ function rfpCheck(state: PreconGateState): GateCheck {
   return {
     key: "rfp",
     label: "Send RFP",
+    short: "Send RFP",
     met: false,
     detail: state.scopeConfirmedAt ? "Not sent" : "Confirm the scope first",
   };
@@ -181,6 +215,7 @@ function contractCheck(state: PreconGateState): GateCheck {
     return {
       key: "contract",
       label: "Sign Contract",
+      short: "Generate contracts",
       met: false,
       detail: `${state.contractsLive} of ${state.awardCount} contracts generated`,
     };
@@ -191,6 +226,7 @@ function contractCheck(state: PreconGateState): GateCheck {
     return {
       key: "contract",
       label: state.contractStatus === "vendor_signed" ? "Awaiting Countersign" : "Out for Signature",
+      short: state.contractStatus === "vendor_signed" ? "Countersign" : "Awaiting signature",
       met: false,
       detail:
         state.awardCount > 1
@@ -204,11 +240,18 @@ function contractCheck(state: PreconGateState): GateCheck {
   // A generated draft nobody has sent is a different problem from no contract
   // at all, and the difference is whose desk it is on.
   if (state.contractStatus === "draft") {
-    return { key: "contract", label: "Send for Signature", met: false, detail: "Draft ready" };
+    return {
+      key: "contract",
+      label: "Send for Signature",
+      short: "Send for signature",
+      met: false,
+      detail: "Draft ready",
+    };
   }
   return {
     key: "contract",
     label: "Sign Contract",
+    short: state.hasApprovedBid ? "Generate contract" : "Sign contract",
     met: false,
     detail: state.hasApprovedBid ? "Ready to generate" : "Awaiting a selected bid",
   };
@@ -239,6 +282,7 @@ function bidCheck(state: PreconGateState): GateCheck {
     return {
       key: "bid",
       label: "Award the Rest",
+      short: "Award the rest",
       met: false,
       detail: `${state.scopeLinesAwarded} of ${state.scopeLineCount} lines awarded`,
     };
@@ -247,13 +291,20 @@ function bidCheck(state: PreconGateState): GateCheck {
     return {
       key: "bid",
       label: "Select Bid",
+      short: "Select bid",
       met: false,
       detail: `${state.bidsOutstanding} out for bid`,
       // Waiting on the vendors, not on us.
       ...(state.oldestSentDays != null ? { waitingDays: state.oldestSentDays } : {}),
     };
   }
-  return { key: "bid", label: "Select Bid", met: false, detail: "Nothing out for bid" };
+  return {
+    key: "bid",
+    label: "Select Bid",
+    short: "Get bids",
+    met: false,
+    detail: "Nothing out for bid",
+  };
 }
 
 /**
@@ -280,10 +331,6 @@ export function evaluateGates(
       bidCheck(data),
       contractCheck(data),
     ];
-    // The first unmet gate is the next thing to do. Marking it here rather than
-    // in the component keeps "what is next" one definition instead of two.
-    const firstUnmet = checks.findIndex((c) => !c.met);
-    if (firstUnmet !== -1) checks[firstUnmet] = { ...checks[firstUnmet], next: true };
   } else if (fromPhase === "in_process" && toPhase === "punch") {
     checks = [
       // "All scope lines started" used to sit here, off a per-line status field
@@ -293,6 +340,7 @@ export function evaluateGates(
       // later gate and has no UI yet.
       {
         label: "In Process date recorded",
+        short: "Record start date",
         met: data.hasStartMilestoneActual,
         detail: data.hasStartMilestoneActual ? "Recorded" : "No actual start date",
       },
@@ -301,6 +349,10 @@ export function evaluateGates(
     checks = [
       {
         label: "No open audit findings",
+        short:
+          data.openFindingCount === 1
+            ? "Resolve 1 finding"
+            : `Resolve ${data.openFindingCount} findings`,
         met: data.openFindingCount === 0,
         detail:
           data.openFindingCount === 0
@@ -312,6 +364,7 @@ export function evaluateGates(
       // should take its place once punch items are built.
       {
         label: "GL actuals posted",
+        short: "Post GL actuals",
         met: data.postedGlTotal > 0,
         detail:
           data.postedGlTotal > 0
@@ -323,6 +376,14 @@ export function evaluateGates(
     checks = [];
   }
 
+  // The first unmet gate is the next thing to do. Marking it here rather than in
+  // the component keeps "what is next" one definition instead of two — and it is
+  // now marked in EVERY phase, not just pre-con. The later phases' checks have
+  // no dialog behind them, but they are still the answer to "what is this
+  // project waiting on", which is what the board's Next Step column asks.
+  const firstUnmet = checks.findIndex((c) => !c.met);
+  if (firstUnmet !== -1) checks[firstUnmet] = { ...checks[firstUnmet], next: true };
+
   const metCount = checks.filter((c) => c.met).length;
   return {
     fromPhase,
@@ -330,5 +391,70 @@ export function evaluateGates(
     checks,
     allMet: checks.length === 0 || metCount === checks.length,
     metCount,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// What to do next, as one thing a person can press.
+// ---------------------------------------------------------------------------
+
+/**
+ * The single next action on a project, for the board's Next Step column.
+ *
+ * Three shapes, because there are three honestly different situations:
+ *
+ *  - `advance` — every gate is met, so the next step finishes in one press
+ *    without leaving the row. The server re-checks the gates in
+ *    checkPhaseAdvance, so this cannot skip one however stale the page is.
+ *  - `goto` — there is work to do somewhere else. Pre-con's gates each name the
+ *    dialog that resolves them; the later phases' gates name the screen where
+ *    the work happens, because no dialog can fix an open finding.
+ *  - `none` — the project is in its last phase. Nothing to offer.
+ */
+export type NextStep =
+  | { kind: "advance"; label: string; toPhase: ProjectPhaseKey }
+  | {
+      kind: "goto";
+      label: string;
+      /** Opens this gate's dialog on arrival. Absent on the non-pre-con gates. */
+      gate?: PreconGateKey;
+      target: "workflow" | "audits" | "gl";
+      waitingDays?: number;
+    }
+  | { kind: "none" };
+
+/** Where a gate with no dialog sends you instead. */
+function targetForCheck(check: GateCheck): "workflow" | "audits" | "gl" {
+  if (check.key) return "workflow";
+  if (check.label === "No open audit findings") return "audits";
+  if (check.label === "GL actuals posted") return "gl";
+  return "workflow";
+}
+
+/**
+ * Turn a phase's gate result into the one step to offer.
+ *
+ * Pure, and reading only what `evaluateGates` already decided — so the board's
+ * button and the project page's gate list cannot disagree about what is next.
+ * `upcoming` is null in the last phase.
+ */
+export function nextStep(
+  gate: GateResult | null,
+  upcoming: { key: ProjectPhaseKey; label: string } | null,
+): NextStep {
+  if (!upcoming) return { kind: "none" };
+  if (!gate) return { kind: "advance", label: `Advance to ${upcoming.label}`, toPhase: upcoming.key };
+
+  const blocking = gate.checks.find((c) => c.next);
+  if (!blocking) {
+    return { kind: "advance", label: `Advance to ${upcoming.label}`, toPhase: upcoming.key };
+  }
+
+  return {
+    kind: "goto",
+    label: blocking.short ?? blocking.label,
+    ...(blocking.key ? { gate: blocking.key } : {}),
+    target: targetForCheck(blocking),
+    ...(blocking.waitingDays != null ? { waitingDays: blocking.waitingDays } : {}),
   };
 }

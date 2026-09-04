@@ -1,19 +1,20 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
-import { db, schema } from "@/db";
 import { evaluateGates } from "@/lib/phase-gates";
-import { readPreconGateState } from "@/lib/precon-gate-state";
+import { readGateStates } from "@/lib/precon-gate-state";
 import { phaseIndex, phaseLabel, type ProjectPhaseKey } from "@/lib/stages";
 
 /**
  * Server-side enforcement of the phase gates.
  *
- * The checks live in phase-gates.ts and are now shown inline on the project's
- * phases section, but showing them is not enforcing them: the phase can be
- * changed from the header dropdown, and later from anywhere else that calls
- * setProjectPhase. Checking here covers every path with one call.
+ * The checks live in phase-gates.ts and are shown inline on the project's phases
+ * section and now as the board's Next Step button, but showing them is not
+ * enforcing them: the phase can be changed from the header dropdown, from the
+ * board, and from anywhere else that calls setProjectPhase. Checking here covers
+ * every path with one call.
  *
- * Kept out of the actions file so the query bundle is testable on its own and
- * the action gains only the call.
+ * The start milestone, the open findings and the posted GL total used to be
+ * three queries written out here, duplicating what readGateStates already reads
+ * for the same project. They are gone — this file is now the rule, not the
+ * plumbing.
  */
 
 export type GateVerdict = { ok: true } | { ok: false; error: string };
@@ -36,43 +37,12 @@ export async function checkPhaseAdvance(
 ): Promise<GateVerdict> {
   if (!isForward(fromPhase, toPhase)) return { ok: true };
 
-  const startMilestone = await db().query.projectMilestones.findFirst({
-    where: and(
-      eq(schema.projectMilestones.projectId, projectId),
-      eq(schema.projectMilestones.phase, "in_process"),
-      isNull(schema.projectMilestones.archivedAt),
-    ),
-    columns: { actualDate: true },
-  });
+  const states = await readGateStates([projectId]);
+  const state = states.get(projectId);
+  // No such project. Nothing to advance, and refusing is the safe answer.
+  if (!state) return { ok: false, error: "Project not found" };
 
-  const [findings] = await db()
-    .select({ open: sql<number>`count(*)::int` })
-    .from(schema.auditFindings)
-    .innerJoin(schema.siteAudits, eq(schema.auditFindings.auditId, schema.siteAudits.id))
-    .where(
-      and(
-        eq(schema.siteAudits.projectId, projectId),
-        eq(schema.auditFindings.status, "open"),
-        isNull(schema.siteAudits.archivedAt),
-        isNull(schema.auditFindings.archivedAt),
-      ),
-    );
-
-  const [gl] = await db()
-    .select({ total: sql<number>`coalesce(sum(${schema.glTransactions.amount}), 0)::float8` })
-    .from(schema.glTransactions)
-    .where(
-      and(eq(schema.glTransactions.projectId, projectId), eq(schema.glTransactions.status, "posted")),
-    );
-
-  const precon = await readPreconGateState(projectId);
-
-  const result = evaluateGates(fromPhase as ProjectPhaseKey, toPhase as ProjectPhaseKey, {
-    ...precon,
-    hasStartMilestoneActual: !!startMilestone?.actualDate,
-    openFindingCount: findings?.open ?? 0,
-    postedGlTotal: gl?.total ?? 0,
-  });
+  const result = evaluateGates(fromPhase as ProjectPhaseKey, toPhase as ProjectPhaseKey, state);
 
   if (result.allMet) return { ok: true };
 

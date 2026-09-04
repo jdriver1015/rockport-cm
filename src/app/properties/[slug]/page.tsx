@@ -9,6 +9,29 @@ import { ProjectBoard, type BoardProject } from "@/components/project-board";
 import { num } from "@/lib/format";
 import { readScheduleHealth } from "@/lib/target-slip";
 import { getScheduleProjects } from "@/lib/schedule-data";
+import { evaluateGates, nextStep, type NextStep } from "@/lib/phase-gates";
+import { readGateStates, type FullGateState } from "@/lib/precon-gate-state";
+import { nextPhase, type ProjectPhaseKey } from "@/lib/stages";
+import { loadActiveProfile } from "@/lib/auth";
+import { canWriteProperty } from "@/lib/auth-rules";
+import { readManagerRoster } from "@/lib/manager-roster";
+import { managerName } from "@/lib/project-managers";
+
+/**
+ * The one step to offer on a row.
+ *
+ * Runs the same evaluateGates the project page's gate list runs, then asks
+ * nextStep which of its checks is blocking. Nothing about "what is next" is
+ * decided here — this only picks the phase transition to evaluate.
+ */
+function stepFor(phase: string, state: FullGateState | undefined): NextStep {
+  const upcoming = nextPhase(phase);
+  // Last phase, or a project that vanished between the two reads. Either way
+  // there is nothing honest to offer, and an advance we could not check the
+  // gates for is not it.
+  if (!upcoming || !state) return { kind: "none" };
+  return nextStep(evaluateGates(phase as ProjectPhaseKey, upcoming.key, state), upcoming);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +59,6 @@ export default async function PropertyBoardPage({
         name: schema.projects.name,
         phase: schema.projects.phase,
         budgetAmount: schema.projects.budgetAmount,
-        committedCost: schema.projects.committedCost,
         startDate: schema.projects.startDate,
         completeDate: schema.projects.completeDate,
         costCodeName: schema.costCodes.name,
@@ -47,6 +69,12 @@ export default async function PropertyBoardPage({
         // both carry scope, bids, contracts, phases, GL and a schedule, and all
         // of that was already kind-agnostic.
         kind: schema.projects.kind,
+        managerId: schema.projects.managerId,
+        // Joined rather than resolved from the roster on the client: a manager
+        // who has since been archived still holds the projects they were
+        // running, and the column has to keep naming them.
+        managerFullName: schema.profiles.fullName,
+        managerEmail: schema.profiles.email,
         unitNumber: schema.units.unitNumber,
         renovationType: schema.budgetGroups.name,
       })
@@ -54,6 +82,7 @@ export default async function PropertyBoardPage({
       .leftJoin(schema.costCodes, eq(schema.projects.costCodeId, schema.costCodes.id))
       .leftJoin(schema.costCategories, eq(schema.costCodes.categoryId, schema.costCategories.id))
       .leftJoin(schema.units, eq(schema.projects.unitId, schema.units.id))
+      .leftJoin(schema.profiles, eq(schema.projects.managerId, schema.profiles.id))
       .leftJoin(schema.budgetGroups, eq(schema.projects.budgetGroupId, schema.budgetGroups.id))
       .where(
         and(
@@ -92,12 +121,22 @@ export default async function PropertyBoardPage({
   // phase targets, actuals and slip, rather than the board's budget shape.
   const ganttProjects = await getScheduleProjects({ propertyId });
 
+  // Every row's gate state in nine queries, not nine per row. See readGateStates
+  // — the per-project reader would have made this page O(n) round trips, which a
+  // property mid-turn (a few hundred unit projects) would never finish.
+  const gateStates = await readGateStates(rows.map((r) => r.id));
+
+  // Assigning is a write, so a site or viewer reader gets the names and no
+  // picker — and no roster shipped to a client that could not use it anyway.
+  const auth = await loadActiveProfile();
+  const canAssign = auth.ok && canWriteProperty(auth.profile.role);
+  const roster = canAssign ? await readManagerRoster() : [];
+
   const projects: BoardProject[] = rows.map((r) => ({
     id: r.id,
     name: r.name,
     phase: r.phase,
     budget: num(r.budgetAmount),
-    committed: num(r.committedCost),
     jtd: jtdByProject.get(r.id) ?? 0,
     startDate: r.startDate,
     completeDate: r.completeDate,
@@ -105,6 +144,11 @@ export default async function PropertyBoardPage({
     categoryLabel: r.categoryName ?? "Uncategorized",
     lineItem: r.costCodeName ?? "—",
     kind: r.kind,
+    managerId: r.managerId ?? null,
+    // profiles.email is NOT NULL, so a joined row always has one — its presence
+    // is what says somebody is assigned at all.
+    managerName: r.managerEmail ? managerName(r.managerFullName, r.managerEmail) : null,
+    nextStep: stepFor(r.phase, gateStates.get(r.id)),
     unitLabel: r.unitNumber ? `Unit ${r.unitNumber}` : null,
     // The renovation type a turn was priced from. Carried here so the merged
     // list keeps the one thing the separate Unit Upgrades table showed that
@@ -148,6 +192,8 @@ export default async function PropertyBoardPage({
         projects={projects}
         ganttProjects={ganttProjects}
         propertySlug={property.slug}
+        roster={roster}
+        canAssign={canAssign}
         initialView={typeof sp.view === "string" ? sp.view : undefined}
         initialGroup={typeof sp.group === "string" ? sp.group : undefined}
         initialSort={typeof sp.sort === "string" ? sp.sort : undefined}

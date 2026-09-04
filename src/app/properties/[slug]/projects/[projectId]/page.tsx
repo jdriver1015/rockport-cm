@@ -19,7 +19,7 @@ import {
 } from "@/components/project-scope-list";
 import { ProjectPhases, type PhaseRow } from "@/components/project-phases";
 import { ProjectWorkPanels, ProjectPanelSwitch } from "@/components/project-work-panels";
-import { evaluateGates } from "@/lib/phase-gates";
+import { evaluateGates, PRECON_GATE_KEYS, type PreconGateKey } from "@/lib/phase-gates";
 import { readPreconGateState } from "@/lib/precon-gate-state";
 import { listPreWalkFindings } from "@/lib/pre-walk-findings";
 import { readBidPackage } from "@/lib/bid-package";
@@ -57,9 +57,19 @@ export default async function ProjectDetailPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { slug, projectId: pid } = await params;
+  const sp = await searchParams;
   // Which panel the switch opens on. Anything but "workflow" — including a
   // stale or hand-typed value — falls back to the scope table.
-  const initialTab = (await searchParams).tab === "workflow" ? "workflow" : "scope";
+  const initialTab = sp.tab === "workflow" ? "workflow" : "scope";
+  // Which gate dialog to open on arrival, for the board's Next Step button —
+  // that column names the gate a project is stuck on, and a button that named
+  // the gate and then dropped you on the page to find it yourself would be
+  // doing half the job. Validated against the gate keys, so a stale or
+  // hand-typed value opens nothing rather than throwing.
+  const initialGate =
+    typeof sp.gate === "string" && (PRECON_GATE_KEYS as readonly string[]).includes(sp.gate)
+      ? (sp.gate as PreconGateKey)
+      : null;
   const projectId = parseProjectId(pid);
   if (!Number.isInteger(projectId)) notFound();
 
@@ -589,6 +599,7 @@ export default async function ProjectDetailPage({
                   })),
                 }}
                 gate={gate}
+                initialGate={initialGate}
                 nextPhaseLabel={upcoming?.label ?? null}
               />
             </CardContent>
