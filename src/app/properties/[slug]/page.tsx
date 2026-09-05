@@ -51,7 +51,7 @@ export default async function PropertyBoardPage({
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [rows, [archivedCount], jtdRows] = await Promise.all([
+  const [rows, [archivedCount], ganttProjects, auth, roster] = await Promise.all([
     // Board rows — projects joined to their UW line item + category (division).
     db()
       .select({
@@ -100,44 +100,53 @@ export default async function PropertyBoardPage({
           sql`${schema.projects.archivedAt} is not null`,
         ),
       ),
-    // JTD actual per project (posted GL only)
-    db()
-      .select({
-        projectId: schema.glTransactions.projectId,
-        total: sql<string>`coalesce(sum(${schema.glTransactions.amount}), 0)`,
-      })
-      .from(schema.glTransactions)
-      .where(
-        sql`${schema.glTransactions.propertyId} = ${propertyId} and ${schema.glTransactions.status} = 'posted' and ${schema.glTransactions.projectId} is not null`,
-      )
-      .groupBy(schema.glTransactions.projectId),
+    // The Gantt on this tab is the Schedule tab's, so it reads the same rows:
+    // phase targets, actuals and slip, rather than the board's budget shape.
+    getScheduleProjects({ propertyId }),
+    // Guarded. This call exists only to decide whether to show a picker, and it
+    // reaches Supabase auth over the network — unguarded, a pooled-connection
+    // timeout there took the whole board down with it, budgets and schedule and
+    // all. Failing closed costs a reader the picker and nothing else.
+    loadActiveProfile().catch((err) => {
+      console.error("property board: auth lookup failed", err);
+      return { ok: false as const, error: "auth unavailable", code: "no_session" as const };
+    }),
+    // Loaded for everyone so it can share this batch; passed to the client only
+    // when the reader can actually assign.
+    readManagerRoster().catch((err) => {
+      console.error("property board: manager roster failed to load", err);
+      return [];
+    }),
   ]);
-  const jtdByProject = new Map(jtdRows.map((r) => [r.projectId, num(r.total)]));
-  // How far each project's finish has moved from what was first planned, which
-  // is the one schedule number that survives targets being pushed forward.
-  const health = await readScheduleHealth(rows.map((r) => r.id));
-
-  // The Gantt on this tab is the Schedule tab's, so it reads the same rows:
-  // phase targets, actuals and slip, rather than the board's budget shape.
-  const ganttProjects = await getScheduleProjects({ propertyId });
-
-  // Every row's gate state in nine queries, not nine per row. See readGateStates
-  // — the per-project reader would have made this page O(n) round trips, which a
-  // property mid-turn (a few hundred unit projects) would never finish.
-  const gateStates = await readGateStates(rows.map((r) => r.id));
+  // Only these two need `rows`, so they are the one stage that has to wait.
+  // Everything else went in the batch above: five serial round trips to a remote
+  // Postgres is most of what a board load costs, and it is what made an inline
+  // manager assignment look like it had done nothing for several seconds.
+  const [health, gateStates] = await Promise.all([
+    // How far each project's finish has moved from what was first planned, which
+    // is the one schedule number that survives targets being pushed forward.
+    readScheduleHealth(rows.map((r) => r.id)),
+    // Every row's gate state in nine queries, not nine per row. See
+    // readGateStates — the per-project reader would have made this page O(n)
+    // round trips, which a property mid-turn would never finish.
+    readGateStates(rows.map((r) => r.id)),
+  ]);
 
   // Assigning is a write, so a site or viewer reader gets the names and no
-  // picker — and no roster shipped to a client that could not use it anyway.
-  const auth = await loadActiveProfile();
+  // picker — and the roster is not passed to a client that could not use it.
   const canAssign = auth.ok && canWriteProperty(auth.profile.role);
-  const roster = canAssign ? await readManagerRoster() : [];
+  const assignableRoster = canAssign ? roster : [];
 
   const projects: BoardProject[] = rows.map((r) => ({
     id: r.id,
     name: r.name,
     phase: r.phase,
     budget: num(r.budgetAmount),
-    jtd: jtdByProject.get(r.id) ?? 0,
+    // The same posted-GL total the "GL actuals posted" gate reads. It used to be
+    // its own query filtered by property rather than project, so a transaction
+    // whose project and property disagreed could show a Variance here while the
+    // gate still said no GL had been posted.
+    jtd: gateStates.get(r.id)?.postedGlTotal ?? 0,
     startDate: r.startDate,
     completeDate: r.completeDate,
     division: r.division ?? null,
@@ -192,7 +201,7 @@ export default async function PropertyBoardPage({
         projects={projects}
         ganttProjects={ganttProjects}
         propertySlug={property.slug}
-        roster={roster}
+        roster={assignableRoster}
         canAssign={canAssign}
         initialView={typeof sp.view === "string" ? sp.view : undefined}
         initialGroup={typeof sp.group === "string" ? sp.group : undefined}
