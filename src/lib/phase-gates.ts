@@ -15,6 +15,18 @@ export type GateCheck = {
   /** Present when the gate has an action behind it. */
   key?: PreconGateKey;
   /**
+   * Where a gate with no dialog is resolved. Declared here beside the check that
+   * knows, not recovered afterwards by matching the label's prose: routing that
+   * reads English breaks silently the first time somebody rewords a sentence,
+   * and the reword looks like pure copy. Absent means the workflow tab.
+   */
+  target?: "audits" | "gl";
+  /**
+   * The audit holding the open findings, for the audits target. Null when the
+   * count is zero or the audit could not be identified.
+   */
+  auditId?: number | null;
+  /**
    * The first unmet gate — the thing to do next. Emphasised in the UI so the
    * row reads as a queue rather than four equal buttons.
    */
@@ -103,6 +115,8 @@ export type ProgressGateState = {
    */
   hasActualStart: boolean;
   openFindingCount: number;
+  /** Which audit those findings sit on, so the board can link straight to it. */
+  openFindingAuditId: number | null;
   postedGlTotal: number;
 };
 
@@ -361,6 +375,8 @@ export function evaluateGates(
     checks = [
       {
         label: "No open audit findings",
+        target: "audits",
+        auditId: data.openFindingAuditId,
         short:
           data.openFindingCount === 1
             ? "Resolve 1 finding"
@@ -376,6 +392,7 @@ export function evaluateGates(
       // should take its place once punch items are built.
       {
         label: "GL actuals posted",
+        target: "gl",
         short: "Post GL actuals",
         met: data.postedGlTotal > 0,
         detail:
@@ -431,16 +448,22 @@ export type NextStep =
       /** Opens this gate's dialog on arrival. Absent on the non-pre-con gates. */
       gate?: PreconGateKey;
       target: "workflow" | "audits" | "gl";
+      /** Set with target "audits" — the audit the findings are on. */
+      auditId?: number;
       waitingDays?: number;
     }
   | { kind: "none" };
 
-/** Where a gate with no dialog sends you instead. */
+/**
+ * Where a gate with no dialog sends you instead.
+ *
+ * A gate with a key owns a dialog on the workflow tab; anything else says where
+ * it is resolved. This used to string-match `label`, which made the routing a
+ * hostage to the wording.
+ */
 function targetForCheck(check: GateCheck): "workflow" | "audits" | "gl" {
   if (check.key) return "workflow";
-  if (check.label === "No open audit findings") return "audits";
-  if (check.label === "GL actuals posted") return "gl";
-  return "workflow";
+  return check.target ?? "workflow";
 }
 
 /**
@@ -474,6 +497,7 @@ export function nextStep(
     label: blocking.short ?? blocking.label,
     ...(blocking.key ? { gate: blocking.key } : {}),
     target: targetForCheck(blocking),
+    ...(blocking.auditId != null ? { auditId: blocking.auditId } : {}),
     ...(blocking.waitingDays != null ? { waitingDays: blocking.waitingDays } : {}),
   };
 }

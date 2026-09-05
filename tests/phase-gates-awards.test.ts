@@ -43,6 +43,7 @@ const base = {
   scopeTotalCount: 5,
   hasActualStart: false,
   openFindingCount: 0,
+  openFindingAuditId: null,
   postedGlTotal: 0,
 };
 

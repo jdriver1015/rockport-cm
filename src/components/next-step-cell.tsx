@@ -71,11 +71,18 @@ export function NextStepCell({
     );
   }
 
+  // The audits target goes to the audit holding the findings, not to the
+  // project page: findings are not on either project panel — they live behind
+  // the header's manage menu — so "Resolve 2 findings" used to land somewhere
+  // that showed none. Falls back to the property's audit list if the id is
+  // missing, which still shows findings.
   const href =
     step.target === "gl"
       ? `/properties/${propertySlug}/gl`
       : step.target === "audits"
-        ? projectHref
+        ? step.auditId != null
+          ? `/properties/${propertySlug}/audits/${step.auditId}`
+          : `/properties/${propertySlug}/audits`
         : `${projectHref}?tab=workflow${step.gate ? `&gate=${step.gate}` : ""}`;
 
   return (

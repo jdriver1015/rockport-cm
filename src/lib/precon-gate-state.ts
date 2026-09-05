@@ -156,6 +156,10 @@ export async function readGateStates(
       .select({
         projectId: schema.siteAudits.projectId,
         open: sql<number>`count(*)::int`,
+        // The audit to send someone to. Newest wins where a project has findings
+        // on several — that is the walk they are most likely acting on, and one
+        // link beats a list they have to search.
+        auditId: sql<number>`max(${schema.siteAudits.id})::int`,
       })
       .from(schema.auditFindings)
       .innerJoin(schema.siteAudits, eq(schema.auditFindings.auditId, schema.siteAudits.id))
@@ -189,7 +193,7 @@ export async function readGateStates(
   const preWalkBy = new Map(preWalks.map((r) => [r.projectId, r]));
   const bidsBy = new Map(bidStats.map((r) => [r.projectId, r]));
   const startBy = new Map(startMilestones.map((r) => [r.projectId, r.actualDate]));
-  const findingsBy = new Map(findings.map((r) => [r.projectId, r.open]));
+  const findingsBy = new Map(findings.map((r) => [r.projectId, r]));
   const glBy = new Map(gl.map((r) => [r.projectId, r.total]));
 
   const scopeBy = new Map<number, number[]>();
@@ -275,7 +279,8 @@ export async function readGateStates(
       // milestone is the richer record where it exists; projects.start_date is
       // what every other path actually wrote.
       hasActualStart: !!(startBy.get(project.id) ?? project.startDate),
-      openFindingCount: findingsBy.get(project.id) ?? 0,
+      openFindingCount: findingsBy.get(project.id)?.open ?? 0,
+      openFindingAuditId: findingsBy.get(project.id)?.auditId ?? null,
       postedGlTotal: glBy.get(project.id) ?? 0,
     });
   }
@@ -327,5 +332,6 @@ const EMPTY_STATE: FullGateState = {
   contractSignedAt: null,
   hasActualStart: false,
   openFindingCount: 0,
+  openFindingAuditId: null,
   postedGlTotal: 0,
 };

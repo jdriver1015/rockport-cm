@@ -642,10 +642,13 @@ function TableView({
                       <ScheduleCell health={p.health} />
                     </TableCell>
                     <TableCell>
-                      {/* Suppressed when the list is already grouped by manager,
-                          where the band header names them — the same rule the
-                          renovation-type subtitle follows. */}
-                      {groupBy === "manager" ? (
+                      {/* Suppressed when the band header already names them —
+                          the same rule the renovation-type subtitle follows. NOT
+                          suppressed in the Unassigned band: that band exists to
+                          collect work with no owner, so hiding the picker there
+                          made grouping by manager a dead end, findable but not
+                          fixable without switching the grouping back. */}
+                      {groupBy === "manager" && p.managerName ? (
                         <span className="text-[13px] text-ink-300">—</span>
                       ) : (
                         <ProjectManagerCell

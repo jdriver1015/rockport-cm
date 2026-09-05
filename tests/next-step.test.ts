@@ -40,6 +40,7 @@ const fresh = {
   bidsOutstanding: 0,
   hasActualStart: false,
   openFindingCount: 0,
+  openFindingAuditId: null,
   postedGlTotal: 0,
 };
 
@@ -200,27 +201,59 @@ describe("the later phases", () => {
     });
   });
 
-  test("punch with open findings — resolve them, at the audit", () => {
-    const step = stepFrom("punch", { ...preconDone, openFindingCount: 2, postedGlTotal: 5_000 });
+  test("punch with open findings — resolve them, at the audit that holds them", () => {
+    const step = stepFrom("punch", {
+      ...preconDone,
+      openFindingCount: 2,
+      openFindingAuditId: 42,
+      postedGlTotal: 5_000,
+    });
+    // The id is what makes this link land on the findings: the project page does
+    // not show them, so "at the audit" has to mean a specific audit.
     expect(step).toEqual({
       kind: "goto",
       label: "Resolve 2 findings",
       target: "audits",
+      auditId: 42,
     });
   });
 
-  test("one finding is singular", () => {
-    const step = stepFrom("punch", { ...preconDone, openFindingCount: 1, postedGlTotal: 5_000 });
-    expect(step).toMatchObject({ label: "Resolve 1 finding" });
+  test("findings with no identifiable audit still route to audits", () => {
+    const step = stepFrom("punch", {
+      ...preconDone,
+      openFindingCount: 1,
+      openFindingAuditId: null,
+      postedGlTotal: 5_000,
+    });
+    // No auditId, so the cell falls back to the property's audit list rather
+    // than emitting /audits/null.
+    expect(step).toEqual({ kind: "goto", label: "Resolve 1 finding", target: "audits" });
+  });
+
+  test("routing survives a reworded label", () => {
+    // targetForCheck used to string-match `label`, so renaming a gate silently
+    // rerouted its button to the workflow tab. The target is declared on the
+    // check now; this pins that it is read from there and not from the prose.
+    const gate = evaluateGates("punch", "complete", {
+      ...preconDone,
+      openFindingCount: 3,
+      openFindingAuditId: 7,
+      postedGlTotal: 5_000,
+    });
+    const blocking = gate.checks.find((c) => c.next)!;
+    expect(blocking.target).toBe("audits");
+    expect(blocking.label).toBe("No open audit findings");
+
+    const reworded = { ...gate, checks: [{ ...blocking, label: "Nothing outstanding" }] };
+    expect(nextStep(reworded, { key: "complete", label: "Complete" })).toMatchObject({
+      target: "audits",
+      auditId: 7,
+    });
   });
 
   test("punch, findings clear, no GL — post the actuals, at the ledger", () => {
     const step = stepFrom("punch", preconDone);
-    expect(step).toEqual({
-      kind: "goto",
-      label: "Post GL actuals",
-      target: "gl",
-    });
+    expect(step).toEqual({ kind: "goto", label: "Post GL actuals", target: "gl" });
   });
 
   test("punch fully met — advance to complete", () => {
