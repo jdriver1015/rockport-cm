@@ -11,6 +11,17 @@ Internal multifamily construction tracking app. See README.md for the domain mod
 ## Conventions
 
 - Schema lives in `src/db/schema.ts` (Drizzle). Change schema → `npm run db:generate` → `npm run db:migrate`. Never hand-edit files in `drizzle/`.
+- `drizzle/meta/` has no snapshots between `0035` and `0052` — migrations 0036–0051
+  were written by hand and their snapshots never were. `generate` diffs against the
+  newest snapshot it can find, so before `0052_snapshot.json` existed it diffed
+  against `0035` and re-emitted sixteen migrations' worth of DDL: a "new" migration
+  that re-created `project_contracts`, `bid_events`, `trade_scopes` and a dozen other
+  live tables. Running it would have failed at best.
+  `0052_snapshot.json` is a full baseline regenerated from `schema.ts` and verified
+  column-for-column against the live database (51 tables, no drift), so `generate`
+  is correct again from 0052 forward. Do not try to backfill the missing snapshots —
+  they would each need the schema as it stood at that migration, which is not
+  recoverable from the repo. The gap is history; the baseline is what matters.
 - Get a DB handle via `db()` from `src/db/index.ts` — it is lazy so builds work without `DATABASE_URL`.
 - Money columns are `numeric(12,2)` and come back from Drizzle as strings; parse at the edge, never store floats.
 - Derived figures (left-to-invoice, variance, days-to-complete, trade-out %) are computed in queries/views, never stored.
