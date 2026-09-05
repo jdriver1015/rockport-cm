@@ -292,7 +292,7 @@ export function InteriorWizard({
   const hasProgress = unit !== null || groupId !== null || step > 0;
 
   function leave() {
-    router.push(`/properties/${propertySlug}/interiors`);
+    router.push(`/properties/${propertySlug}`);
   }
 
   function requestCancel() {
@@ -339,7 +339,7 @@ export function InteriorWizard({
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Unit upgrade created");
-      router.push(`/properties/${propertySlug}/interiors`);
+      router.push(`/properties/${propertySlug}`);
       router.refresh();
     } finally {
       setBusy(false);

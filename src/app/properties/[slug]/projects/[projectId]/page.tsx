@@ -453,11 +453,10 @@ export default async function ProjectDetailPage({
   return (
     <div className="space-y-6">
       <p className="text-sm">
-        <Link
-          href={project.kind === "unit" ? `/properties/${slug}/interiors` : `/properties/${slug}`}
-          className="text-link hover:underline"
-        >
-          {project.kind === "unit" ? "← Unit Upgrades" : "← All projects"}
+        {/* Unit turns and common-area work share the Projects board now, so both
+            kinds go back to the same place. */}
+        <Link href={`/properties/${slug}`} className="text-link hover:underline">
+          ← All projects
         </Link>
       </p>
 
@@ -502,7 +501,6 @@ export default async function ProjectDetailPage({
               propertySlug={slug}
               projectId={projectId}
               projectName={project.name}
-              projectKind={project.kind}
               archived={project.archivedAt != null}
               documents={documentRows}
               activityLog={auditLog}

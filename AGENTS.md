@@ -34,5 +34,16 @@ Internal multifamily construction tracking app. See README.md for the domain mod
   whole form with "expected string, received null". This is why a common-area
   project could not be edited at all: the dialog renders the rent fields only
   for unit projects.
+- RLS is enabled on every table and there are deliberately **no policies**. Supabase's
+  linter reports this as `rls_enabled_no_policy` (INFO) on ~43 tables — that is expected,
+  not a finding. No policies means deny-all through the PostgREST API, and the app never
+  reads data that way: the Supabase client is used only for auth and storage, while all
+  data goes through Drizzle on a direct Postgres connection that bypasses RLS as table
+  owner. Authorization lives in the action layer (`requireUser()` / `canWriteProperty()`,
+  see `src/lib/auth.ts`). Verified: the public anon key returns 0 rows from every table.
+  **Do not "fix" those warnings by adding permissive policies.** A `USING (true)` policy
+  would expose the table to the anon key that ships to the browser, turning a non-issue
+  into a real one. If client-side data access is ever wanted, that is a deliberate design
+  change — write real per-row policies then, not blanket ones.
 - Verify with `npm run typecheck` and `npm run lint` before committing.
 

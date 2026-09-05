@@ -15,8 +15,14 @@ import { propertyPath } from "@/lib/property-path";
 // ---------------------------------------------------------------------------
 
 async function revalidateGroups(propertyId: number) {
-  const path = await propertyPath(propertyId, "/interiors");
-  if (path) revalidatePath(path);
+  // The Turn Plan tab that used to show these is gone: renovation types are
+  // listed under /interiors/types, and their planned units feed the Budget
+  // tab's Interior pivot.
+  const base = await propertyPath(propertyId);
+  if (base) {
+    revalidatePath(`${base}/interiors/types`);
+    revalidatePath(`${base}/budget`);
+  }
 }
 
 async function propertyChartId(propertyId: number): Promise<number | null> {

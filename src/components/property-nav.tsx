@@ -4,13 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+// Turn Plan and Site Audits are deliberately absent. The turn programme's own
+// page held nothing the Projects board and the Budget tab's Interior view do not
+// already own, and site audits are reached from the project they belong to (the
+// project Manage menu), which is where they are actually used — the feature
+// itself still backs pre-walks and the phase gates.
 const tabs = [
+  { href: "/executive", label: "Executive" },
   { href: "/budget", label: "Budget" },
   { href: "", label: "Projects" },
-  { href: "/interiors", label: "Turn Plan" },
   { href: "/gl", label: "Ledger" },
-  { href: "/rent-rolls", label: "Rent Rolls" },
-  { href: "/audits", label: "Site Audits" },
+  { href: "/rent-rolls", label: "Performance" },
 ];
 
 export function PropertyNav({ slug }: { slug: string }) {
