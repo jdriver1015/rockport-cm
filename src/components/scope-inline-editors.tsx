@@ -94,6 +94,11 @@ export function DescriptionEditor({
       }}
     >
       <PopoverTrigger
+        // The trigger is a span, so Base UI has to supply what a <button> would
+        // give for free: role, tab stop and Enter/Space. Without this it warned
+        // on every render and, worse, the editor could not be opened from the
+        // keyboard at all — the description cell was mouse-only.
+        nativeButton={false}
         render={
           <span
             // The row itself opens the dialog, so a click meant for the
@@ -200,6 +205,9 @@ export function SpecsEditor({
       }}
     >
       <PopoverTrigger
+        // As in DescriptionEditor: a span acting as a button needs the button
+        // behaviour handed to it.
+        nativeButton={false}
         render={<span onClick={(e) => e.stopPropagation()} className="cursor-pointer" />}
       >
         {children}
