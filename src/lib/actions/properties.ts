@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { requireUser } from "@/lib/auth";
+import { canAdminProperty } from "@/lib/auth-rules";
 import type { ActionResult } from "@/lib/action-result";
 import { dedupeSlug, slugify } from "@/lib/slug";
 import { seedInteriorSettingsFromDefaults } from "@/lib/interior-defaults";
@@ -248,3 +250,59 @@ export async function updateProperty(formData: FormData): Promise<ActionResult<{
   return { ok: true, slug };
 }
 
+// ---------------------------------------------------------------------------
+// Archiving
+//
+// The only way to remove a property. There is no hard delete and there should
+// not be: a property is the root of every budget line, GL transaction, rent
+// roll, audit and project beneath it, and the GL is the system of record.
+// Archiving hides it from the portfolio and from cross-property views while
+// leaving all of that intact and reversible.
+//
+// Admin-only, unlike archiving a project. Archiving a project hides one row from
+// one board; archiving a property takes a whole building out of everyone's
+// portfolio, the schedule and the rollups at once.
+// ---------------------------------------------------------------------------
+
+const propertyIdSchema = z.object({ id: z.coerce.number().int().positive() });
+
+async function setPropertyArchived(
+  formData: FormData,
+  archivedAt: Date | null,
+  verb: "archive" | "restore",
+): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canAdminProperty(auth.profile.role)) {
+    return { ok: false, error: `You don't have permission to ${verb} a property` };
+  }
+
+  const parsed = propertyIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return { ok: false, error: "Invalid property" };
+
+  const property = await db().query.properties.findFirst({
+    where: eq(schema.properties.id, parsed.data.id),
+  });
+  if (!property) return { ok: false, error: "Property not found" };
+
+  await db()
+    .update(schema.properties)
+    .set({ archivedAt })
+    .where(eq(schema.properties.id, parsed.data.id));
+
+  // The portfolio, the archived list and the property's own pages all change.
+  revalidatePath("/");
+  revalidatePath("/properties/archived");
+  revalidatePath("/schedule");
+  revalidatePath(`/properties/${property.slug}`);
+  return { ok: true };
+}
+
+export async function archiveProperty(formData: FormData): Promise<ActionResult> {
+  return setPropertyArchived(formData, new Date(), "archive");
+}
+
+/** Guarded, unlike restoreProject — which takes no auth check at all today. */
+export async function restoreProperty(formData: FormData): Promise<ActionResult> {
+  return setPropertyArchived(formData, null, "restore");
+}

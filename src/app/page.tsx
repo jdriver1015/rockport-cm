@@ -11,7 +11,15 @@ import { cn } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function PortfolioPage() {
-  const properties = await db().select().from(schema.properties);
+  const [properties, [archivedCount]] = await Promise.all([
+    db().select().from(schema.properties).where(isNull(schema.properties.archivedAt)),
+    db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.properties)
+      .where(sql`${schema.properties.archivedAt} is not null`),
+  ]);
+  // Every rollup below derives from these ids, so filtering the list here keeps
+  // an archived property out of the portfolio totals too.
   const propertyIds = properties.map((p) => p.id);
 
   // Independent portfolio rollups — run in parallel instead of sequential
@@ -116,9 +124,16 @@ export default async function PortfolioPage() {
           <h1 className="font-serif text-2xl font-semibold text-navy">Portfolio</h1>
           <p className="text-sm text-muted-foreground">All properties with active construction</p>
         </div>
-        <Button render={<Link href="/properties/new" />} nativeButton={false}>
-          New property
-        </Button>
+        <div className="flex items-center gap-3">
+          {archivedCount.count > 0 && (
+            <Link href="/properties/archived" className="text-sm text-link hover:underline">
+              Archived ({archivedCount.count})
+            </Link>
+          )}
+          <Button render={<Link href="/properties/new" />} nativeButton={false}>
+            New property
+          </Button>
+        </div>
       </div>
 
       {properties.length === 0 ? (

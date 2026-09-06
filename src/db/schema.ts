@@ -297,6 +297,16 @@ export const properties = pgTable(
     budgetLockedAt: timestamp("budget_locked_at", { withTimezone: true }),
     budgetLockedBy: uuid("budget_locked_by").references(() => profiles.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Soft-delete: hidden from the portfolio and from every cross-property view,
+     * but its own pages still resolve by slug and every budget, GL batch, rent
+     * roll and audit under it is untouched. Null = active.
+     *
+     * A property is the root of the whole data model, so there is no hard
+     * delete: the GL is the system of record and dropping a property would take
+     * posted actuals with it. Archiving is what "delete this" has to mean here.
+     */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [
     // Both set or both null — never one without the other. applyBudgetLockChange

@@ -77,7 +77,15 @@ export async function getScheduleProjects(opts?: {
     .where(
       and(
         isNull(schema.projects.archivedAt),
-        opts?.propertyId != null ? eq(schema.projects.propertyId, opts.propertyId) : undefined,
+        // An archived property's projects are not archived themselves, so the
+        // line above does not hide them: without this they would keep appearing
+        // on the Schedule's all-properties view after the property came off the
+        // portfolio. Only when spanning properties, though — asking for one by
+        // id is asking for that one, and its own board's Gantt has to keep
+        // drawing after it is archived.
+        opts?.propertyId != null
+          ? eq(schema.projects.propertyId, opts.propertyId)
+          : isNull(schema.properties.archivedAt),
       ),
     )
     .orderBy(asc(schema.properties.name), asc(schema.projects.name));

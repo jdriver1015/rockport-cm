@@ -1,0 +1,11 @@
+-- Soft-delete for properties.
+--
+-- There was no way to remove a property at all: no delete, and unlike projects
+-- no archived_at either, so a mistyped or duplicated property stayed on the
+-- portfolio forever. A property is the root of the data model — budgets, GL
+-- batches, rent rolls, audits and every project hang off it — and the GL is the
+-- system of record, so a hard delete would take posted actuals with it.
+-- Archiving is what "delete this property" has to mean.
+--
+-- Nullable, no default: every existing property is active.
+ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "archived_at" timestamp with time zone;

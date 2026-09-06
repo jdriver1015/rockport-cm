@@ -1,4 +1,4 @@
-import { asc } from "drizzle-orm";
+import { asc, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { ScheduleNav } from "@/components/schedule/schedule-nav";
 
@@ -8,6 +8,7 @@ export default async function ScheduleLayout({ children }: { children: React.Rea
   const properties = await db()
     .select({ id: schema.properties.id, name: schema.properties.name })
     .from(schema.properties)
+    .where(isNull(schema.properties.archivedAt))
     .orderBy(asc(schema.properties.name));
 
   return (
