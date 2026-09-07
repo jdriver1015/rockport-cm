@@ -269,11 +269,14 @@ const propertyIdSchema = z.object({ id: z.coerce.number().int().positive() });
 async function setPropertyArchived(
   formData: FormData,
   archivedAt: Date | null,
-  verb: "archive" | "restore",
 ): Promise<ActionResult> {
   const auth = await requireUser();
   if (!auth.ok) return auth;
   if (!canAdminProperty(auth.profile.role)) {
+    // Derived rather than passed: a separate verb parameter could disagree with
+    // the timestamp beside it, and there is nothing the caller knows that this
+    // does not.
+    const verb = archivedAt ? "archive" : "restore";
     return { ok: false, error: `You don't have permission to ${verb} a property` };
   }
 
@@ -293,16 +296,19 @@ async function setPropertyArchived(
   // The portfolio, the archived list and the property's own pages all change.
   revalidatePath("/");
   revalidatePath("/properties/archived");
-  revalidatePath("/schedule");
+  // "layout", not the exact path: /schedule only redirects to /schedule/agenda,
+  // so revalidating it alone would miss the agenda, calendar and gantt pages
+  // that actually list a property's projects.
+  revalidatePath("/schedule", "layout");
   revalidatePath(`/properties/${property.slug}`);
   return { ok: true };
 }
 
 export async function archiveProperty(formData: FormData): Promise<ActionResult> {
-  return setPropertyArchived(formData, new Date(), "archive");
+  return setPropertyArchived(formData, new Date());
 }
 
 /** Guarded, unlike restoreProject — which takes no auth check at all today. */
 export async function restoreProperty(formData: FormData): Promise<ActionResult> {
-  return setPropertyArchived(formData, null, "restore");
+  return setPropertyArchived(formData, null);
 }

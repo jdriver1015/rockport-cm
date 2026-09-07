@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { fmtDate } from "@/lib/format";
 import { EditPropertyDialog } from "@/components/edit-property-dialog";
 import {
@@ -41,9 +42,12 @@ export function PropertyHeader({
           <h1 className="font-serif text-2xl font-semibold text-navy">
             {property.name}
             {archived && (
-              <span className="ml-2 rounded-control bg-track px-2 py-0.5 align-middle text-[11px] font-semibold tracking-[0.09em] text-ink-400 uppercase">
+              <Badge
+                variant="secondary"
+                className="ml-2 align-middle text-[11px] tracking-[0.09em] uppercase"
+              >
                 Archived
-              </span>
+              </Badge>
             )}
           </h1>
           <p className="text-sm text-muted-foreground">

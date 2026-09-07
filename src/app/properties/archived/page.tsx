@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TableCard } from "@/components/ui/table-card";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import { RestorePropertyButton } from "@/components/archive-property-dialog";
 import { fmtDate } from "@/lib/format";
 
@@ -19,10 +19,14 @@ export const dynamic = "force-dynamic";
 /**
  * Archived properties.
  *
- * Deliberately a plain list, not the portfolio's cards: the cards exist to
- * compare live construction — budget spent, schedule health — and none of that
- * is a question you ask of a building you have taken off the board. What you
- * want here is which one it was, when it went, and how to get it back.
+ * Built on the same shell as the other four archived lists — projects, GL
+ * batches, audits, rent rolls — so this is the fifth of a kind rather than a
+ * fifth variant: a counted card, an inline empty state, and rows that navigate
+ * to the thing they name.
+ *
+ * Not the portfolio's cards, though. Those exist to compare live construction
+ * (budget spent, schedule health), and none of that is a question you ask of a
+ * building you have taken off the board.
  */
 export default async function ArchivedPropertiesPage() {
   const archived = await db()
@@ -47,62 +51,70 @@ export default async function ArchivedPropertiesPage() {
         </p>
       </div>
 
-      {archived.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Nothing archived</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Archiving a property from its own page will list it here.
-          </CardContent>
-        </Card>
-      ) : (
-        <TableCard>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Property</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead className="text-right">Units</TableHead>
-                <TableHead>Archived</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {archived.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>
-                    {/* Still linked: an archived property's pages resolve by slug
-                        and are worth reading — that is the point of not deleting
-                        it. The header there says it is archived. */}
-                    <Link
-                      href={`/properties/${p.slug}`}
-                      className="font-medium text-navy hover:text-link hover:underline"
-                    >
-                      {p.name}
-                    </Link>
-                    {p.entity && (
-                      <span className="block text-[11px] text-muted-foreground">{p.entity}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {[p.city, p.state].filter(Boolean).join(", ") || "—"}
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                    {p.unitCount ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {fmtDate(p.archivedAt ? p.archivedAt.toISOString().slice(0, 10) : null)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <RestorePropertyButton propertyId={p.id} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableCard>
-      )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">
+            {archived.length} archived propert{archived.length === 1 ? "y" : "ies"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {archived.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No archived properties. Archiving one from its own page will list it here.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Property</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead className="text-right">Units</TableHead>
+                    <TableHead>Archived</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {/* Rows navigate: an archived property's pages resolve by slug
+                      and are worth reading — that is the point of not deleting
+                      it. The header there says it is archived. */}
+                  {archived.map((p) => (
+                    <ClickableTableRow key={p.id} href={`/properties/${p.slug}`}>
+                      <TableCell>
+                        <Link
+                          href={`/properties/${p.slug}`}
+                          className="font-medium text-navy"
+                        >
+                          {p.name}
+                        </Link>
+                        {p.entity && (
+                          <span className="block text-[11px] text-muted-foreground">
+                            {p.entity}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {[p.city, p.state].filter(Boolean).join(", ") || "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                        {p.unitCount ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {fmtDate(p.archivedAt)}
+                      </TableCell>
+                      {/* isInteractiveTarget already exempts buttons from the
+                          row's navigation, so the restore needs no guard. */}
+                      <TableCell className="text-right">
+                        <RestorePropertyButton propertyId={p.id} />
+                      </TableCell>
+                    </ClickableTableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

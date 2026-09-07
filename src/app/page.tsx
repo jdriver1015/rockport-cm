@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { eq, isNull, sql } from "drizzle-orm";
+import { eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,12 +11,9 @@ import { cn } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function PortfolioPage() {
-  const [properties, [archivedCount]] = await Promise.all([
+  const [properties, archivedCount] = await Promise.all([
     db().select().from(schema.properties).where(isNull(schema.properties.archivedAt)),
-    db()
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.properties)
-      .where(sql`${schema.properties.archivedAt} is not null`),
+    db().$count(schema.properties, isNotNull(schema.properties.archivedAt)),
   ]);
   // Every rollup below derives from these ids, so filtering the list here keeps
   // an archived property out of the portfolio totals too.
@@ -125,9 +122,9 @@ export default async function PortfolioPage() {
           <p className="text-sm text-muted-foreground">All properties with active construction</p>
         </div>
         <div className="flex items-center gap-3">
-          {archivedCount.count > 0 && (
+          {archivedCount > 0 && (
             <Link href="/properties/archived" className="text-sm text-link hover:underline">
-              Archived ({archivedCount.count})
+              Archived ({archivedCount})
             </Link>
           )}
           <Button render={<Link href="/properties/new" />} nativeButton={false}>
