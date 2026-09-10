@@ -107,9 +107,9 @@ export function ProjectManageMenu({
           <DropdownMenuSeparator />
 
           <DropdownMenuItem onClick={() => setPanel("audits")}>
-            Site audits{audits.length > 0 ? ` (${audits.length})` : ""}
+            Site walks{audits.length > 0 ? ` (${audits.length})` : ""}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setPanel("newAudit")}>New site audit</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPanel("newAudit")}>New site walk</DropdownMenuItem>
 
           {!archived && (
             <>
@@ -169,7 +169,7 @@ export function ProjectManageMenu({
       <Dialog open={panel === "audits"} onOpenChange={(o) => !o && close()}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Site audits</DialogTitle>
+            <DialogTitle>Site walks</DialogTitle>
             <DialogDescription>
               Walks recorded against {projectName}. Open one to see its findings.
             </DialogDescription>

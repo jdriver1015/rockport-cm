@@ -2,18 +2,65 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AuditFindings, type FindingRow } from "@/components/audit-findings";
 import { AuditHeaderActions } from "@/components/audit-header-actions";
 import { WalkPhotoCapture, type WalkPhoto } from "@/components/walk-photo-capture";
 import { WalkSummary } from "@/components/walk-summary";
 import { WalkAttendees } from "@/components/walk-attendees";
-import { readAttendeeRoster, readWalkAttendees } from "@/lib/walk-attendee-roster";
+import {
+  readAttendeeRoster,
+  readWalkAttendees,
+  type WalkAttendee,
+} from "@/lib/walk-attendee-roster";
 import type { PhotoRow } from "@/components/audit-photo-gallery";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { managerInitials } from "@/lib/project-managers";
 
 export const dynamic = "force-dynamic";
+
+const STACK_LIMIT = 4;
+
+/**
+ * Who is walking, at a glance.
+ *
+ * A summary, not a control: the card below is where people are added, invited
+ * and removed. This exists so that opening a walk on a phone answers "who else
+ * is meant to be here" without scrolling past the photos.
+ */
+function AttendeeStack({ attendees }: { attendees: WalkAttendee[] }) {
+  if (attendees.length === 0) return null;
+  const shown = attendees.slice(0, STACK_LIMIT);
+  const rest = attendees.length - shown.length;
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      {/* Overlapped, with a ring in the page background so the edges read as
+          separate discs rather than one blur. */}
+      <div className="flex -space-x-1.5">
+        {shown.map((a) => (
+          <span
+            key={a.id}
+            title={a.name}
+            className="grid size-6 place-items-center rounded-full bg-track text-[9px] font-bold text-ink-500 ring-2 ring-background"
+          >
+            {managerInitials(a.name)}
+          </span>
+        ))}
+      </div>
+      <span className="text-xs text-muted-foreground">
+        {/* The names themselves once there is room; a count when there is not. */}
+        <span className="hidden sm:inline">
+          {shown.map((a) => a.name).join(", ")}
+          {rest > 0 ? ` +${rest} more` : ""}
+        </span>
+        <span className="sm:hidden">
+          {attendees.length} on this walk
+        </span>
+      </span>
+    </div>
+  );
+}
 
 export default async function AuditDetailPage({
   params,
@@ -100,25 +147,27 @@ export default async function AuditDetailPage({
 
   return (
     <div className="space-y-6">
+      {/* Quiet header. Draft is the state a walk is in for all of the time it
+          is being worked, so a yellow badge saying so was decoration that
+          never changed — only finishing one is worth marking. */}
       <div>
         <p className="text-sm">
           <Link href={`/properties/${slug}/audits`} className="text-link hover:underline">
-            ← Site Audits
+            ← Site Walks
           </Link>
         </p>
-        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="font-serif text-2xl font-semibold text-navy">{audit.title}</h1>
-              <Badge variant={audit.status === "complete" ? "positive" : "pending"}>
-                {audit.status}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0">
+            <h1 className="font-serif text-2xl font-semibold text-navy">{audit.title}</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
               {fmtDate(audit.auditDate)}
               {audit.walkTime ? ` · ${fmtTime(audit.walkTime)}` : ""}
               {audit.auditorName ? ` · ${audit.auditorName}` : ""}
+              {readOnly ? (
+                <span className="ml-2 font-medium text-positive">· Complete</span>
+              ) : null}
             </p>
+            <AttendeeStack attendees={attendees} />
           </div>
           <AuditHeaderActions
             propertyId={propertyId}
@@ -127,6 +176,7 @@ export default async function AuditDetailPage({
               id: audit.id,
               title: audit.title,
               auditDate: audit.auditDate,
+              walkTime: audit.walkTime,
               auditorName: audit.auditorName,
               notes: audit.notes,
               status: audit.status,

@@ -60,10 +60,10 @@ export function AddAuditDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {hasTrigger && <DialogTrigger render={<Button size="sm" />}>New audit</DialogTrigger>}
+      {hasTrigger && <DialogTrigger render={<Button size="sm" />}>New walk</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New site audit</DialogTitle>
+          <DialogTitle>New site walk</DialogTitle>
           <DialogDescription>
             Start a walk-through. Add findings and photos once it&apos;s created.
           </DialogDescription>
