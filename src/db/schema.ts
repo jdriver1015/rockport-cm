@@ -119,6 +119,9 @@ export const unitTier = pgEnum("unit_tier", ["classic", "upgraded", "renovated"]
 
 export const punchStatus = pgEnum("punch_status", ["open", "resolved"]);
 
+/** Organizer runs the walk; required/optional is the ordinary meeting split. */
+export const attendeeRole = pgEnum("attendee_role", ["organizer", "required", "optional"]);
+
 /** Per-scope-line progress, rolled up by trade category on the project dashboard */
 export const scopeItemStatus = pgEnum("scope_item_status", [
   "not_started",
@@ -488,6 +491,14 @@ export const projects = pgTable("projects", {
   contractSignedAt: date("contract_signed_at"),
   preWalkDate: date("pre_walk_date"),
   /**
+   * The punch walk's schedule — the same pair as the pre-walk above, because
+   * the two walks are the same thing at opposite ends of the job: one writes
+   * the scope, one checks it was done. One punch walk per project, enforced by
+   * the same partial unique index on site_audits.
+   */
+  punchWalkDate: date("punch_walk_date"),
+  punchWalkTime: time("punch_walk_time"),
+  /**
    * Time of day for the pre-walk. A separate column rather than widening
    * preWalkDate to a timestamp: the schedule agenda, calendar and Gantt all
    * group and parse that column as a plain date string, and making it an instant
@@ -783,6 +794,41 @@ export const bidEvents = pgTable("bid_events", {
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   meta: jsonb("meta").$type<Record<string, string | number> | null>(),
 }, (t) => [index("bid_events_bid_idx").on(t.bidId, t.at)]);
+
+/**
+ * Who is on a walk.
+ *
+ * Two identity columns because a walk has two kinds of attendee and they mean
+ * different things. A profile is an ASSIGNMENT — a construction manager putting
+ * their superintendent on a walk, and it should show up in that person's own
+ * work. A vendor contact is an INVITATION — somebody outside the company who
+ * cannot log in and gets an email. Exactly one is set, enforced by a check.
+ */
+export const auditAttendees = pgTable("audit_attendees", {
+  id: serial("id").primaryKey(),
+  auditId: integer("audit_id")
+    .notNull()
+    .references(() => siteAudits.id, { onDelete: "cascade" }),
+  /** Internal: assigned. */
+  profileId: uuid("profile_id").references(() => profiles.id),
+  /** External: invited. */
+  vendorContactId: integer("vendor_contact_id").references(() => vendorContacts.id),
+  role: attendeeRole("role").notNull().default("required"),
+  /** Stamped when the invitation email goes out. Null for an internal assignment. */
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("audit_attendees_audit_idx").on(t.auditId),
+  index("audit_attendees_profile_idx").on(t.profileId),
+  // A walk cannot list the same person twice, whichever kind they are.
+  uniqueIndex("audit_attendees_profile_uq").on(t.auditId, t.profileId),
+  uniqueIndex("audit_attendees_vendor_contact_uq").on(t.auditId, t.vendorContactId),
+  check(
+    "audit_attendees_one_identity_ck",
+    sql`(${t.profileId} is null) <> (${t.vendorContactId} is null)`,
+  ),
+]);
 
 export const punchItems = pgTable("punch_items", {
   id: serial("id").primaryKey(),
@@ -1527,6 +1573,13 @@ export const siteAudits = pgTable("site_audits", {
    */
   kind: text("kind").notNull().default("quality"),
   auditDate: date("audit_date").notNull(),
+  /**
+   * When the walk starts. A separate `time` column rather than widening
+   * auditDate to a timestamp: the schedule views group and parse dates as plain
+   * strings, and making this an instant would reintroduce the timezone bug
+   * class that shifted dates by a day. Start only — a walk ends when it ends.
+   */
+  walkTime: time("walk_time"),
   auditorName: text("auditor_name"),
   notes: text("notes"),
   status: auditStatus("status").notNull().default("draft"),
@@ -1561,9 +1614,20 @@ export const auditFindings = pgTable("audit_findings", {
 
 export const auditPhotos = pgTable("audit_photos", {
   id: serial("id").primaryKey(),
-  findingId: integer("finding_id")
+  /**
+   * The walk this photo was taken on. NOT NULL, because a photo always belongs
+   * to a walk — it is the walk's record of what was there.
+   */
+  auditId: integer("audit_id")
     .notNull()
-    .references(() => auditFindings.id),
+    .references(() => siteAudits.id),
+  /**
+   * The issue this photo evidences, once it is one. Nullable on purpose: a
+   * superintendent shoots first and classifies later, and requiring a finding
+   * up front meant every photo had to be declared a defect before the camera
+   * would open. Promoting a photo to a finding sets this; the row does not move.
+   */
+  findingId: integer("finding_id").references(() => auditFindings.id),
   /** Original uploaded image in Supabase Storage */
   storagePath: text("storage_path").notNull(),
   /** Flattened annotated render, if the photo has been marked up */
@@ -1579,7 +1643,11 @@ export const auditPhotos = pgTable("audit_photos", {
   uploadedBy: uuid("uploaded_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (t) => [index("audit_photos_finding_idx").on(t.findingId)]);
+}, (t) => [
+  index("audit_photos_finding_idx").on(t.findingId),
+  // The walk screen reads every photo on the walk on each load.
+  index("audit_photos_audit_idx").on(t.auditId),
+]);
 
 // ---------------------------------------------------------------------------
 // Rent rolls — per-property, point-in-time unit snapshots imported from PM

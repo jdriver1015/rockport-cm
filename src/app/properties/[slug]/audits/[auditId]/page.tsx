@@ -60,13 +60,17 @@ export default async function AuditDetailPage({
         .orderBy(asc(schema.auditPhotos.sortIndex), asc(schema.auditPhotos.id))
     : [];
 
-  const photosByFinding: Record<number, PhotoRow[]> = {};
+  // A Map, not a Record: walk-level photos key on null, which an object index
+  // signature cannot express.
+  const photosByFinding = new Map<number | null, PhotoRow[]>();
   for (const p of photos) {
     const stampParts = [
       p.takenAt ? fmtDate(p.takenAt) : null,
       p.gpsLat != null && p.gpsLng != null ? `${p.gpsLat}, ${p.gpsLng}` : null,
     ].filter(Boolean);
-    (photosByFinding[p.findingId] ??= []).push({
+    const bucket = photosByFinding.get(p.findingId) ?? [];
+    photosByFinding.set(p.findingId, bucket);
+    bucket.push({
       id: p.id,
       caption: p.caption,
       hasAnnotation: p.annotatedPath != null,

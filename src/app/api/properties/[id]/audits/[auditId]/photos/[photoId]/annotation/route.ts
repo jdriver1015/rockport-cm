@@ -32,10 +32,9 @@ export async function POST(
     where: eq(schema.auditPhotos.id, photoId),
   });
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const finding = await db().query.auditFindings.findFirst({
-    where: eq(schema.auditFindings.id, photo.findingId),
-  });
-  if (!finding || finding.auditId !== auditId) {
+  // Checked against the photo's own walk. It used to hop through the finding to
+  // get here, which no longer works now a photo can belong to the walk alone.
+  if (photo.auditId !== auditId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const audit = await db().query.siteAudits.findFirst({ where: eq(schema.siteAudits.id, auditId) });

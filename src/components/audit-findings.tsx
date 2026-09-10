@@ -55,7 +55,12 @@ export function AuditFindings({
   propertyId: number;
   auditId: number;
   findings: FindingRow[];
-  photosByFinding: Record<number, PhotoRow[]>;
+  /**
+   * Keyed by finding id. A Map rather than a Record because the walk's own
+   * photos — the ones not tied to any defect — key on null, which an object
+   * index signature cannot hold.
+   */
+  photosByFinding: Map<number | null, PhotoRow[]>;
   readOnly?: boolean;
 }) {
   const router = useRouter();
@@ -191,7 +196,7 @@ export function AuditFindings({
                 propertyId={propertyId}
                 auditId={auditId}
                 findingId={f.id}
-                photos={photosByFinding[f.id] ?? []}
+                photos={photosByFinding.get(f.id) ?? []}
                 readOnly={readOnly}
               />
             </li>

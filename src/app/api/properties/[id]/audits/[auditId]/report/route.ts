@@ -57,7 +57,9 @@ export async function GET(
 
   // Sign each photo (annotated render when present) so react-pdf can fetch it.
   const admin = createAdminClient();
-  const photoByFinding = new Map<number, (typeof photos)[number][]>();
+  // Keyed by finding id, with null for the walk's own photos — the ones taken
+  // as a record of the walk rather than as evidence for a defect.
+  const photoByFinding = new Map<number | null, (typeof photos)[number][]>();
   for (const p of photos) {
     const arr = photoByFinding.get(p.findingId) ?? [];
     arr.push(p);

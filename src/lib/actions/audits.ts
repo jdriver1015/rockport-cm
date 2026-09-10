@@ -343,7 +343,10 @@ export async function movePhoto(input: {
     .from(schema.auditPhotos)
     .where(
       and(
-        eq(schema.auditPhotos.findingId, current.findingId),
+        // Within the walk. sortIndex is assigned per walk on upload, so the
+        // neighbour to swap with is the next photo on the walk — and this also
+        // works for a photo that belongs to no finding at all.
+        eq(schema.auditPhotos.auditId, current.auditId),
         input.direction === "up"
           ? lt(schema.auditPhotos.sortIndex, current.sortIndex)
           : gt(schema.auditPhotos.sortIndex, current.sortIndex),

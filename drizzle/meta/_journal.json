@@ -379,6 +379,13 @@
       "when": 1788732954093,
       "tag": "0053_property_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1789009053096,
+      "tag": "0054_walk_photos_time_attendees",
+      "breakpoints": true
     }
   ]
 }
