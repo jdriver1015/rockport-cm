@@ -8,6 +8,8 @@ import { AuditFindings, type FindingRow } from "@/components/audit-findings";
 import { AuditHeaderActions } from "@/components/audit-header-actions";
 import { WalkPhotoCapture, type WalkPhoto } from "@/components/walk-photo-capture";
 import { WalkSummary } from "@/components/walk-summary";
+import { WalkAttendees } from "@/components/walk-attendees";
+import { readAttendeeRoster, readWalkAttendees } from "@/lib/walk-attendee-roster";
 import type { PhotoRow } from "@/components/audit-photo-gallery";
 import { fmtDate, fmtTime } from "@/lib/format";
 
@@ -82,6 +84,11 @@ export default async function AuditDetailPage({
     });
   }
 
+  const [attendees, roster] = await Promise.all([
+    readWalkAttendees(auditId),
+    readAttendeeRoster(),
+  ]);
+
   const walkPhotos: WalkPhoto[] = photos.map((p) => ({
     id: p.id,
     caption: p.caption,
@@ -153,6 +160,20 @@ export default async function AuditDetailPage({
             auditId={auditId}
             propertyId={propertyId}
             initialNotes={audit.notes}
+            canEdit={!readOnly}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">Who&rsquo;s on this walk</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WalkAttendees
+            auditId={auditId}
+            attendees={attendees}
+            roster={roster}
             canEdit={!readOnly}
           />
         </CardContent>
