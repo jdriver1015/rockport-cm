@@ -107,6 +107,7 @@ export const attachmentKind = pgEnum("attachment_kind", [
   "invoice",
   "lien_waiver",
   "document",
+  "bid",
 ]);
 
 export const mappingMatchType = pgEnum("mapping_match_type", [
@@ -1538,6 +1539,8 @@ export const attachments = pgTable("attachments", {
   projectId: integer("project_id").references(() => projects.id),
   punchItemId: integer("punch_item_id").references(() => punchItems.id),
   glTransactionId: integer("gl_transaction_id").references(() => glTransactions.id),
+  /** The vendor's own quote document, or anything else filed against a bid. */
+  bidId: integer("bid_id").references(() => bids.id),
   kind: attachmentKind("kind").notNull().default("photo"),
   storagePath: text("storage_path").notNull(),
   /** Project stage at the moment of upload */
