@@ -29,14 +29,11 @@ export async function GET(
   const photo = await db().query.auditPhotos.findFirst({
     where: eq(schema.auditPhotos.id, photoId),
   });
-  if (!photo || photo.findingId == null) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  // Confirm the photo belongs to a finding in this audit / property.
-  const finding = await db().query.auditFindings.findFirst({
-    where: eq(schema.auditFindings.id, photo.findingId),
-  });
-  if (!finding || finding.auditId !== auditId) {
+  if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Checked against the photo's own walk, not by hopping through a finding —
+  // a photo can belong to the walk alone, and requiring a finding here 404'd
+  // every walk-level photo, which is now the common case.
+  if (photo.auditId !== auditId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const audit = await db().query.siteAudits.findFirst({ where: eq(schema.siteAudits.id, auditId) });

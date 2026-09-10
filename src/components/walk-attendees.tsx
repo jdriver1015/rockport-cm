@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -152,48 +153,55 @@ export function WalkAttendees({
             Add someone
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
-            <DropdownMenuLabel>Team — assigned</DropdownMenuLabel>
-            {roster.team.length === 0 && <DropdownMenuItem disabled>Nobody on the roster</DropdownMenuItem>}
-            {roster.team.map((t) => (
-              <DropdownMenuItem
-                key={t.profileId}
-                disabled={onWalk.has(`p:${t.email}`)}
-                onClick={() =>
-                  run(
-                    () => addWalkAttendee({ auditId, profileId: t.profileId }),
-                    `${t.name} added to the walk`,
-                  )
-                }
-              >
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{t.name}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">{t.email}</span>
-                </span>
-              </DropdownMenuItem>
-            ))}
+            {/* Base UI requires a Label to live inside a Group — without one
+                it throws at render rather than degrading, which made this
+                menu unusable the instant it had two labelled sections. */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Team — assigned</DropdownMenuLabel>
+              {roster.team.length === 0 && <DropdownMenuItem disabled>Nobody on the roster</DropdownMenuItem>}
+              {roster.team.map((t) => (
+                <DropdownMenuItem
+                  key={t.profileId}
+                  disabled={onWalk.has(`p:${t.email}`)}
+                  onClick={() =>
+                    run(
+                      () => addWalkAttendee({ auditId, profileId: t.profileId }),
+                      `${t.name} added to the walk`,
+                    )
+                  }
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{t.name}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">{t.email}</span>
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
 
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Vendors — invited by email</DropdownMenuLabel>
-            {roster.vendors.length === 0 && (
-              <DropdownMenuItem disabled>No vendor contacts with an email</DropdownMenuItem>
-            )}
-            {roster.vendors.map((v) => (
-              <DropdownMenuItem
-                key={v.vendorContactId}
-                disabled={onWalk.has(`v:${v.email}`)}
-                onClick={() =>
-                  run(
-                    () => addWalkAttendee({ auditId, vendorContactId: v.vendorContactId }),
-                    `${v.name} added — invite them when you are ready`,
-                  )
-                }
-              >
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{v.name}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">{v.vendorName}</span>
-                </span>
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Vendors — invited by email</DropdownMenuLabel>
+              {roster.vendors.length === 0 && (
+                <DropdownMenuItem disabled>No vendor contacts with an email</DropdownMenuItem>
+              )}
+              {roster.vendors.map((v) => (
+                <DropdownMenuItem
+                  key={v.vendorContactId}
+                  disabled={onWalk.has(`v:${v.email}`)}
+                  onClick={() =>
+                    run(
+                      () => addWalkAttendee({ auditId, vendorContactId: v.vendorContactId }),
+                      `${v.name} added — invite them when you are ready`,
+                    )
+                  }
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{v.name}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">{v.vendorName}</span>
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

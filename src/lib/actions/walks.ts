@@ -99,7 +99,9 @@ export async function startWalk(
       propertyId: true,
       name: true,
       preWalkDate: true,
+      preWalkTime: true,
       punchWalkDate: true,
+      punchWalkTime: true,
     },
   });
   if (!project) return { ok: false, error: "Project not found" };
@@ -139,6 +141,10 @@ export async function startWalk(
       auditDate:
         (kind === "pre_walk" ? project.preWalkDate : project.punchWalkDate) ??
         new Date().toLocaleDateString("en-CA"),
+      // The booked time carries over too — it was scheduled for a reason, and
+      // dropping it here meant a walk booked for 9:00 showed no time at all
+      // the moment it was actually started.
+      walkTime: kind === "pre_walk" ? project.preWalkTime : project.punchWalkTime,
       auditorName: profile?.fullName ?? null,
       status: "draft",
     })

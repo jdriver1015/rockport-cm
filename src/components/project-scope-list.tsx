@@ -9,6 +9,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -635,10 +636,14 @@ function ScopeLineRow({
                 // Disabled without a reason is just a dead control. Adding or
                 // removing a line changes the shape of the scope vendors were
                 // asked to quote, which is why the whole project is held.
-                <DropdownMenuLabel className="max-w-[190px] text-[10.5px] leading-snug font-normal text-ink-300">
-                  {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this scope.
-                  Withdraw the request{liveRfpCount === 1 ? "" : "s"} to add or remove lines.
-                </DropdownMenuLabel>
+                // Base UI requires a Label to live inside a Group — without
+                // one it throws at render instead of degrading.
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="max-w-[190px] text-[10.5px] leading-snug font-normal text-ink-300">
+                    {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this scope.
+                    Withdraw the request{liveRfpCount === 1 ? "" : "s"} to add or remove lines.
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
               )}
             </DropdownMenuContent>
           </DropdownMenu>

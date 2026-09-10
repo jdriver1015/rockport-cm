@@ -775,6 +775,12 @@ function GateRow({
 
       {context && (
         <WalkDialog
+          // Remount when the booking changes, same reason as DefineScopeDialog
+          // above: the dialog owns local date/time state, and without a fresh
+          // instance saving a time the server rounds (or a router.refresh()
+          // from anywhere else) left it showing what was typed, not what was
+          // actually kept.
+          key={`pre-walk-${context.preWalkDate}-${context.preWalkTime}`}
           kind="pre_walk"
           open={openGate === "pre_walk"}
           onOpenChange={(o) => !o && setOpenGate(null)}
@@ -789,6 +795,7 @@ function GateRow({
 
       {context && (
         <WalkDialog
+          key={`punch-walk-${context.punchWalkDate}-${context.punchWalkTime}`}
           kind="punch_walk"
           open={openGate === "punch_walk"}
           onOpenChange={(o) => !o && setOpenGate(null)}
