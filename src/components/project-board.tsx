@@ -263,7 +263,11 @@ export function ProjectBoard({
           }}
         />
 
-        <label className="flex flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex-none">
+        {/* Group and Sort are desk controls. On a phone the board is a short
+            card list you scroll and tap; re-grouping it is not what anyone
+            standing in a building is doing. Search stays — finding one project
+            among twenty-five by name IS the navigation. */}
+        <label className="hidden flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex sm:flex-none">
           Group
           <SelectBox
             value={group}
@@ -282,7 +286,7 @@ export function ProjectBoard({
           />
         </label>
 
-        <label className="flex flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex-none">
+        <label className="hidden flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex sm:flex-none">
           Sort
           <SelectBox
             value={sort}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, asc, eq, gt, lt, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { roundToQuarterHour } from "@/lib/walk-time";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/action-result";
 import { propertyPath, propertyProjectPath } from "@/lib/property-path";
@@ -36,6 +37,12 @@ const createAuditSchema = z.object({
   projectId: z.coerce.number().int().positive().optional(),
   title: z.string().trim().min(1, "Title is required"),
   auditDate: z.string().trim().min(1, "Date is required"),
+  /** Optional start time, snapped to a quarter hour. */
+  walkTime: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => roundToQuarterHour(v)),
   auditorName: z
     .string()
     .trim()
@@ -56,6 +63,7 @@ export async function createAudit(
     projectId: formData.get("projectId") || undefined,
     title: formData.get("title"),
     auditDate: formData.get("auditDate"),
+    walkTime: formData.get("walkTime") ?? undefined,
     // `?? undefined` on the optional ones. Both fields render unconditionally
     // today, so a bare get happens to work — but these schemas are
     // z.string().optional(), which takes undefined and rejects null, and the
@@ -76,6 +84,7 @@ export async function createAudit(
       projectId: d.projectId ?? null,
       title: d.title,
       auditDate: d.auditDate,
+      walkTime: d.walkTime,
       auditorName: d.auditorName,
       notes: d.notes,
       createdBy: user?.id ?? null,
@@ -93,8 +102,12 @@ export async function updateAudit(input: {
   auditDate?: string;
   auditorName?: string | null;
   notes?: string | null;
+  walkTime?: string | null;
 }): Promise<ActionResult> {
   const set: Partial<typeof schema.siteAudits.$inferInsert> = {};
+  // Rounded server-side: the input's `step` shapes the picker but a typed or
+  // pasted 10:07 still reaches here.
+  if (input.walkTime !== undefined) set.walkTime = roundToQuarterHour(input.walkTime);
   if (input.title !== undefined) {
     const t = input.title.trim();
     if (!t) return { ok: false, error: "Title is required" };

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { roundToQuarterHour } from "@/lib/walk-time";
 import type { ActionResult } from "@/lib/action-result";
 import { createClient } from "@/lib/supabase/server";
 import { propertyPath } from "@/lib/property-path";
@@ -50,7 +51,9 @@ export async function schedulePreWalk(
     .set({
       preWalkDate: date ? date : null,
       // A time without a date is not a booking, so clearing the date clears it.
-      preWalkTime: date && time ? time : null,
+      // Snapped server-side for the same reason the walk's own time is: the
+      // input's step constrains the picker, not a typed or pasted value.
+      preWalkTime: date && time ? roundToQuarterHour(time) : null,
     })
     .where(eq(schema.projects.id, projectId));
 

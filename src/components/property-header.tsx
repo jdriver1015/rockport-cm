@@ -22,6 +22,11 @@ export type PropertyHeaderData = {
   archivedAt?: Date | null;
 };
 
+/** Lowercased, punctuation-free, for comparing a name against an entity. */
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 export function PropertyHeader({
   property,
   action,
@@ -30,6 +35,14 @@ export function PropertyHeader({
   action?: ReactNode;
 }) {
   const archived = property.archivedAt != null;
+  // The owning entity is usually the property name with a suffix — "Willow
+  // Creek Apartments" owned by "Willow Creek Apartments, LLC" — and printing
+  // both puts the name twice in two lines. Dropped when it adds nothing but
+  // the suffix; kept when the entity is genuinely a different name.
+  const entity =
+    property.entity && !normalize(property.entity).startsWith(normalize(property.name))
+      ? property.entity
+      : null;
   return (
     <div>
       <p className="text-sm">
@@ -51,14 +64,17 @@ export function PropertyHeader({
             )}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {[property.entity, [property.city, property.state].filter(Boolean).join(", ")]
+            {[entity, [property.city, property.state].filter(Boolean).join(", ")]
               .filter(Boolean)
               .join(" · ") || "—"}
             {property.unitCount ? ` · ${property.unitCount} units` : ""}
             {property.glUpdatedThru ? ` · GL thru ${fmtDate(property.glUpdatedThru)}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Quieter on a phone: on this screen the job is to find a project and
+            tap into it, not to administer the property. These stay reachable
+            but stop competing with the list. */}
+        <div className="flex items-center gap-1 sm:gap-2 [&_button]:h-8 [&_button]:text-[13px] sm:[&_button]:h-auto sm:[&_button]:text-sm">
           {archived ? (
             <RestorePropertyButton propertyId={property.id} />
           ) : (

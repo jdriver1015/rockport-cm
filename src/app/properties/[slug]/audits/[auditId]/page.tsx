@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AuditFindings, type FindingRow } from "@/components/audit-findings";
 import { AuditHeaderActions } from "@/components/audit-header-actions";
+import { WalkPhotoCapture, type WalkPhoto } from "@/components/walk-photo-capture";
+import { WalkSummary } from "@/components/walk-summary";
 import type { PhotoRow } from "@/components/audit-photo-gallery";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -46,19 +48,17 @@ export default async function AuditDetailPage({
     dueDate: f.dueDate,
   }));
 
-  const findingIds = findings.map((f) => f.id);
-  const photos = findingIds.length
-    ? await db()
-        .select()
-        .from(schema.auditPhotos)
-        .where(
-          and(
-            inArray(schema.auditPhotos.findingId, findingIds),
-            isNull(schema.auditPhotos.archivedAt),
-          ),
-        )
-        .orderBy(asc(schema.auditPhotos.sortIndex), asc(schema.auditPhotos.id))
-    : [];
+  // Every photo on the walk, including the ones attached to no finding. It
+  // used to select by finding id, which could not see a walk-level photo at
+  // all — and those are now the common case, since the camera no longer
+  // requires a defect to be written up first.
+  const photos = await db()
+    .select()
+    .from(schema.auditPhotos)
+    .where(
+      and(eq(schema.auditPhotos.auditId, auditId), isNull(schema.auditPhotos.archivedAt)),
+    )
+    .orderBy(asc(schema.auditPhotos.sortIndex), asc(schema.auditPhotos.id));
 
   // A Map, not a Record: walk-level photos key on null, which an object index
   // signature cannot express.
@@ -82,6 +82,15 @@ export default async function AuditDetailPage({
     });
   }
 
+  const walkPhotos: WalkPhoto[] = photos.map((p) => ({
+    id: p.id,
+    caption: p.caption,
+    hasAnnotation: p.annotatedPath != null,
+    version: p.annotatedPath ?? p.storagePath,
+    findingId: p.findingId,
+  }));
+  const readOnly = audit.status === "complete";
+
   return (
     <div className="space-y-6">
       <div>
@@ -100,9 +109,9 @@ export default async function AuditDetailPage({
             </div>
             <p className="text-sm text-muted-foreground">
               {fmtDate(audit.auditDate)}
+              {audit.walkTime ? ` · ${fmtTime(audit.walkTime)}` : ""}
               {audit.auditorName ? ` · ${audit.auditorName}` : ""}
             </p>
-            {audit.notes && <p className="mt-1 text-sm text-muted-foreground">{audit.notes}</p>}
           </div>
           <AuditHeaderActions
             propertyId={propertyId}
@@ -119,9 +128,39 @@ export default async function AuditDetailPage({
         </div>
       </div>
 
+      {/* Photos, then the narrative, then issues — the order the walk actually
+          happens in. Issues are the exception, not the entry point. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-navy">Findings</CardTitle>
+          <CardTitle className="text-base text-navy">Photos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WalkPhotoCapture
+            propertyId={propertyId}
+            auditId={auditId}
+            photos={walkPhotos}
+            canEdit={!readOnly}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WalkSummary
+            auditId={auditId}
+            propertyId={propertyId}
+            initialNotes={audit.notes}
+            canEdit={!readOnly}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base text-navy">Issues</CardTitle>
         </CardHeader>
         <CardContent>
           <AuditFindings
@@ -129,7 +168,7 @@ export default async function AuditDetailPage({
             auditId={auditId}
             findings={findingRows}
             photosByFinding={photosByFinding}
-            readOnly={audit.status === "complete"}
+            readOnly={readOnly}
           />
         </CardContent>
       </Card>

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { QUARTER_HOUR_STEP } from "@/lib/walk-time";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -105,6 +106,7 @@ export function PreWalkDialog({
               <Input
                 id="pw-time"
                 type="time"
+                step={QUARTER_HOUR_STEP}
                 value={time}
                 disabled={pending || !date}
                 onChange={(e) => setTime(e.target.value)}
