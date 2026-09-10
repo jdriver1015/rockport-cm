@@ -42,6 +42,8 @@ const base = {
   scopeCompleteCount: 0,
   scopeTotalCount: 5,
   hasActualStart: false,
+  punchWalkStatus: null,
+  punchWalkDate: null,
   openFindingCount: 0,
   openFindingAuditId: null,
   postedGlTotal: 0,

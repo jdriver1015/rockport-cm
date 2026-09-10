@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { AlertTriangleIcon, CheckCircle2Icon, LockIcon, Trash2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
-import { importFindingsToScope } from "@/lib/actions/pre-walk";
+import { importFindingsToScope } from "@/lib/actions/walks";
 import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { scopeLineTotal } from "@/lib/scope-total";

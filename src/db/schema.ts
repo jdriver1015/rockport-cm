@@ -1565,11 +1565,11 @@ export const siteAudits = pgTable("site_audits", {
   projectId: integer("project_id").references(() => projects.id),
   title: text("title").notNull(),
   /**
-   * Which walk this is. A pre-walk produces the scope; a quality walk checks
-   * work already done. They share every column and the same findings screen,
-   * but the pre-con gate has to find THE pre-walk for a project, and "the
-   * earliest audit" is not that. Text with a CHECK rather than an enum, so
-   * adding a kind is a migration and not an enum alter.
+   * Which walk this is. A pre-walk produces the scope; a punch walk checks the
+   * work was done; a quality walk is neither and belongs to no gate. They share
+   * every column and the same screen, but each gated kind has to be findable
+   * for its project, and "the earliest audit" is not that. Text with a CHECK
+   * rather than an enum, so adding a kind is a migration and not an enum alter.
    */
   kind: text("kind").notNull().default("quality"),
   auditDate: date("audit_date").notNull(),
@@ -1591,6 +1591,23 @@ export const siteAudits = pgTable("site_audits", {
   index("site_audits_property_idx").on(t.propertyId),
   // The project dashboard reads a project's findings on every load.
   index("site_audits_project_idx").on(t.projectId),
+  /*
+   * These three were created by migration 0045 and never declared here, so
+   * drizzle did not know they existed. Declared now so schema.ts finally
+   * matches the database — see the note in AGENTS.md about the migration that
+   * had to be made idempotent as a result.
+   *
+   * One pre-walk and one punch walk per project. A second of either would make
+   * "the" walk ambiguous for the gate that reads it, and re-walking is a new
+   * finding on the same walk rather than a new walk.
+   */
+  uniqueIndex("site_audits_one_prewalk_per_project_idx")
+    .on(t.projectId)
+    .where(sql`kind = 'pre_walk' and archived_at is null and project_id is not null`),
+  uniqueIndex("site_audits_one_punchwalk_per_project_idx")
+    .on(t.projectId)
+    .where(sql`kind = 'punch_walk' and archived_at is null and project_id is not null`),
+  check("site_audits_kind", sql`${t.kind} in ('pre_walk', 'punch_walk', 'quality')`),
 ]);
 
 export const auditFindings = pgTable("audit_findings", {

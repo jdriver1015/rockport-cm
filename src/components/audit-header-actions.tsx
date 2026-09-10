@@ -57,7 +57,14 @@ export function AuditHeaderActions({
               toast.error(res.error);
               return;
             }
-            toast.success(next === "complete" ? "Audit marked complete" : "Reopened");
+            toast.success(next === "complete" ? "Walk complete" : "Walk reopened");
+            // Completing a walk ends it, so leave. Refreshing in place left the
+            // superintendent sitting on a finished walk with no exit but the
+            // browser's back button. Reopening stays put — the point of
+            // reopening is to carry on working here.
+            if (next === "complete") {
+              router.push(`/properties/${propertySlug}/audits`);
+            }
             router.refresh();
           })
         }

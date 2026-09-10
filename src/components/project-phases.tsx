@@ -26,7 +26,7 @@ import { updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
-import { PreWalkDialog } from "@/components/pre-walk-dialog";
+import { WalkDialog } from "@/components/walk-dialog";
 import {
   DefineScopeDialog,
   type PreWalkFinding,
@@ -51,6 +51,11 @@ export type GateContext = {
   preWalkTime: string | null;
   preWalkAuditId: number | null;
   preWalkAuditStatus: "draft" | "complete" | null;
+  /** The punch walk's booking and audit, mirroring the four fields above. */
+  punchWalkDate: string | null;
+  punchWalkTime: string | null;
+  punchWalkAuditId: number | null;
+  punchWalkAuditStatus: "draft" | "complete" | null;
   /** Live contracts — one per award that has been papered. */
   contracts: ContractView[];
   /** The awarded bids. A split job has one per vendor. */
@@ -769,15 +774,30 @@ function GateRow({
       )}
 
       {context && (
-        <PreWalkDialog
+        <WalkDialog
+          kind="pre_walk"
           open={openGate === "pre_walk"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           projectId={projectId}
           propertySlug={context.propertySlug}
-          preWalkDate={context.preWalkDate}
-          preWalkTime={context.preWalkTime}
+          walkDate={context.preWalkDate}
+          walkTime={context.preWalkTime}
           auditId={context.preWalkAuditId}
           auditStatus={context.preWalkAuditStatus}
+        />
+      )}
+
+      {context && (
+        <WalkDialog
+          kind="punch_walk"
+          open={openGate === "punch_walk"}
+          onOpenChange={(o) => !o && setOpenGate(null)}
+          projectId={projectId}
+          propertySlug={context.propertySlug}
+          walkDate={context.punchWalkDate}
+          walkTime={context.punchWalkTime}
+          auditId={context.punchWalkAuditId}
+          auditStatus={context.punchWalkAuditStatus}
         />
       )}
     </>

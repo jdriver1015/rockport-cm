@@ -15,6 +15,10 @@ const tabs = [
   { href: "", label: "Projects" },
   { href: "/gl", label: "Ledger" },
   { href: "/rent-rolls", label: "Performance" },
+  // Restored. Walks were reachable only from a project's manage menu or a
+  // direct link after the tab was retired, which made the whole feature
+  // invisible — including to the person whose job is walking the site.
+  { href: "/audits", label: "Site Walks" },
 ];
 
 export function PropertyNav({ slug }: { slug: string }) {

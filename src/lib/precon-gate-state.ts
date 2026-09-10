@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { coverageOf } from "@/lib/award-coverage";
 import type { PreconGateState, ProgressGateState } from "@/lib/phase-gates";
+import { WALK_KINDS } from "@/lib/walk-kinds";
 
 /**
  * Read the gate state for a SET of projects, in a fixed number of queries.
@@ -21,6 +22,8 @@ import type { PreconGateState, ProgressGateState } from "@/lib/phase-gates";
 export type PreconGateExtras = {
   preWalkTime: string | null;
   preWalkAuditId: number | null;
+  /** The punch walk's audit, so its dialog can open the walk it belongs to. */
+  punchWalkAuditId: number | null;
 };
 
 export type FullGateState = PreconGateState & PreconGateExtras & ProgressGateState;
@@ -56,23 +59,26 @@ export async function readGateStates(
         budgetAmount: schema.projects.budgetAmount,
         // The other half of hasActualStart, alongside the in_process milestone.
         startDate: schema.projects.startDate,
+        punchWalkDate: schema.projects.punchWalkDate,
       })
       .from(schema.projects)
       .where(inArray(schema.projects.id, ids)),
 
-    // At most one pre-walk per project — a partial unique index guarantees it,
-    // so "the" pre-walk stays unambiguous even read in bulk.
+    // Both gated walks in one pass. A partial unique index per kind guarantees
+    // at most one of each per project, so "the" pre-walk and "the" punch walk
+    // stay unambiguous even read in bulk.
     db()
       .select({
         projectId: schema.siteAudits.projectId,
         id: schema.siteAudits.id,
+        kind: schema.siteAudits.kind,
         status: schema.siteAudits.status,
       })
       .from(schema.siteAudits)
       .where(
         and(
           inArray(schema.siteAudits.projectId, ids),
-          eq(schema.siteAudits.kind, "pre_walk"),
+          inArray(schema.siteAudits.kind, [...WALK_KINDS]),
           isNull(schema.siteAudits.archivedAt),
         ),
       ),
@@ -190,7 +196,13 @@ export async function readGateStates(
 
   // --- index everything by project ------------------------------------------
 
-  const preWalkBy = new Map(preWalks.map((r) => [r.projectId, r]));
+  // Split by kind. One row of each per project at most, so last-wins is safe.
+  const preWalkBy = new Map(
+    preWalks.filter((r) => r.kind === "pre_walk").map((r) => [r.projectId, r]),
+  );
+  const punchWalkBy = new Map(
+    preWalks.filter((r) => r.kind === "punch_walk").map((r) => [r.projectId, r]),
+  );
   const bidsBy = new Map(bidStats.map((r) => [r.projectId, r]));
   const startBy = new Map(startMilestones.map((r) => [r.projectId, r.actualDate]));
   const findingsBy = new Map(findings.map((r) => [r.projectId, r]));
@@ -279,6 +291,10 @@ export async function readGateStates(
       // milestone is the richer record where it exists; projects.start_date is
       // what every other path actually wrote.
       hasActualStart: !!(startBy.get(project.id) ?? project.startDate),
+      punchWalkAuditId: punchWalkBy.get(project.id)?.id ?? null,
+      punchWalkStatus:
+        (punchWalkBy.get(project.id)?.status as "draft" | "complete" | undefined) ?? null,
+      punchWalkDate: project.punchWalkDate ?? null,
       openFindingCount: findingsBy.get(project.id)?.open ?? 0,
       openFindingAuditId: findingsBy.get(project.id)?.auditId ?? null,
       postedGlTotal: glBy.get(project.id) ?? 0,
@@ -315,6 +331,7 @@ const EMPTY_STATE: FullGateState = {
   preWalkTime: null,
   preWalkAuditId: null,
   preWalkAuditStatus: null,
+  punchWalkAuditId: null,
   scopeLineCount: 0,
   scopeConfirmedAt: null,
   approvedBudget: 0,
@@ -331,6 +348,8 @@ const EMPTY_STATE: FullGateState = {
   bidsOutstanding: 0,
   contractSignedAt: null,
   hasActualStart: false,
+  punchWalkStatus: null,
+  punchWalkDate: null,
   openFindingCount: 0,
   openFindingAuditId: null,
   postedGlTotal: 0,

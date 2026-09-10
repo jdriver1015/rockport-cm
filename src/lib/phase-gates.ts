@@ -9,7 +9,14 @@ import type { ProjectPhaseKey } from "@/lib/stages";
  * which no dialog can fix.
  */
 export const PRECON_GATE_KEYS = ["pre_walk", "scope", "rfp", "bid", "contract"] as const;
-export type PreconGateKey = (typeof PRECON_GATE_KEYS)[number];
+
+/**
+ * Every gate a person resolves by pressing something, pre-con's five plus the
+ * punch walk. The name is historical: these were all pre-con until the punch
+ * walk became a first-class walk with a dialog of its own.
+ */
+export const GATE_KEYS = [...PRECON_GATE_KEYS, "punch_walk"] as const;
+export type PreconGateKey = (typeof GATE_KEYS)[number];
 
 export type GateCheck = {
   /** Present when the gate has an action behind it. */
@@ -114,6 +121,13 @@ export type ProgressGateState = {
    * date they had already recorded.
    */
   hasActualStart: boolean;
+  /**
+   * The punch walk's status, mirroring preWalkAuditStatus for the pre-con
+   * gate — null when no punch walk has been started.
+   */
+  punchWalkStatus: "draft" | "complete" | null;
+  /** projects.punch_walk_date — the walk is on the calendar. */
+  punchWalkDate: string | null;
   openFindingCount: number;
   /** Which audit those findings sit on, so the board can link straight to it. */
   openFindingAuditId: number | null;
@@ -153,6 +167,43 @@ function preWalkCheck(state: PreconGateState): GateCheck {
     key: "pre_walk",
     label: "Schedule Pre-Walk",
     short: "Schedule pre-walk",
+    met: false,
+    detail: "Not scheduled",
+  };
+}
+
+/**
+ * The punch walk's states — the same ladder as the pre-walk's.
+ *
+ * Met at complete, not at scheduled: a booked walk nobody has done says nothing
+ * about whether the work is right.
+ */
+function punchWalkCheck(state: ProgressGateState): GateCheck {
+  if (state.punchWalkStatus === "complete") {
+    return { key: "punch_walk", label: "Punch Walk Complete", met: true, detail: "Walked" };
+  }
+  if (state.punchWalkStatus === "draft") {
+    return {
+      key: "punch_walk",
+      label: "Punch Walk Started",
+      short: "Finish punch walk",
+      met: false,
+      detail: "Walk in progress",
+    };
+  }
+  if (state.punchWalkDate) {
+    return {
+      key: "punch_walk",
+      label: "Punch Walk Scheduled",
+      short: "Do punch walk",
+      met: false,
+      detail: state.punchWalkDate,
+    };
+  }
+  return {
+    key: "punch_walk",
+    label: "Schedule Punch Walk",
+    short: "Schedule punch walk",
     met: false,
     detail: "Not scheduled",
   };
@@ -373,6 +424,13 @@ export function evaluateGates(
     ];
   } else if (fromPhase === "punch" && toPhase === "complete") {
     checks = [
+      // The walk comes first, and it is the mirror of the pre-con gate above:
+      // there, a project cannot leave pre-con until somebody has walked it and
+      // written the scope; here it cannot be called complete until somebody has
+      // walked the finished work. The findings check below is only meaningful
+      // once that walk has happened — with no punch walk there are no findings
+      // to be open, and "All clear" would be a lie of omission.
+      punchWalkCheck(data),
       {
         label: "No open audit findings",
         target: "audits",
@@ -388,8 +446,10 @@ export function evaluateGates(
             : `${data.openFindingCount} open finding${data.openFindingCount === 1 ? "" : "s"}`,
       },
       // "All scope lines complete" used to sit here. Same removal — and this is
-      // the gate stages.ts defines as "All punch items resolved", so that is what
-      // should take its place once punch items are built.
+      // stages.ts calls this gate "All punch items resolved", and these findings
+      // ARE the punch list — a punch walk's findings are what has to be put
+      // right. The punch_items table it once meant was never built against and
+      // holds nothing.
       {
         label: "GL actuals posted",
         target: "gl",
