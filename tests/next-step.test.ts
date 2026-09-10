@@ -39,6 +39,8 @@ const fresh = {
   contractSignedAt: null,
   bidsOutstanding: 0,
   hasActualStart: false,
+  punchWalkStatus: null,
+  punchWalkDate: null,
   openFindingCount: 0,
   openFindingAuditId: null,
   postedGlTotal: 0,
@@ -68,6 +70,13 @@ const awarded = {
 
 /** Every pre-con gate met. */
 const preconDone = { ...awarded, contractSignedAt: "2026-08-20" };
+
+/**
+ * ...and the punch walk done too. The punch gate opens with the walk, the same
+ * way pre-con opens with the pre-walk, so nothing after it can be the blocking
+ * check until the walk is complete.
+ */
+const walked = { ...preconDone, punchWalkStatus: "complete" as const };
 
 function stepFrom(
   phase: "precon" | "in_process" | "punch" | "complete",
@@ -203,7 +212,7 @@ describe("the later phases", () => {
 
   test("punch with open findings — resolve them, at the audit that holds them", () => {
     const step = stepFrom("punch", {
-      ...preconDone,
+      ...walked,
       openFindingCount: 2,
       openFindingAuditId: 42,
       postedGlTotal: 5_000,
@@ -220,7 +229,7 @@ describe("the later phases", () => {
 
   test("findings with no identifiable audit still route to audits", () => {
     const step = stepFrom("punch", {
-      ...preconDone,
+      ...walked,
       openFindingCount: 1,
       openFindingAuditId: null,
       postedGlTotal: 5_000,
@@ -235,7 +244,7 @@ describe("the later phases", () => {
     // rerouted its button to the workflow tab. The target is declared on the
     // check now; this pins that it is read from there and not from the prose.
     const gate = evaluateGates("punch", "complete", {
-      ...preconDone,
+      ...walked,
       openFindingCount: 3,
       openFindingAuditId: 7,
       postedGlTotal: 5_000,
@@ -252,17 +261,39 @@ describe("the later phases", () => {
   });
 
   test("punch, findings clear, no GL — post the actuals, at the ledger", () => {
-    const step = stepFrom("punch", preconDone);
+    const step = stepFrom("punch", walked);
     expect(step).toEqual({ kind: "goto", label: "Post GL actuals", target: "gl" });
   });
 
   test("punch fully met — advance to complete", () => {
-    const step = stepFrom("punch", { ...preconDone, postedGlTotal: 5_000 });
+    const step = stepFrom("punch", { ...walked, postedGlTotal: 5_000 });
     expect(step).toMatchObject({ kind: "advance", toPhase: "complete" });
   });
 
+  test("punch, unwalked — schedule the punch walk before anything else", () => {
+    // The mirror of pre-con opening on "Schedule pre-walk". With no punch walk
+    // there are no findings to be open, so "All clear" would be a lie of
+    // omission and the walk has to come first.
+    expect(stepFrom("punch", preconDone)).toEqual({
+      kind: "goto",
+      label: "Schedule punch walk",
+      gate: "punch_walk",
+      target: "workflow",
+    });
+  });
+
+  test("punch walk booked but not done — do it", () => {
+    const step = stepFrom("punch", { ...preconDone, punchWalkDate: "2026-09-20" });
+    expect(step).toMatchObject({ gate: "punch_walk", label: "Do punch walk" });
+  });
+
+  test("punch walk in progress — finish it", () => {
+    const step = stepFrom("punch", { ...preconDone, punchWalkStatus: "draft" });
+    expect(step).toMatchObject({ gate: "punch_walk", label: "Finish punch walk" });
+  });
+
   test("complete has nothing left to offer", () => {
-    expect(stepFrom("complete", preconDone)).toEqual({ kind: "none" });
+    expect(stepFrom("complete", walked)).toEqual({ kind: "none" });
   });
 });
 

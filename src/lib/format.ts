@@ -54,6 +54,24 @@ export function fmtDateShort(value: string | null | undefined): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/**
+ * A Postgres `time` ("14:30:00") as somebody reads it aloud.
+ *
+ * Parsed by hand rather than through Date: constructing a Date to render a
+ * wall-clock time drags in a timezone that a bare time does not have, which is
+ * the same trap the date columns here already avoid.
+ */
+export function fmtTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const [h, m] = value.split(":");
+  const hour = Number(h);
+  const minute = Number(m);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return "—";
+  const suffix = hour < 12 ? "AM" : "PM";
+  const display = hour % 12 === 0 ? 12 : hour % 12;
+  return `${display}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 export function num(value: number | string | null | undefined): number {
   const n = typeof value === "string" ? parseFloat(value) : value;
   return n == null || Number.isNaN(n) ? 0 : n;

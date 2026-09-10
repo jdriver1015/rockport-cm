@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { QUARTER_HOUR_STEP } from "@/lib/walk-time";
 import { createAudit } from "@/lib/actions/audits";
 
 export function AddAuditDialog({
@@ -58,10 +60,10 @@ export function AddAuditDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {hasTrigger && <DialogTrigger render={<Button size="sm" />}>New audit</DialogTrigger>}
+      {hasTrigger && <DialogTrigger render={<Button size="sm" />}>New walk</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New site audit</DialogTitle>
+          <DialogTitle>New site walk</DialogTitle>
           <DialogDescription>
             Start a walk-through. Add findings and photos once it&apos;s created.
           </DialogDescription>
@@ -100,6 +102,17 @@ export function AddAuditDialog({
               <Label htmlFor="audit-date">Date</Label>
               <Input id="audit-date" name="auditDate" type="date" required defaultValue={today} />
             </div>
+            <div>
+              <Label htmlFor="walk-time">Start time</Label>
+              {/* step snaps the picker to quarter hours; roundToQuarterHour in
+                  the action is what enforces it for a typed value. */}
+              <Input
+                id="walk-time"
+                name="walkTime"
+                type="time"
+                step={QUARTER_HOUR_STEP}
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="audit-auditor">Auditor</Label>
               <Input
@@ -112,7 +125,12 @@ export function AddAuditDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="audit-notes">Notes</Label>
-            <Input id="audit-notes" name="notes" placeholder="Optional context" />
+            <Textarea
+              id="audit-notes"
+              name="notes"
+              rows={3}
+              placeholder="What this walk covers. You can write the summary as you go."
+            />
           </div>
           <div className="flex justify-end">
             <Button type="submit" disabled={busy}>

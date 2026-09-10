@@ -63,7 +63,7 @@ export default async function AuditsPage({ params }: { params: Promise<{ slug: s
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base text-navy">Site Audits</CardTitle>
+          <CardTitle className="text-base text-navy">Site Walks</CardTitle>
           <div className="flex items-center gap-3">
             {archivedCount > 0 && (
               <Link

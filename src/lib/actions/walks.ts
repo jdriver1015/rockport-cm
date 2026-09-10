@@ -4,19 +4,32 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { roundToQuarterHour } from "@/lib/walk-time";
 import type { ActionResult } from "@/lib/action-result";
 import { createClient } from "@/lib/supabase/server";
 import { propertyPath } from "@/lib/property-path";
 import { importFindingsToScopeRows } from "@/lib/pre-walk-findings";
+import { WALK_KIND, WALK_KINDS, type WalkKind } from "@/lib/walk-kinds";
 
 // ---------------------------------------------------------------------------
-// The pre-walk: the visit that produces a project's scope.
+// Walks: the visits that bracket a job.
 //
-// Two things live here — booking it (a date and a time on the project) and
+// A pre-walk produces the scope; a punch walk checks the work was done. They
+// are the same act and the same screen, differing only in which project columns
+// hold the booking and which gate reads the result — see WALK_KIND. Every
+// action here takes a kind rather than existing twice.
+//
+// Two things live here: booking a walk (a date and a time on the project) and
 // starting it (the site audit that records what was found). They are separate
 // because a walk gets scheduled days before anyone stands in the unit, and the
 // gate needs to tell those apart.
 // ---------------------------------------------------------------------------
+
+/** Which project columns hold each kind's booking. */
+const BOOKING_COLUMNS = {
+  pre_walk: { date: "preWalkDate", time: "preWalkTime" },
+  punch_walk: { date: "punchWalkDate", time: "punchWalkTime" },
+} as const satisfies Record<WalkKind, { date: string; time: string }>;
 
 async function revalidateProject(propertyId: number, projectId: number) {
   const base = await propertyPath(propertyId);
@@ -25,19 +38,20 @@ async function revalidateProject(propertyId: number, projectId: number) {
 
 const scheduleSchema = z.object({
   projectId: z.coerce.number().int().positive(),
+  kind: z.enum(WALK_KINDS),
   /** Empty clears the booking — a walk can be un-scheduled. */
   date: z.string().trim().optional(),
   /** HH:MM. Optional: a date with no time is still a booking. */
   time: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time").optional().or(z.literal("")),
 });
 
-/** Book or clear the pre-walk. */
-export async function schedulePreWalk(
+/** Book or clear a walk. */
+export async function scheduleWalk(
   input: z.input<typeof scheduleSchema>,
 ): Promise<ActionResult> {
   const parsed = scheduleSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { projectId, date, time } = parsed.data;
+  const { projectId, kind, date, time } = parsed.data;
 
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
@@ -48,9 +62,11 @@ export async function schedulePreWalk(
   await db()
     .update(schema.projects)
     .set({
-      preWalkDate: date ? date : null,
+      [BOOKING_COLUMNS[kind].date]: date ? date : null,
       // A time without a date is not a booking, so clearing the date clears it.
-      preWalkTime: date && time ? time : null,
+      // Snapped server-side for the same reason the walk's own time is: the
+      // input's step constrains the picker, not a typed or pasted value.
+      [BOOKING_COLUMNS[kind].time]: date && time ? roundToQuarterHour(time) : null,
     })
     .where(eq(schema.projects.id, projectId));
 
@@ -58,7 +74,10 @@ export async function schedulePreWalk(
   return { ok: true };
 }
 
-const startSchema = z.object({ projectId: z.coerce.number().int().positive() });
+const startSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  kind: z.enum(WALK_KINDS),
+});
 
 /**
  * Open the pre-walk — the audit that records what the walk found.
@@ -67,23 +86,28 @@ const startSchema = z.object({ projectId: z.coerce.number().int().positive() });
  * one created, so the button is safe to press twice and a partial unique index
  * backs that up. Returns the audit id for the caller to navigate to.
  */
-export async function startPreWalk(
+export async function startWalk(
   input: z.input<typeof startSchema>,
 ): Promise<ActionResult<{ auditId: number; created: boolean }>> {
   const parsed = startSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { projectId } = parsed.data;
+  const { projectId, kind } = parsed.data;
 
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
-    columns: { propertyId: true, preWalkDate: true, name: true },
+    columns: {
+      propertyId: true,
+      name: true,
+      preWalkDate: true,
+      punchWalkDate: true,
+    },
   });
   if (!project) return { ok: false, error: "Project not found" };
 
   const existing = await db().query.siteAudits.findFirst({
     where: and(
       eq(schema.siteAudits.projectId, projectId),
-      eq(schema.siteAudits.kind, "pre_walk"),
+      eq(schema.siteAudits.kind, kind),
       isNull(schema.siteAudits.archivedAt),
     ),
     columns: { id: true },
@@ -106,13 +130,15 @@ export async function startPreWalk(
     .values({
       propertyId: project.propertyId,
       projectId,
-      kind: "pre_walk",
+      kind,
       // The audit list shows this title; naming it after the project makes a
-      // pre-walk findable there without opening it.
-      title: `${project.name} — Pre-walk`,
+      // walk findable there without opening it.
+      title: `${project.name} — ${WALK_KIND[kind].titleWord}`,
       // The booked date if there is one, otherwise today: someone standing in
       // the unit pressing this is walking it now.
-      auditDate: project.preWalkDate ?? new Date().toLocaleDateString("en-CA"),
+      auditDate:
+        (kind === "pre_walk" ? project.preWalkDate : project.punchWalkDate) ??
+        new Date().toLocaleDateString("en-CA"),
       auditorName: profile?.fullName ?? null,
       status: "draft",
     })

@@ -588,6 +588,10 @@ export default async function ProjectDetailPage({
                   preWalkTime: precon.preWalkTime,
                   preWalkAuditId: precon.preWalkAuditId,
                   preWalkAuditStatus: precon.preWalkAuditStatus,
+                  punchWalkDate: precon.punchWalkDate,
+                  punchWalkTime: project.punchWalkTime,
+                  punchWalkAuditId: precon.punchWalkAuditId,
+                  punchWalkAuditStatus: precon.punchWalkStatus,
                   contracts: liveContracts.map((c) => ({
                     ...c,
                     sentAt: c.sentAt?.toISOString() ?? null,

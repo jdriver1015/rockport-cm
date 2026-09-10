@@ -32,9 +32,14 @@ export async function POST(
 
   const formData = await req.formData();
   const file = formData.get("file");
-  const findingId = Number(formData.get("findingId"));
-  if (!Number.isInteger(findingId)) {
-    return NextResponse.json({ error: "Missing findingId" }, { status: 400 });
+  // Optional now. A superintendent shoots the walk first and decides what is a
+  // defect afterwards; requiring a finding here is what forced every photo to
+  // be classified before the camera would open.
+  const rawFindingId = formData.get("findingId");
+  const findingId =
+    typeof rawFindingId === "string" && rawFindingId !== "" ? Number(rawFindingId) : null;
+  if (findingId !== null && !Number.isInteger(findingId)) {
+    return NextResponse.json({ error: "Invalid findingId" }, { status: 400 });
   }
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -46,12 +51,15 @@ export async function POST(
     return NextResponse.json({ error: "Unsupported image type" }, { status: 400 });
   }
 
-  // Verify finding → audit → property chain.
-  const finding = await db().query.auditFindings.findFirst({
-    where: eq(schema.auditFindings.id, findingId),
-  });
-  if (!finding || finding.auditId !== auditId) {
-    return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+  // Only when a finding was named. A walk-level photo has no finding to verify,
+  // and the audit → property chain below is what actually authorises the write.
+  if (findingId !== null) {
+    const finding = await db().query.auditFindings.findFirst({
+      where: eq(schema.auditFindings.id, findingId),
+    });
+    if (!finding || finding.auditId !== auditId) {
+      return NextResponse.json({ error: "Finding not found" }, { status: 404 });
+    }
   }
   const audit = await db().query.siteAudits.findFirst({ where: eq(schema.siteAudits.id, auditId) });
   if (!audit || audit.propertyId !== propertyId) {
@@ -72,14 +80,18 @@ export async function POST(
   }
 
   try {
+    // Ordered within the walk, not within the finding: the walk reel is the
+    // sequence the superintendent shot in, and a photo keeps its place when it
+    // is later promoted to a finding.
     const [{ maxOrder }] = await db()
       .select({ maxOrder: sql<number>`coalesce(max(${schema.auditPhotos.sortIndex}), 0)::int` })
       .from(schema.auditPhotos)
-      .where(eq(schema.auditPhotos.findingId, findingId));
+      .where(eq(schema.auditPhotos.auditId, auditId));
 
     const [row] = await db()
       .insert(schema.auditPhotos)
       .values({
+        auditId,
         findingId,
         storagePath: path,
         sortIndex: maxOrder + 1,
