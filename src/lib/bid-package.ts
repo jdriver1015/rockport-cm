@@ -55,6 +55,8 @@ export type BidPackageOption = {
     tokenExpiresAt: Date | null;
     /** How far this vendor has got — see src/lib/bid-events.ts. */
     progress: BidProgress;
+    /** Files filed against this bid — the vendor's own quote PDF, most often. */
+    attachments: { id: number; name: string; createdAt: Date }[];
   }[];
   /**
    * What each vendor put against each scope line.
@@ -72,7 +74,7 @@ export async function readBidPackage(
   propertyId: number,
   projectId: number,
 ): Promise<BidPackageOption> {
-  const [scopeItems, vendors, bids, tokens, lineRows] = await Promise.all([
+  const [scopeItems, vendors, bids, tokens, lineRows, attachmentRows] = await Promise.all([
     db()
       .select({
         id: schema.scopeItems.id,
@@ -160,9 +162,35 @@ export async function readBidPackage(
       .from(schema.bidLineItems)
       .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
+    // Files filed against a bid — the vendor's own quote, most often, for
+    // whichever bid never went through the portal.
+    db()
+      .select({
+        id: schema.attachments.id,
+        bidId: schema.attachments.bidId,
+        name: schema.attachments.caption,
+        createdAt: schema.attachments.createdAt,
+      })
+      .from(schema.attachments)
+      .innerJoin(schema.bids, eq(schema.bids.id, schema.attachments.bidId))
+      .where(
+        and(
+          eq(schema.bids.projectId, projectId),
+          isNull(schema.bids.archivedAt),
+          isNull(schema.attachments.archivedAt),
+        ),
+      )
+      .orderBy(asc(schema.attachments.createdAt)),
   ]);
 
   const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
+  const attachmentsByBid = new Map<number, { id: number; name: string; createdAt: Date }[]>();
+  for (const a of attachmentRows) {
+    if (a.bidId == null) continue;
+    const bucket = attachmentsByBid.get(a.bidId) ?? [];
+    attachmentsByBid.set(a.bidId, bucket);
+    bucket.push({ id: a.id, name: a.name ?? "Attachment", createdAt: a.createdAt });
+  }
 
   // What each vendor has actually done. Read after the bids because it needs
   // their ids, and it is the difference between chasing somebody who has not
@@ -192,6 +220,7 @@ export async function readBidPackage(
       token: tokenByBid.get(b.id)?.token ?? null,
       tokenExpiresAt: tokenByBid.get(b.id)?.expiresAt ?? null,
       progress: summarise(eventsByBid.get(b.id) ?? []),
+      attachments: attachmentsByBid.get(b.id) ?? [],
     })),
     lineAmounts: lineRows
       .filter((r): r is typeof r & { scopeItemId: number } => r.scopeItemId != null)

@@ -17,6 +17,8 @@ import { issueLink, revokeLink } from "@/lib/actions/bid-portal";
 import type { BidPackageOption } from "@/lib/bid-package";
 import type { BidProgress } from "@/lib/bid-events";
 import { BidInviteWizard } from "@/components/bid-invite-wizard";
+import { ManualBidPanel } from "@/components/manual-bid-panel";
+import { BidAttachments } from "@/components/bid-attachments";
 import { setBidWinner } from "@/lib/actions/bids";
 
 /**
@@ -143,10 +145,19 @@ export function SelectBidDialog({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  // Two modes rather than two dialogs: sending and reviewing are the same
-  // question a week apart, and splitting them would mean guessing which one
-  // somebody wanted when they opened the gate.
-  const [mode, setMode] = useState<"compare" | "invite">("compare");
+  // Three modes rather than three dialogs: sending, reviewing, and recording a
+  // bid by hand are the same screen at different moments, and splitting them
+  // apart would mean guessing which one somebody wanted when they opened the
+  // gate.
+  const [mode, setMode] = useState<"compare" | "invite" | "manual">("compare");
+  // Set when "Edit" is pressed on an existing bid; undefined means the manual
+  // panel is recording a new one.
+  const [editingBidId, setEditingBidId] = useState<number | undefined>(undefined);
+
+  function openManual(bidId?: number) {
+    setEditingBidId(bidId);
+    setMode("manual");
+  }
 
   function award(bidId: number, vendorName: string) {
     startTransition(async () => {
@@ -180,9 +191,23 @@ export function SelectBidDialog({
             data={data}
             onClose={() => setMode("compare")}
           />
+        ) : mode === "manual" ? (
+          <ManualBidPanel
+            propertyId={propertyId}
+            projectId={projectId}
+            vendors={data.vendors}
+            scopeItems={data.scopeItems}
+            editingBidId={editingBidId}
+            onClose={() => setMode("compare")}
+          />
         ) : (
         <div className="max-h-[70vh] space-y-5 overflow-y-auto">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {/* For a bid that came in by phone or email instead of the portal —
+                the only door into the bids table other than the invite wizard. */}
+            <Button size="sm" variant="outline" onClick={() => openManual()}>
+              Record a bid manually
+            </Button>
             <Button size="sm" onClick={() => setMode("invite")}>
               {data.bids.length > 0 ? "Invite more vendors" : "Send for pricing"}
             </Button>
@@ -191,21 +216,38 @@ export function SelectBidDialog({
           {/* ---------- what has come back ---------- */}
           <BidMatrix data={data} pending={pending} onAward={award} />
 
-          {/* The portal links stay a list: they are per vendor and have nothing
-              to compare against each other. */}
+          {/* Per-bid detail: not a comparison, so a list rather than another
+              column in the matrix. Every bid gets a row here whether it came
+              through the portal or was typed in by hand. */}
           {data.bids.length > 0 && (
             <div className="space-y-2">
-              <span className={LABEL}>Vendor links</span>
+              <span className={LABEL}>Bids</span>
               <div className="divide-y divide-hairline rounded-card border border-border">
                 {data.bids.map((b) => (
-                  <div key={b.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                    <span className="min-w-0 flex-1 text-[13px] text-ink-700">
-                      {b.vendorName ?? "Vendor removed"}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {b.sentAt ? `sent ${fmtDate(b.sentAt)}` : "not sent"}
-                    </span>
-                    <BidLink projectId={projectId} bid={b} disabled={pending} />
+                  <div key={b.id} className="space-y-1.5 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="min-w-0 flex-1 text-[13px] text-ink-700">
+                        {b.vendorName ?? "Vendor removed"}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {b.sentAt ? `sent ${fmtDate(b.sentAt)}` : "not sent"}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending}
+                        onClick={() => openManual(b.id)}
+                      >
+                        Edit
+                      </Button>
+                      <BidLink projectId={projectId} bid={b} disabled={pending} />
+                    </div>
+                    <BidAttachments
+                      propertyId={propertyId}
+                      projectId={projectId}
+                      bidId={b.id}
+                      attachments={b.attachments}
+                    />
                   </div>
                 ))}
               </div>

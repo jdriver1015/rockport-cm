@@ -339,3 +339,21 @@ export async function getBidLines(bidId: number) {
     .where(eq(schema.bidLineItems.bidId, bidId))
     .orderBy(asc(schema.bidLineItems.sortOrder), asc(schema.bidLineItems.id));
 }
+
+/** Everything the manual bid form needs to seed itself for an edit, in one call. */
+export async function getBidDetail(bidId: number) {
+  const bid = await db().query.bids.findFirst({ where: eq(schema.bids.id, bidId) });
+  if (!bid) return null;
+  const lines = await getBidLines(bidId);
+  return {
+    id: bid.id,
+    vendorId: bid.vendorId,
+    receivedDate: bid.receivedDate,
+    note: bid.note,
+    lines: lines.map((l) => ({
+      scopeItemId: l.scopeItemId,
+      description: l.description,
+      amount: l.amount,
+    })),
+  };
+}

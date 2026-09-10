@@ -39,6 +39,8 @@ export type ContractSummary = {
   vendorSignedAt: Date | null;
   countersignedAt: Date | null;
   executedAt: Date | null;
+  /** Whether an actual signed document is on file — not the storage path itself. */
+  hasSignedDocument: boolean;
 };
 
 export function contractNumber(projectId: number, contractId: number): string {
@@ -68,6 +70,7 @@ export async function readContracts(
       vendorSignedAt: schema.projectContracts.vendorSignedAt,
       countersignedAt: schema.projectContracts.countersignedAt,
       executedAt: schema.projectContracts.executedAt,
+      storageKey: schema.projectContracts.storageKey,
     })
     .from(schema.projectContracts)
     .leftJoin(schema.bids, eq(schema.bids.id, schema.projectContracts.bidId))
@@ -92,6 +95,7 @@ export async function readContracts(
     vendorSignedAt: row.vendorSignedAt,
     countersignedAt: row.countersignedAt,
     executedAt: row.executedAt,
+    hasSignedDocument: row.storageKey != null,
   }));
 }
 
@@ -171,6 +175,110 @@ export async function generateContractRow(bidId: number): Promise<GenerateResult
     })
     .returning({ id: schema.projectContracts.id });
 
+  return { ok: true, contractId: row.id };
+}
+
+/**
+ * Record a contract that was signed outside the system: attach the actual
+ * document and mark it executed directly, whether or not this award ever had
+ * a generated contract to walk through Send / Vendor signs / Countersign.
+ *
+ * This is the bypass for paperwork that already happened — a subcontract
+ * signed on paper, or through a provider this app doesn't talk to. Making that
+ * wait on regenerating and re-clicking through a wizard for something already
+ * done would be pure friction, so it goes straight to executed. Only a live
+ * contract's own steps are skipped; the checks that stop a contract existing
+ * at all — an unapproved bid, an unpriced one, an already-executed one — still
+ * apply, because none of those become true just because a file was attached.
+ */
+export async function recordExecutedContractRow(
+  bidId: number,
+  storagePath: string,
+): Promise<GenerateResult> {
+  const bid = await db().query.bids.findFirst({
+    where: and(eq(schema.bids.id, bidId), isNull(schema.bids.archivedAt)),
+    columns: { id: true, projectId: true, approved: true },
+  });
+  if (!bid) return { ok: false, error: "Bid not found" };
+  if (!bid.approved) {
+    return { ok: false, error: "Award this bid before recording a contract for it" };
+  }
+  const projectId = bid.projectId;
+
+  const [{ total }] = await db()
+    .select({ total: sql<number>`coalesce(sum(${schema.bidLineItems.amount}), 0)::float8` })
+    .from(schema.bidLineItems)
+    .where(eq(schema.bidLineItems.bidId, bid.id));
+  if (total <= 0) return { ok: false, error: "The winning bid has no priced lines" };
+
+  const now = new Date();
+  const existing = await readBidContract(projectId, bid.id);
+
+  if (existing) {
+    if (existing.status === "executed") {
+      return { ok: false, error: "This contract is already executed" };
+    }
+    await db().transaction(async (tx) => {
+      await tx
+        .update(schema.projectContracts)
+        .set({
+          status: "executed",
+          storageKey: storagePath,
+          sentAt: existing.sentAt ?? now,
+          vendorSignedAt: existing.vendorSignedAt ?? now,
+          countersignedAt: now,
+          executedAt: now,
+        })
+        .where(eq(schema.projectContracts.id, existing.id));
+      await syncContractSignedAt(projectId, tx);
+    });
+    return { ok: true, contractId: existing.id };
+  }
+
+  // No contract row yet. A template gives this a proper snapshot if one is
+  // set up, but does not have to be: the paperwork already happened outside
+  // this app, and making that wait on a template being configured in Settings
+  // would be a dependency this path has no reason to carry.
+  const template = await db().query.contractTemplates.findFirst({
+    where: and(
+      eq(schema.contractTemplates.isDefault, true),
+      isNull(schema.contractTemplates.archivedAt),
+    ),
+  });
+
+  let body = "Executed outside the system. The signed document is attached to this record.";
+  if (template) {
+    const ctx = await readContractContext(projectId, bid.id);
+    if (ctx) {
+      body = fillTemplate(template.body, {
+        company: COMPANY,
+        vendor: ctx.vendorName,
+        property: ctx.propertyName,
+        project: ctx.projectName,
+        amount: `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        date: now.toISOString().slice(0, 10),
+      });
+    }
+  }
+
+  const [row] = await db()
+    .insert(schema.projectContracts)
+    .values({
+      projectId,
+      bidId: bid.id,
+      templateId: template?.id ?? null,
+      status: "executed",
+      bodySnapshot: body,
+      amount: total.toFixed(2),
+      storageKey: storagePath,
+      sentAt: now,
+      vendorSignedAt: now,
+      countersignedAt: now,
+      executedAt: now,
+    })
+    .returning({ id: schema.projectContracts.id });
+
+  await syncContractSignedAt(projectId);
   return { ok: true, contractId: row.id };
 }
 

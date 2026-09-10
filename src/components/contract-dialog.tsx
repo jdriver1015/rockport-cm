@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2Icon, CircleIcon, ExternalLinkIcon } from "lucide-react";
+import { CheckCircle2Icon, CircleIcon, ExternalLinkIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +30,8 @@ export type ContractView = {
   sentAt: string | null;
   vendorSignedAt: string | null;
   executedAt: string | null;
+  /** Whether an actual signed document has been attached. */
+  hasSignedDocument: boolean;
 };
 
 /** One awarded bid — the thing a contract is written for. */
@@ -259,17 +261,34 @@ function AwardContract({
         })}
       </div>
 
+      {contract?.status !== "executed" && (
+        <SignedContractUpload projectId={projectId} bidId={award.bidId} />
+      )}
+
       {contract && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <a
-            href={pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-[13px] text-link hover:underline"
-          >
-            Open the {contract.status === "executed" ? "contract" : "draft"} PDF
-            <ExternalLinkIcon className="size-3.5" />
-          </a>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-[13px] text-link hover:underline"
+            >
+              Open the {contract.status === "executed" ? "contract" : "draft"} PDF
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+            {contract.hasSignedDocument && (
+              <a
+                href={`/api/projects/${projectId}/contract/signed?contract=${contract.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-[13px] text-link hover:underline"
+              >
+                Download the signed copy
+                <ExternalLinkIcon className="size-3.5" />
+              </a>
+            )}
+          </span>
 
           {confirmVoid === contract.id ? (
             <div className="flex items-center gap-2">
@@ -320,6 +339,74 @@ function AwardContract({
           the gate and un-signs the project.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Skip the wizard: the paperwork already happened somewhere else.
+ *
+ * A subcontract signed on paper, or through a provider this app doesn't talk
+ * to, is still a signed subcontract — walking it back through Generate, Send,
+ * Vendor signs for a document that already exists would be pure theater.
+ * Uploading here attaches the real file and marks the contract executed in
+ * one step, whether or not one was ever generated for this award.
+ */
+function SignedContractUpload({ projectId, bidId }: { projectId: number; bidId: number }) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function upload(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("bidId", String(bidId));
+      const res = await fetch(`/api/projects/${projectId}/contract/signed`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Upload failed");
+        return;
+      }
+      toast.success("Signed contract recorded — executed");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-card border border-dashed border-border px-3 py-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void upload(file);
+          e.target.value = "";
+        }}
+      />
+      <UploadIcon className="size-3.5 shrink-0 text-ink-300" />
+      <p className="min-w-0 flex-1 text-[12px] text-muted-foreground">
+        Already signed outside the system?
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={uploading}
+        onClick={() => inputRef.current?.click()}
+      >
+        {uploading ? "Uploading…" : "Upload signed contract"}
+      </Button>
     </div>
   );
 }
