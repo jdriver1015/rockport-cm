@@ -251,7 +251,10 @@ export function ProjectBoard({
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* View switcher */}
+        {/* Table/Gantt is meaningless on a phone: the phone view is cards, and
+            a Gantt at 375px is unreadable. */}
         <SegmentedControl
+          className="hidden sm:inline-flex"
           options={VIEWS.map((v) => ({ key: v.key, label: v.label }))}
           value={view}
           onChange={(v) => {
@@ -260,7 +263,7 @@ export function ProjectBoard({
           }}
         />
 
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <label className="flex flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex-none">
           Group
           <SelectBox
             value={group}
@@ -279,7 +282,7 @@ export function ProjectBoard({
           />
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <label className="flex flex-1 items-center gap-1.5 text-sm text-muted-foreground sm:flex-none">
           Sort
           <SelectBox
             value={sort}
@@ -305,7 +308,7 @@ export function ProjectBoard({
               setDir(next);
               syncUrl({ dir: next });
             }}
-            className="rounded-md border border-border px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+            className="h-9 shrink-0 rounded-md border border-border px-3 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-2 sm:py-1"
             title={dir === "asc" ? "Ascending" : "Descending"}
           >
             {dir === "asc" ? "↑" : "↓"}
@@ -319,7 +322,7 @@ export function ProjectBoard({
             syncUrl({ q: e.target.value });
           }}
           placeholder="Search projects…"
-          className="ml-auto h-8 w-48 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 sm:ml-auto sm:h-8 sm:w-48"
         />
       </div>
 
@@ -328,13 +331,32 @@ export function ProjectBoard({
           No projects yet — add the first one with “New project”.
         </p>
       ) : view === "table" ? (
-        <TableView
-          groups={groups}
-          propertySlug={propertySlug}
-          groupBy={group}
-          roster={roster}
-          canAssign={canAssign}
-        />
+        <>
+          {/*
+            Two renderings of one list. A phone gets cards; the table starts at
+            sm. Both are rendered and one is hidden by CSS rather than measuring
+            the viewport in JS, which would mismatch on hydration and flash the
+            wrong layout on first paint.
+          */}
+          <div className="sm:hidden">
+            <CardListView
+              groups={groups}
+              propertySlug={propertySlug}
+              groupBy={group}
+              roster={roster}
+              canAssign={canAssign}
+            />
+          </div>
+          <div className="hidden sm:block">
+            <TableView
+              groups={groups}
+              propertySlug={propertySlug}
+              groupBy={group}
+              roster={roster}
+              canAssign={canAssign}
+            />
+          </div>
+        </>
       ) : (
         /* The Schedule tab's Gantt, not a second one. This used to draw its own
            bars from startDate and completeDate — actuals only — so a project
@@ -433,7 +455,7 @@ function SelectBox({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-8 sm:flex-none"
     >
       {options.map(([v, label]) => (
         <option key={v} value={v}>
@@ -541,6 +563,124 @@ function ProjectLink({
 }
 
 // ---------------------------------------------------------------------------
+// Card view — phones
+//
+// The same rows the table shows, stacked. A seven-column table at 375px gives
+// each column ~50px and the headers overlap into nonsense; a superintendent
+// navigating on site wants to scan a list and tap into one project, which is
+// the same shape the portfolio uses for properties.
+// ---------------------------------------------------------------------------
+
+function MoneyRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-[12px] text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function CardListView({
+  groups,
+  propertySlug,
+  groupBy,
+  roster,
+  canAssign,
+}: {
+  groups: Group[];
+  propertySlug: string;
+  groupBy: GroupBy;
+  roster: ManagerOption[];
+  canAssign: boolean;
+}) {
+  const shown = groups.filter((g) => g.projects.length > 0);
+  if (shown.length === 0) {
+    return <p className="py-8 text-center text-sm text-muted-foreground">No projects match.</p>;
+  }
+
+  return (
+    <div className="space-y-5">
+      {shown.map((g) => (
+        <div key={g.key} className="space-y-2">
+          <div className="flex items-baseline justify-between px-1">
+            <span className="text-[11.5px] font-bold tracking-[0.09em] text-ink-900 uppercase">
+              {g.label}
+            </span>
+            <span className="text-[11.5px] font-bold text-ink-400">{g.projects.length}</span>
+          </div>
+
+          {g.projects.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-card border border-border bg-card p-3 shadow-[0_1px_2px_rgba(22,35,58,0.05)]"
+            >
+              {/* The name is the tap target into the project — big, and the
+                  whole row rather than a word. */}
+              <Link
+                href={`/properties/${propertySlug}/projects/${projectSlug(p)}`}
+                className="flex min-w-0 items-start gap-2"
+              >
+                <PhaseDot phase={p.phase} className="mt-[7px]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-semibold text-navy">{p.name}</span>
+                  {subtitleFor(p, groupBy) && (
+                    <span className="block text-[11px] text-muted-foreground">
+                      {subtitleFor(p, groupBy)}
+                    </span>
+                  )}
+                </span>
+              </Link>
+
+              <div className="mt-2 flex items-center gap-2">
+                <ScheduleCell health={p.health} />
+              </div>
+
+              <div className="mt-2.5 space-y-1 border-t border-hairline pt-2.5">
+                <MoneyRow label="Planned">
+                  <AmountCell value={p.budget} className="text-[13px]" />
+                </MoneyRow>
+                <MoneyRow label="Reconciled">
+                  <AmountCell value={p.jtd} className="text-[13px]" />
+                </MoneyRow>
+                <MoneyRow label="Variance">
+                  <VarianceCell budget={p.budget} actual={p.jtd} />
+                </MoneyRow>
+              </div>
+
+              <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-hairline pt-2.5">
+                {groupBy === "manager" && p.managerName ? (
+                  <span className="text-[13px] text-ink-300">—</span>
+                ) : (
+                  <ProjectManagerCell
+                    projectId={p.id}
+                    managerId={p.managerId}
+                    managerName={p.managerName}
+                    roster={roster}
+                    canAssign={canAssign}
+                  />
+                )}
+                <NextStepCell
+                  projectId={p.id}
+                  projectHref={`/properties/${propertySlug}/projects/${projectSlug(p)}`}
+                  propertySlug={propertySlug}
+                  step={p.nextStep}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Table view
 // ---------------------------------------------------------------------------
 
@@ -580,7 +720,14 @@ function TableView({
   // columns line up. `table-fixed` + explicit header widths keep them aligned.
   return (
     <TableCard>
-      <Table className="table-fixed">
+      {/*
+        min-w matters more than it looks. The column widths below are
+        percentages and the table is `table-fixed`, so without a floor the table
+        is always exactly as wide as its container — at 375px that is ~50px a
+        column and the headers overlap into "PROJE CT MGRE D". The floor lets
+        the wrapper's overflow-x actually scroll a legible table instead.
+      */}
+      <Table className="table-fixed min-w-[900px]">
         <TableHeader>
           {/*
             Est. Start came off with Committed. It read projects.start_date,

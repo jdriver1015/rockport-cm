@@ -116,7 +116,10 @@ export default async function PortfolioPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Stacks on a phone. Title, subtitle and action in one justify-between
+          row put a two-line subtitle shoulder to shoulder with the button and
+          squeezed both. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-serif text-2xl font-semibold text-navy">Portfolio</h1>
           <p className="text-sm text-muted-foreground">All properties with active construction</p>

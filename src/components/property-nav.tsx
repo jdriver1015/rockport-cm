@@ -21,7 +21,13 @@ export function PropertyNav({ slug }: { slug: string }) {
   const pathname = usePathname();
   const base = `/properties/${slug}`;
   return (
-    <nav className="flex gap-1 border-b">
+    // Hidden on a phone. Executive, Budget, Ledger and Performance are dense
+    // desk surfaces — pivots, ledgers, rent-roll trends — and none of them is
+    // what somebody standing in a building needs. On a phone the property page
+    // IS its projects, so the tab strip has nothing to switch between and the
+    // navigation is properties → projects → project. It scrolls rather than
+    // squashes from sm up, where five tabs still exceed a narrow tablet.
+    <nav className="hidden gap-1 overflow-x-auto border-b sm:flex [&::-webkit-scrollbar]:hidden">
       {tabs.map((t) => {
         const href = `${base}${t.href}`;
         const active =
@@ -31,7 +37,7 @@ export function PropertyNav({ slug }: { slug: string }) {
             key={t.href}
             href={href}
             className={cn(
-              "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+              "-mb-px shrink-0 border-b-2 px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors",
               active
                 ? "border-navy font-bold text-navy"
                 : "border-transparent text-muted-foreground hover:text-foreground",
