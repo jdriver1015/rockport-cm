@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { AlertTriangleIcon, CheckCircle2Icon, LockIcon, Trash2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, moneyExact } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/walks";
 import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
@@ -38,9 +38,6 @@ export type ScopeLine = {
   unitPrice: string | null;
   costCodeName: string | null;
 };
-
-const usd = (n: number) =>
-  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** One grid for the header, every row and the totals, so the columns line up. */
 const SCOPE_GRID =
@@ -208,7 +205,7 @@ export function DefineScopeDialog({
                     Total
                   </span>
                   <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
-                    Cost code
+                    Budget category
                   </span>
                   <span />
                 </div>
@@ -245,7 +242,7 @@ export function DefineScopeDialog({
                       Scope
                     </span>
                     <span className="text-right text-[13px] font-semibold tabular-nums text-navy">
-                      {scopeTotal > 0 ? usd(scopeTotal) : "—"}
+                      {scopeTotal > 0 ? moneyExact(scopeTotal) : "—"}
                     </span>
                     <span />
                     <span />
@@ -274,8 +271,8 @@ export function DefineScopeDialog({
               // the spend has nowhere to reconcile to and nobody remembers why.
               <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
                 <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
-                {missingCode} line{missingCode === 1 ? " has" : "s have"} no cost code — set them on
-                the scope list below or the spend will not reconcile.
+                {missingCode} line{missingCode === 1 ? " has" : "s have"} no budget category — set
+                them on the scope list below or the spend will not reconcile.
               </p>
             )}
           </div>
@@ -393,7 +390,7 @@ export function DefineScopeDialog({
               </Button>
             </form>
             <p className="text-[11px] text-muted-foreground">
-              Cost codes, quantities and dates are set on the scope list below — this just gets the
+              Budget categories and quantities are set on the scope list below — this just gets the
               line onto it.
             </p>
           </div>
@@ -554,14 +551,14 @@ function ScopeLineRow({
           total == null ? "text-ink-300" : "text-ink-700",
         )}
       >
-        {total == null ? "—" : usd(total)}
+        {total == null ? "—" : moneyExact(total)}
       </span>
 
       <span className="min-w-0 pt-2">
         {line.costCodeName ? (
           <span className="block truncate text-[11.5px] text-ink-500">{line.costCodeName}</span>
         ) : (
-          <span className="text-[11.5px] text-alert">No cost code</span>
+          <span className="text-[11.5px] text-alert">No budget category</span>
         )}
       </span>
 

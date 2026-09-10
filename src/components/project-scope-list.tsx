@@ -842,8 +842,6 @@ function ScopeEditorDialog({
   const [costCodeId, setCostCodeId] = useState<number | null>(row?.costCodeId ?? null);
   // Read-only: the award that covers this line owns it. See applyAwardVendor.
   const vendorId = row?.vendorId ?? null;
-  const [startDate, setStartDate] = useState(row?.startDate ?? "");
-  const [endDate, setEndDate] = useState(row?.endDate ?? "");
   const [specs, setSpecs] = useState<SpecGrid>(row?.specs ?? { cols: DEFAULT_SPEC_COLS, rows: [] });
 
   // Fixed snapshot of what this row originally contributed to its budget code,
@@ -857,8 +855,6 @@ function ScopeEditorDialog({
     quantity: string;
     unitPrice: string;
     costCodeId: number | null;
-    startDate: string;
-    endDate: string;
     specs: SpecGrid;
   }>;
 
@@ -869,8 +865,6 @@ function ScopeEditorDialog({
       quantity: patch.quantity ?? quantity,
       unitPrice: patch.unitPrice ?? unitPrice,
       costCodeId: patch.costCodeId !== undefined ? patch.costCodeId : costCodeId,
-      startDate: patch.startDate ?? startDate,
-      endDate: patch.endDate ?? endDate,
       specs: patch.specs ?? specs,
     };
     startTransition(async () => {
@@ -884,8 +878,6 @@ function ScopeEditorDialog({
           quantity: next.quantity || null,
           unitPrice: next.unitPrice || null,
           costCodeId: next.costCodeId,
-          startDate: next.startDate || null,
-          endDate: next.endDate || null,
           specs: next.specs.rows.length ? next.specs : null,
         });
         if (!res.ok) {
@@ -1095,31 +1087,6 @@ function ScopeEditorDialog({
               />
             </Field>
             {budgetHelp}
-          </div>
-        </section>
-
-        {/* ------------------------------------------------------ schedule */}
-        <section className="border-t border-hairline px-5 py-4">
-          <h3 className={cn(LABEL, "mb-2.5")}>Schedule</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Start">
-              <Input
-                className="h-9 text-sm"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                onBlur={() => commit({ startDate })}
-              />
-            </Field>
-            <Field label="End">
-              <Input
-                className="h-9 text-sm"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                onBlur={() => commit({ endDate })}
-              />
-            </Field>
           </div>
         </section>
 
