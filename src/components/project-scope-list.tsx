@@ -677,7 +677,10 @@ function ScopeLineRow({
             {description}
           </p>
         ) : (
-          <span className="mt-1.5 inline-block text-[11.5px] text-ink-200 underline underline-offset-[3px] transition-colors hover:text-ink-500">
+          // mr-3 only matters against what SpecsEditor renders right after it:
+          // its own placeholder is inline too, and with nothing else forcing a
+          // line break the two used to run together as one word.
+          <span className="mt-1.5 mr-3 inline-block text-[11.5px] text-ink-200 underline underline-offset-[3px] transition-colors hover:text-ink-500">
             Add description
           </span>
         )}
