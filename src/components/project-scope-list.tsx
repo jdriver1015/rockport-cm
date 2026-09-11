@@ -465,10 +465,6 @@ function ScopeLineRow({
 
   const specRows = row.specs?.rows.filter((r) => r.some((c) => c.trim())) ?? [];
   const description = row.materialQuality?.trim() ?? "";
-  // A row with nothing to say should not cost a full sentence of placeholder and
-  // an empty spec band. Most lines start empty, so paying three bands for every
-  // one of them is what made a thirty-item scope unreadable.
-  const bare = !description && specRows.length === 0;
 
   return (
     // A div rather than a button. The row opens the dialog, but it now also holds
@@ -674,15 +670,26 @@ function ScopeLineRow({
         </DescriptionEditor>
       )}
 
-      {specRows.length > 0 && (
-        <SpecsEditor
-          scopeItemId={row.id}
-          propertyId={propertyId}
-          projectId={projectId}
-          specs={row.specs}
-          outForBid={frozen}
-          vendorsPricing={liveRfpCount}
-        >
+      {/*
+        One instance regardless of whether this line has specs yet — not two
+        call sites picked by specRows.length. SpecsEditor autosaves on every
+        field blur while its popover stays open, and that autosave refreshes
+        server data; a line going from zero specs to one used to flip which
+        of two conditionally-rendered SpecsEditors was on screen, which
+        unmounted the very popover the user was still typing into and threw
+        away whatever they hadn't blurred yet — a link typed right after a
+        name, most often. One stable element has nothing to swap out from
+        under itself.
+      */}
+      <SpecsEditor
+        scopeItemId={row.id}
+        propertyId={propertyId}
+        projectId={projectId}
+        specs={row.specs}
+        outForBid={frozen}
+        vendorsPricing={liveRfpCount}
+      >
+        {specRows.length > 0 ? (
           <span className="mt-2 flex flex-wrap items-center gap-1.5">
             {specRows.slice(0, 4).map((cells, i) => (
               <ProductLinkChip key={i} name={cells[0] ?? ""} url={cells[1] ?? ""} className="max-w-[220px]" />
@@ -691,41 +698,27 @@ function ScopeLineRow({
               <span className="text-[11px] text-ink-400">+{specRows.length - 4} more</span>
             )}
           </span>
-        </SpecsEditor>
-      )}
+        ) : (
+          <span className="mt-1.5 inline-block text-[11.5px] text-ink-200 underline underline-offset-[3px] transition-colors hover:text-ink-500">
+            Add specs
+          </span>
+        )}
+      </SpecsEditor>
 
-      {/* Whichever half is missing gets its own way in, so a line is never one
-          click from the dialog just to add a sentence. */}
-      {(bare || (!description && specRows.length > 0) || (description && specRows.length === 0)) && (
-        <div className="mt-1.5 flex gap-3 text-[11.5px] text-ink-200">
-          {!description && (
-            <DescriptionEditor
-              scopeItemId={row.id}
-              propertyId={propertyId}
-              projectId={projectId}
-              value=""
-              outForBid={frozen}
-              vendorsPricing={liveRfpCount}
-            >
-              <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
-                Add description
-              </span>
-            </DescriptionEditor>
-          )}
-          {specRows.length === 0 && (
-            <SpecsEditor
-              scopeItemId={row.id}
-              propertyId={propertyId}
-              projectId={projectId}
-              specs={row.specs}
-              outForBid={frozen}
-              vendorsPricing={liveRfpCount}
-            >
-              <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
-                Add specs
-              </span>
-            </SpecsEditor>
-          )}
+      {!description && (
+        <div className="mt-1.5 text-[11.5px] text-ink-200">
+          <DescriptionEditor
+            scopeItemId={row.id}
+            propertyId={propertyId}
+            projectId={projectId}
+            value=""
+            outForBid={frozen}
+            vendorsPricing={liveRfpCount}
+          >
+            <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
+              Add description
+            </span>
+          </DescriptionEditor>
         </div>
       )}
     </div>
