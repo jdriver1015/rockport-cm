@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { moneyExact, num } from "@/lib/format";
 import { addBid, editBid, getBidDetail } from "@/lib/actions/bids";
 import type { BidPackageOption } from "@/lib/bid-package";
+import { cn } from "@/lib/utils";
 
 // Working line in the form: a scope line is locked (description = scope item,
 // not removable) so the priced lines always match what is actually in scope;
@@ -21,6 +22,10 @@ type FormLine = {
   description: string;
   amount: string;
   locked: boolean;
+  /** Context for a scope line, so a number can be judged against something
+   *  rather than typed into a blank. Null for a manual line. */
+  costCodeName: string | null;
+  budgeted: number | null;
 };
 
 type ExistingLine = { scopeItemId: number | null; description: string; amount: string };
@@ -47,6 +52,8 @@ function buildLines(
       description: s.item,
       amount: line ? line.amount : "",
       locked: true,
+      costCodeName: s.costCodeName,
+      budgeted: s.budgeted,
     };
   });
 
@@ -56,6 +63,8 @@ function buildLines(
     description: l.description,
     amount: l.amount,
     locked: false,
+    costCodeName: null,
+    budgeted: null,
   }));
 
   return [...scopeLines, ...manualLines];
@@ -122,6 +131,10 @@ export function ManualBidPanel({
   }, [editing, editingBidId]);
 
   const total = lines.reduce((s, l) => s + num(l.amount), 0);
+  // What the scope itself was underwritten at, for a plain "is this bid
+  // reasonable" comparison — a manual entry has no other vendor's number to
+  // measure against, unlike the RFP comparison matrix.
+  const scopeBudgetTotal = scopeItems.reduce((s, i) => s + (i.budgeted ?? 0), 0);
 
   function updateLine(key: string, patch: Partial<FormLine>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -130,7 +143,15 @@ export function ManualBidPanel({
   function addManualLine() {
     setLines((prev) => [
       ...prev,
-      { key: `new-${prev.length}-${Date.now()}`, scopeItemId: null, description: "", amount: "", locked: false },
+      {
+        key: `new-${prev.length}-${Date.now()}`,
+        scopeItemId: null,
+        description: "",
+        amount: "",
+        locked: false,
+        costCodeName: null,
+        budgeted: null,
+      },
     ]);
   }
 
@@ -251,51 +272,79 @@ export function ManualBidPanel({
             No scope items yet — add manual lines below.
           </p>
         ) : (
-          <div className="space-y-1.5">
-            {lines.map((l) => (
-              <div key={l.key} className="flex items-center gap-2">
-                {l.locked ? (
-                  <span className="flex-1 truncate text-sm text-navy" title={l.description}>
-                    {l.description}
-                  </span>
-                ) : (
-                  <Input
-                    aria-label="Line description"
-                    placeholder="Labor, mobilization, …"
-                    value={l.description}
-                    onChange={(e) => updateLine(l.key, { description: e.target.value })}
-                    className="flex-1"
-                  />
-                )}
-                <Input
-                  aria-label="Amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={l.amount}
-                  onChange={(e) => updateLine(l.key, { amount: e.target.value })}
-                  className="w-32 text-right"
-                />
-                {l.locked ? (
-                  <span className="w-8" />
-                ) : (
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Remove line"
-                    onClick={() => removeLine(l.key)}
-                  >
-                    <TrashIcon className="size-4" />
-                  </Button>
-                )}
-              </div>
-            ))}
+          <div className="space-y-2">
+            {lines.map((l) => {
+              const entered = l.amount.trim() !== "" && !Number.isNaN(Number(l.amount));
+              const delta = entered && l.budgeted != null ? num(l.amount) - l.budgeted : null;
+              return (
+                <div key={l.key} className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    {l.locked ? (
+                      <span className="flex-1 truncate text-sm text-navy" title={l.description}>
+                        {l.description}
+                      </span>
+                    ) : (
+                      <Input
+                        aria-label="Line description"
+                        placeholder="Labor, mobilization, …"
+                        value={l.description}
+                        onChange={(e) => updateLine(l.key, { description: e.target.value })}
+                        className="flex-1"
+                      />
+                    )}
+                    <Input
+                      aria-label="Amount"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={l.amount}
+                      onChange={(e) => updateLine(l.key, { amount: e.target.value })}
+                      className="w-32 text-right"
+                    />
+                    {l.locked ? (
+                      <span className="w-8" />
+                    ) : (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Remove line"
+                        onClick={() => removeLine(l.key)}
+                      >
+                        <TrashIcon className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                  {l.locked && (
+                    <div className="flex items-center justify-between pl-0.5 text-[11px] text-muted-foreground">
+                      <span className="truncate">{l.costCodeName ?? "No budget category"}</span>
+                      {l.budgeted != null && (
+                        <span
+                          className={cn(
+                            "shrink-0",
+                            delta != null && delta > 0 && "font-medium text-alert",
+                          )}
+                        >
+                          {delta != null
+                            ? `${delta > 0 ? "+" : ""}${moneyExact(delta)} vs. ${moneyExact(l.budgeted)} budgeted`
+                            : `${moneyExact(l.budgeted)} budgeted`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <div className="flex items-center justify-between border-t pt-2 text-sm font-semibold">
               <span className="text-navy">Total</span>
               <span className="w-32 pr-10 text-right tabular-nums text-navy">{moneyExact(total)}</span>
             </div>
+            {scopeBudgetTotal > 0 && (
+              <p className="text-right text-[11px] text-muted-foreground">
+                Scope is budgeted at {moneyExact(scopeBudgetTotal)}
+              </p>
+            )}
           </div>
         )}
       </div>
