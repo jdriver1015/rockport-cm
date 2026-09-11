@@ -14,7 +14,10 @@ const tabs = [
 export function SettingsNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex gap-1 border-b">
+    // Four tabs at their natural width run past a phone's screen with nothing
+    // to wrap onto — scrolling, not wrapping, keeps every tab a single line
+    // and reachable, the same call PropertyNav makes for its own row.
+    <nav className="flex gap-1 overflow-x-auto border-b [&::-webkit-scrollbar]:hidden">
       {tabs.map((t) => {
         const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
         return (
@@ -22,7 +25,7 @@ export function SettingsNav() {
             key={t.href}
             href={t.href}
             className={cn(
-              "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+              "-mb-px shrink-0 border-b-2 px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors",
               active
                 ? "border-navy font-bold text-navy"
                 : "border-transparent text-muted-foreground hover:text-foreground",

@@ -71,8 +71,19 @@ export type CostCodeBudget = { budget: number; allocated: number };
 
 const DEFAULT_SPEC_COLS = ["Name", "Link"];
 
-/** Shared grid so the column header, every row, and the total line up. */
-const GRID = "grid grid-cols-[minmax(0,1fr)_120px_120px_120px_28px] items-baseline gap-3.5";
+/**
+ * Shared grid so the column header, every row, and the total line up.
+ *
+ * Four fixed-width columns plus the name need something like 450px — more
+ * than a phone's whole viewport. Below `sm`, Committed and Actual drop out of
+ * the template entirely (their cells go `hidden`, which also removes them
+ * from grid flow) rather than staying and squeezing the name column to
+ * literally 0px, which is what a flat `minmax(0,1fr)` did: the name was in
+ * the DOM but rendered at zero width, effectively invisible.
+ */
+const GRID =
+  "grid grid-cols-[minmax(0,1fr)_92px_28px] items-baseline gap-2 sm:grid-cols-[minmax(0,1fr)_120px_120px_120px_28px] sm:gap-3.5";
+const HIDDEN_BELOW_SM = "hidden sm:block";
 
 const LABEL = "text-[9.5px] font-bold uppercase tracking-[0.1em] text-ink-300";
 
@@ -334,8 +345,8 @@ export function ProjectScopeList({
           <div className={cn(GRID, "border-y border-border px-5 py-2", LABEL)}>
             <div>Scope item</div>
             <div className="text-right">Budgeted</div>
-            <div className="text-right">Committed</div>
-            <div className="text-right">Actual</div>
+            <div className={cn(HIDDEN_BELOW_SM, "text-right")}>Committed</div>
+            <div className={cn(HIDDEN_BELOW_SM, "text-right")}>Actual</div>
             <div />
           </div>
 
@@ -364,10 +375,10 @@ export function ProjectScopeList({
             <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
               {budgetedTotal > 0 ? money(budgetedTotal) : "—"}
             </div>
-            <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
+            <div className={cn(HIDDEN_BELOW_SM, "text-right text-[15px] font-bold tabular-nums text-ink-900")}>
               {committedTotal > 0 ? money(committedTotal) : "—"}
             </div>
-            <div className="text-right text-[15px] font-bold tabular-nums text-ink-900">
+            <div className={cn(HIDDEN_BELOW_SM, "text-right text-[15px] font-bold tabular-nums text-ink-900")}>
               {actualInScope > 0 ? money(actualInScope) : "$0"}
             </div>
             <div />
@@ -569,7 +580,7 @@ function ScopeLineRow({
           )}
         </div>
 
-        <div className="text-right">
+        <div className={cn(HIDDEN_BELOW_SM, "text-right")}>
           {committed != null && committed > 0 ? (
             <>
               <div className="text-sm font-medium tabular-nums text-ink-700">{money(committed)}</div>
@@ -582,7 +593,7 @@ function ScopeLineRow({
           )}
         </div>
 
-        <div className="text-right">
+        <div className={cn(HIDDEN_BELOW_SM, "text-right")}>
           {row.costCodeId == null ? (
             <span className="text-xs text-ink-100">·</span>
           ) : (
