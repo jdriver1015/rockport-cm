@@ -50,12 +50,14 @@ const SCOPE_GRID =
  * the scope costs. They were two stacked sections asking you to reconcile a
  * number against a list by eye, which is the work the screen should be doing.
  *
- * Editable here: the wording, the quantity, the unit cost, and whether the line
- * belongs at all — everything that decides what a vendor is asked to price and
- * what it is expected to come to. Cost codes, dates, vendors and spec grids stay
- * on the scope list below, which is built for them. Missing cost codes are
- * flagged rather than fixed: this is the last moment before the scope is priced,
- * and a line with no code will not reconcile later.
+ * Editable here: the wording, the description, the quantity, the unit cost, and
+ * whether the line belongs at all — everything that decides what a vendor is
+ * asked to price and what it is expected to come to. Cost codes, dates, vendors
+ * and spec grids stay on the project's Scope tab, which is built for them.
+ * Missing cost codes are flagged rather than fixed here: this is the last
+ * moment before the scope is priced, and a line with no code will not
+ * reconcile later — but unlike a description, there's no single field this
+ * dialog could offer that would fix it (it's a search, not a sentence).
  */
 export function DefineScopeDialog({
   open,
@@ -228,6 +230,7 @@ export function DefineScopeDialog({
                       propertyId={propertyId}
                       projectId={projectId}
                       locked={scopeLocked}
+                      requireDescription={requireDescriptions}
                     />
                   ))}
                 </div>
@@ -281,19 +284,18 @@ export function DefineScopeDialog({
               <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
                 <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
                 {missingCode} line{missingCode === 1 ? " has" : "s have"} no budget category — set
-                them on the scope list below or the spend will not reconcile.
+                them on the project&apos;s Scope tab or the spend will not reconcile.
               </p>
             )}
 
             {missingDescription > 0 && (
               // Confirming requires a description on common-area scope — a
               // vendor prices from what is written, not from the line's name
-              // alone. Description isn't editable from this dialog on purpose
-              // (see the note above), so this points at where it is.
+              // alone.
               <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
                 <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
                 {missingDescription} line{missingDescription === 1 ? " has" : "s have"} no
-                description — add one on the scope list below before this can be confirmed.
+                description — add one below before this can be confirmed.
               </p>
             )}
           </div>
@@ -411,8 +413,8 @@ export function DefineScopeDialog({
               </Button>
             </form>
             <p className="text-[11px] text-muted-foreground">
-              Budget categories and quantities are set on the scope list below — this just gets the
-              line onto it.
+              Budget categories are set on the project&apos;s Scope tab — this just gets the line onto
+              it, ready to price and describe above.
             </p>
           </div>
 
@@ -478,16 +480,21 @@ function ScopeLineRow({
   propertyId,
   projectId,
   locked,
+  requireDescription,
 }: {
   index: number;
   line: ScopeLine;
   propertyId: number;
   projectId: number;
   locked: boolean;
+  /** Common-area scope needs a sentence a vendor can price from; a unit
+   *  turn's lines come from a budget template with nothing to write. */
+  requireDescription: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [item, setItem] = useState(line.item);
+  const [description, setDescription] = useState(line.materialQuality ?? "");
   const [quantity, setQuantity] = useState(line.quantity ?? "");
   const [unitPrice, setUnitPrice] = useState(line.unitPrice ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -496,7 +503,7 @@ function ScopeLineRow({
   const total = scopeLineTotal({ quantity: quantity || null, unitPrice: unitPrice || null });
 
   function save(
-    patch: { item?: string; quantity?: string | null; unitPrice?: string | null },
+    patch: { item?: string; materialQuality?: string | null; quantity?: string | null; unitPrice?: string | null },
     revert: () => void,
   ) {
     startTransition(async () => {
@@ -529,13 +536,26 @@ function ScopeLineRow({
             if (next === line.item) return;
             save({ item: next }, () => setItem(line.item));
           }}
+          aria-label={`Line ${index} name`}
+        />
+        <Input
+          className={cn(
+            "mt-1 h-7 text-[11.5px]",
+            !description.trim() && requireDescription && "border-alert/50 placeholder:text-alert/70",
+          )}
+          value={description}
+          disabled={pending || locked}
+          placeholder={
+            requireDescription ? "Description (required) — what the contractor prices" : "Description"
+          }
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={() => {
+            const next = description.trim();
+            if (next === (line.materialQuality ?? "")) return;
+            save({ materialQuality: next || null }, () => setDescription(line.materialQuality ?? ""));
+          }}
           aria-label={`Line ${index} description`}
         />
-        {line.materialQuality && (
-          <p className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-            {line.materialQuality}
-          </p>
-        )}
       </div>
 
       <Input
