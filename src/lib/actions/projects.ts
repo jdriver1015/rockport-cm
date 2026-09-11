@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { PROJECT_PHASES, phaseLabel } from "@/lib/stages";
+import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
 
 import { requireUser } from "@/lib/auth";
 import { canWriteProperty } from "@/lib/auth-rules";
@@ -328,6 +328,25 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
         isNull(schema.projectMilestones.archivedAt),
       ),
     );
+
+  // Advancing forward also stamps whatever phase this leaves, if it never got
+  // one — the gap that let Pre-Construction's actual date stay blank forever,
+  // since a project starts there with no "entering" transition of its own to
+  // catch it. Skipped on a reopen (a backward move): the phase being left then
+  // is the one being reconsidered, not one that just finished.
+  if (project.phase && phaseIndex(toPhase) > phaseIndex(project.phase)) {
+    await db()
+      .update(schema.projectMilestones)
+      .set({ actualDate: today })
+      .where(
+        and(
+          eq(schema.projectMilestones.projectId, parsed.data.projectId),
+          eq(schema.projectMilestones.phase, project.phase),
+          isNull(schema.projectMilestones.actualDate),
+          isNull(schema.projectMilestones.archivedAt),
+        ),
+      );
+  }
 
   // Advancing re-bases what is still ahead, straight away rather than waiting
   // for the nightly pass: arriving at this phase late makes every date after it
