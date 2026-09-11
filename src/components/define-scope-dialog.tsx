@@ -16,7 +16,7 @@ import { AlertTriangleIcon, CheckCircle2Icon, LockIcon, Trash2Icon } from "lucid
 import { cn } from "@/lib/utils";
 import { fmtDate, moneyExact } from "@/lib/format";
 import { importFindingsToScope } from "@/lib/actions/walks";
-import { createScopeItem, deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
+import { deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { scopeLineTotal } from "@/lib/scope-total";
 
@@ -109,7 +109,6 @@ export function DefineScopeDialog({
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
   const [picked, setPicked] = useState<Set<number>>(() => new Set(importable.map((f) => f.id)));
-  const [manual, setManual] = useState("");
 
   function importPicked() {
     if (picked.size === 0) return;
@@ -151,21 +150,6 @@ export function DefineScopeDialog({
         return;
       }
       toast.success("Scope re-opened");
-      router.refresh();
-    });
-  }
-
-  function addManual() {
-    const item = manual.trim();
-    if (!item) return;
-    startTransition(async () => {
-      const res = await createScopeItem({ propertyId, projectId, item });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      setManual("");
-      toast.success(`Added ${item}`);
       router.refresh();
     });
   }
@@ -384,39 +368,6 @@ export function DefineScopeDialog({
               )}
             </div>
           )}
-
-          <div className="space-y-2 border-t border-border pt-4">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
-              Add a line the walk missed
-            </span>
-            <form
-              className="flex flex-wrap items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addManual();
-              }}
-            >
-              <Input
-                className="h-8 min-w-64 flex-1 text-xs"
-                placeholder="e.g. Replace bathroom exhaust fan"
-                value={manual}
-                disabled={pending || scopeLocked}
-                onChange={(e) => setManual(e.target.value)}
-              />
-              <Button
-                type="submit"
-                size="sm"
-                variant="outline"
-                disabled={pending || scopeLocked || !manual.trim()}
-              >
-                Add line
-              </Button>
-            </form>
-            <p className="text-[11px] text-muted-foreground">
-              Budget categories are set on the project&apos;s Scope tab — this just gets the line onto
-              it, ready to price and describe above.
-            </p>
-          </div>
 
           {/*
             Confirming is gate 2, and it is also the last free edit: sending the
