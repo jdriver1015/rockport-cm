@@ -113,22 +113,31 @@ export default async function RootLayout({
               <span className="font-serif text-[22px] font-semibold leading-none">Rockport</span>
               {/* The tagline is the first thing to go: it is identity, not
                   navigation, and it costs 180px a phone does not have. */}
-              <span className="hidden text-[10.5px] font-semibold tracking-[0.14em] text-on-navy-muted uppercase sm:inline">
+              <span className="hidden text-[10.5px] font-semibold tracking-[0.14em] text-on-navy-muted uppercase lg:inline">
                 construction manager
               </span>
             </Link>
             {user ? (
               <>
-                <nav className="ml-auto hidden items-center gap-6 text-sm text-on-navy-muted sm:flex">
+                {/* Four links, a name and a sign-out button do not fit in one
+                    64px row until well past tablet width — an iPad in
+                    portrait (768px) or even landscape (1024px) is still
+                    narrower than that, so this switches at `lg`, not `sm`.
+                    `min-w-0 truncate` on the name is the backstop: on the
+                    rare screen where it's still tight, or a name is simply
+                    longer than most, it clips with an ellipsis instead of
+                    wrapping to a second line and blowing out the header's
+                    fixed height. */}
+                <nav className="ml-auto hidden items-center gap-6 text-sm text-on-navy-muted lg:flex">
                   {navLinks.map((l) => (
                     <TopNavLink key={l.href} href={l.href}>
                       {l.label}
                     </TopNavLink>
                   ))}
-                  <span className="text-xs text-on-navy-muted">{who}</span>
+                  <span className="min-w-0 max-w-[200px] truncate text-xs text-on-navy-muted">{who}</span>
                   {signOutButton}
                 </nav>
-                <div className="ml-auto sm:hidden">
+                <div className="ml-auto lg:hidden">
                   <MobileNav links={navLinks} who={who} signOut={signOutButton} />
                 </div>
               </>

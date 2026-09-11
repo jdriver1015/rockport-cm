@@ -75,9 +75,14 @@ export default async function BudgetPage({
       <PropertyNav slug={property.slug} />
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
+        {/* flex-wrap on both levels rather than letting either overflow: the
+            Card clips (see TableCard below for why that's the right call for
+            a data table), but a row of view tabs and up to five action
+            buttons has no "less important" half to clip — every one of them,
+            including Add Budget Line, needs to stay reachable at any width. */}
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <BudgetViewSwitch value={view} />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Interior pricing has its own toolbar and isn't covered by this
                 lock, so the control only makes sense next to the views it
                 actually affects. */}

@@ -45,7 +45,7 @@ export function SiteAuditsTable({
   if (audits.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        No audits yet. Click <span className="font-medium">New audit</span> to start a walk-through.
+        No audits yet. Click <span className="font-medium">New walk</span> to start a walk-through.
       </p>
     );
   }

@@ -7,11 +7,12 @@ import { MenuIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * The top nav, for a phone.
+ * The top nav, for anything narrower than a laptop.
  *
  * The desktop header lays a wordmark, four links, a name and a sign-out button
- * in one 64px row. At 375px that is roughly twice the available width, so below
- * `sm` the links collapse behind this button instead.
+ * in one 64px row — that needs something like 900px, which rules out a phone
+ * outright and an iPad too, in either orientation. Below `lg` the links
+ * collapse behind this button instead.
  *
  * A sheet rather than a dropdown: these are destinations, and a superintendent
  * reaching them one-handed wants targets nearer the thumb than the top-left
@@ -48,13 +49,13 @@ export function MobileNav({
         onClick={() => setOpen(true)}
         aria-label="Open menu"
         aria-expanded={open}
-        className="-mr-2 grid size-11 place-items-center rounded-control text-on-navy-muted transition-colors hover:text-white sm:hidden"
+        className="-mr-2 grid size-11 place-items-center rounded-control text-on-navy-muted transition-colors hover:text-white lg:hidden"
       >
         <MenuIcon className="size-5" />
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 sm:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
             aria-label="Close menu"
