@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Newsreader, Inter, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
+import { Fraunces, Inter, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
 import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
@@ -10,8 +10,11 @@ import { db, schema } from "@/db";
 import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
-// Display serif — wordmark, page titles, and card titles only.
-const newsreader = Newsreader({
+// Display serif — wordmark, page titles, and card titles only. Fraunces over
+// Newsreader: same editorial serif register, but drawn with cleaner, more
+// contemporary letterforms — Newsreader's cedilla (as in "Façade") in
+// particular sat oddly at heading weights.
+const fraunces = Fraunces({
   variable: "--font-serif",
   subsets: ["latin"],
   weight: ["500", "600"],
@@ -101,7 +104,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${newsreader.variable} ${inter.variable} ${geistMono.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} ${inter.variable} ${geistMono.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <header className="bg-navy text-white print:hidden">

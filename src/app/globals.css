@@ -11,7 +11,7 @@
   --font-serif: var(--font-serif);
   --font-mono: var(--font-geist-mono);
   --font-plex-mono: var(--font-plex-mono);
-  /* Newsreader carries the wordmark, page titles, and card/dialog titles */
+  /* The display serif carries the wordmark, page titles, and card/dialog titles */
   --font-heading: var(--font-serif);
   /* Rockport brand + status tokens */
   --color-navy: var(--navy);
