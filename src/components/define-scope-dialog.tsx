@@ -41,7 +41,7 @@ export type ScopeLine = {
 
 /** One grid for the header, every row and the totals, so the columns line up. */
 const SCOPE_GRID =
-  "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_92px_minmax(0,110px)_28px] items-start gap-2";
+  "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_96px_minmax(0,140px)_28px] items-start gap-3.5";
 
 /**
  * Resolve the Confirm Scope and Budget gate.
@@ -63,6 +63,7 @@ export function DefineScopeDialog({
   propertyId,
   projectId,
   lines,
+  requireDescriptions,
   scopeConfirmedAt,
   scopeLocked,
   findings,
@@ -72,6 +73,9 @@ export function DefineScopeDialog({
   propertyId: number;
   projectId: number;
   lines: ScopeLine[];
+  /** Unit-turn scope is generated from a budget template with nothing to write
+   *  prose about; common-area scope goes out to vendors who price from it. */
+  requireDescriptions: boolean;
   /** Set once the scope is agreed as ready to price — pre-con gate 2. */
   scopeConfirmedAt: string | null;
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
@@ -83,6 +87,11 @@ export function DefineScopeDialog({
 
   const scopeLineCount = lines.length;
   const missingCode = lines.filter((l) => !l.costCodeName).length;
+  // Mirrors confirmScopeRows: a unit turn's lines come from a budget template
+  // with no prose to write, so only common-area scope is held to this.
+  const missingDescription = requireDescriptions
+    ? lines.filter((l) => !l.materialQuality?.trim()).length
+    : 0;
 
   // What the lines actually add up to. Null lines contribute nothing, so an
   // uncosted scope totals zero rather than guessing at a number.
@@ -93,7 +102,7 @@ export function DefineScopeDialog({
   // Confirming is gated on the scope being priced now, not on a number typed
   // beside it — the budget is derived from these very lines.
   const unpricedCount = lines.filter((l) => !l.quantity || !l.unitPrice).length;
-  const budgetOk = unpricedCount === 0;
+  const budgetOk = unpricedCount === 0 && missingDescription === 0;
 
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
@@ -275,6 +284,18 @@ export function DefineScopeDialog({
                 them on the scope list below or the spend will not reconcile.
               </p>
             )}
+
+            {missingDescription > 0 && (
+              // Confirming requires a description on common-area scope — a
+              // vendor prices from what is written, not from the line's name
+              // alone. Description isn't editable from this dialog on purpose
+              // (see the note above), so this points at where it is.
+              <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
+                <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
+                {missingDescription} line{missingDescription === 1 ? " has" : "s have"} no
+                description — add one on the scope list below before this can be confirmed.
+              </p>
+            )}
           </div>
 
           {importable.length > 0 && (
@@ -421,9 +442,11 @@ export function DefineScopeDialog({
                 <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
                   {scopeLineCount === 0
                     ? "Add at least one line before confirming."
-                    : !budgetOk
+                    : unpricedCount > 0
                       ? "Every line needs a price before this can go out — that sum is what the bids get measured against."
-                      : "Confirm when these lines are what you want priced."}
+                      : missingDescription > 0
+                        ? "Every line needs a description before this can go out — a vendor prices from what is written."
+                        : "Confirm when these lines are what you want priced."}
                 </p>
                 <Button
                   size="sm"

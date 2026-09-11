@@ -41,6 +41,9 @@ export type ContractSummary = {
   executedAt: Date | null;
   /** Whether an actual signed document is on file — not the storage path itself. */
   hasSignedDocument: boolean;
+  /** Just the filename off the storage path — enough to know the file type for
+   *  a preview, without handing out where it actually lives. */
+  signedFileName: string | null;
 };
 
 export function contractNumber(projectId: number, contractId: number): string {
@@ -96,6 +99,7 @@ export async function readContracts(
     countersignedAt: row.countersignedAt,
     executedAt: row.executedAt,
     hasSignedDocument: row.storageKey != null,
+    signedFileName: row.storageKey?.split("/").pop() ?? null,
   }));
 }
 

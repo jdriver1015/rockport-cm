@@ -10,6 +10,7 @@ import { readContracts } from "@/lib/contracts";
 import { liveRfpCount, liveRfpLineIds } from "@/lib/scope-lock";
 import { ProjectManageMenu } from "@/components/project-manage-menu";
 import type { DocumentRow } from "@/components/document-manager";
+import { ProjectDocumentsPanel } from "@/components/project-documents-panel";
 import {
   ProjectScopeList,
   type ScopeRow,
@@ -58,9 +59,10 @@ export default async function ProjectDetailPage({
 }) {
   const { slug, projectId: pid } = await params;
   const sp = await searchParams;
-  // Which panel the switch opens on. Anything but "workflow" — including a
-  // stale or hand-typed value — falls back to the scope table.
-  const initialTab = sp.tab === "workflow" ? "workflow" : "scope";
+  // Which panel the switch opens on. Anything but "workflow" or "documents" —
+  // including a stale or hand-typed value — falls back to the scope table.
+  const initialTab =
+    sp.tab === "workflow" ? "workflow" : sp.tab === "documents" ? "documents" : "scope";
   // Which gate dialog to open on arrival, for the board's Next Step button —
   // that column names the gate a project is stuck on, and a button that named
   // the gate and then dropped you on the page to find it yourself would be
@@ -502,7 +504,6 @@ export default async function ProjectDetailPage({
               projectId={projectId}
               projectName={project.name}
               archived={project.archivedAt != null}
-              documents={documentRows}
               activityLog={auditLog}
               editData={{
                 id: project.id,
@@ -533,6 +534,11 @@ export default async function ProjectDetailPage({
         initialTab={initialTab}
         scopeCount={scopeRows.length}
         gate={gate ? { met: gate.metCount, total: gate.checks.length } : null}
+        documentsCount={
+          documentRows.length +
+          bidPackage.bids.reduce((n, b) => n + b.attachments.length, 0) +
+          liveContracts.filter((c) => c.hasSignedDocument).length
+        }
         scope={
           <ProjectScopeList
             propertyId={propertyId}
@@ -571,6 +577,7 @@ export default async function ProjectDetailPage({
                   propertyId,
                   propertySlug: slug,
                   scopeLineCount: scopeRows.length,
+                  requireDescriptions: project.kind !== "unit",
                   scopeLines: scopeRows.map((r) => ({
                     id: r.id,
                     item: r.item,
@@ -610,6 +617,28 @@ export default async function ProjectDetailPage({
               />
             </CardContent>
           </Card>
+        }
+        documents={
+          <ProjectDocumentsPanel
+            propertyId={propertyId}
+            projectId={projectId}
+            documents={documentRows}
+            bids={bidPackage.bids.map((b) => ({
+              id: b.id,
+              vendorName: b.vendorName,
+              attachments: b.attachments,
+            }))}
+            contracts={liveContracts
+              .filter((c) => c.hasSignedDocument)
+              .map((c) => ({
+                id: c.id,
+                vendorName: c.vendorName,
+                amount: c.amount,
+                executedAt: c.executedAt?.toISOString() ?? null,
+                createdAt: c.createdAt.toISOString(),
+                signedFileName: c.signedFileName,
+              }))}
+          />
         }
       />
     </div>

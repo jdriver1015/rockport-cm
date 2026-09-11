@@ -4,7 +4,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/utils";
 
-export type PanelKey = "scope" | "workflow";
+export type PanelKey = "scope" | "workflow" | "documents";
 
 type PanelState = {
   tab: PanelKey;
@@ -12,6 +12,7 @@ type PanelState = {
   scopeCount: number;
   /** Gate progress for leaving the current phase. Null in the last phase. */
   gate: { met: number; total: number } | null;
+  documentsCount: number;
 };
 
 const PanelContext = createContext<PanelState | null>(null);
@@ -31,14 +32,18 @@ export function ProjectWorkPanels({
   initialTab,
   scopeCount,
   gate,
+  documentsCount,
   scope,
   workflow,
+  documents,
 }: {
   initialTab: PanelKey;
   scopeCount: number;
   gate: { met: number; total: number } | null;
+  documentsCount: number;
   scope: ReactNode;
   workflow: ReactNode;
+  documents: ReactNode;
 }) {
   const [tab, setTabState] = useState<PanelKey>(initialTab);
 
@@ -51,8 +56,8 @@ export function ProjectWorkPanels({
   }
 
   return (
-    <PanelContext.Provider value={{ tab, setTab, scopeCount, gate }}>
-      {tab === "scope" ? scope : workflow}
+    <PanelContext.Provider value={{ tab, setTab, scopeCount, gate, documentsCount }}>
+      {tab === "scope" ? scope : tab === "workflow" ? workflow : documents}
     </PanelContext.Provider>
   );
 }
@@ -80,7 +85,7 @@ function Count({ children, tone }: { children: ReactNode; tone?: "alert" }) {
 export function ProjectPanelSwitch() {
   const ctx = useContext(PanelContext);
   if (!ctx) return null;
-  const { tab, setTab, scopeCount, gate } = ctx;
+  const { tab, setTab, scopeCount, gate, documentsCount } = ctx;
 
   return (
     <SegmentedControl<PanelKey>
@@ -108,6 +113,15 @@ export function ProjectPanelSwitch() {
                   {gate.met}/{gate.total}
                 </Count>
               )}
+            </>
+          ),
+        },
+        {
+          key: "documents",
+          label: (
+            <>
+              Documents
+              <Count>{documentsCount}</Count>
             </>
           ),
         },

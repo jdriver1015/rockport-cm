@@ -17,7 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DocumentsDialogButton, type DocumentRow } from "@/components/document-manager";
 import { ActivityLogDialogButton } from "@/components/project-log-dialog";
 import {
   ProjectEditDialog,
@@ -37,7 +36,7 @@ import { SiteAuditsTable, type SiteAuditRow } from "@/components/site-audits-tab
 type ActivityLogRow = React.ComponentProps<typeof ActivityLogDialogButton>["entries"][number];
 
 /** Which panel the menu has opened, if any. */
-type Panel = "documents" | "log" | "audits" | "newAudit" | "edit" | "archive" | null;
+type Panel = "log" | "audits" | "newAudit" | "edit" | "archive" | null;
 
 /**
  * Every action on a project behind one menu.
@@ -57,7 +56,6 @@ export function ProjectManageMenu({
   projectId,
   projectName,
   archived,
-  documents,
   activityLog,
   editData,
   costCodes,
@@ -71,7 +69,6 @@ export function ProjectManageMenu({
   projectId: number;
   projectName: string;
   archived: boolean;
-  documents: DocumentRow[];
   activityLog: ActivityLogRow[];
   editData: ProjectEditData;
   /** Non-interior codes from this property's chart, for the edit dialog. */
@@ -99,9 +96,6 @@ export function ProjectManageMenu({
           <ChevronDownIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem onClick={() => setPanel("documents")}>
-            Documents{documents.length > 0 ? ` (${documents.length})` : ""}
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setPanel("log")}>Activity log</DropdownMenuItem>
 
           <DropdownMenuSeparator />
@@ -125,15 +119,6 @@ export function ProjectManageMenu({
 
       {/* Mounted only while open, so five dialogs' worth of state and effects
           aren't live on every project page view. */}
-      {panel === "documents" && (
-        <DocumentsDialogButton
-          propertyId={propertyId}
-          projectId={projectId}
-          documents={documents}
-          open
-          onOpenChange={(o) => !o && close()}
-        />
-      )}
       {panel === "log" && (
         <ActivityLogDialogButton entries={activityLog} open onOpenChange={(o) => !o && close()} />
       )}

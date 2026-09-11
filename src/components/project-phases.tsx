@@ -42,6 +42,9 @@ export type GateContext = {
   propertySlug: string;
   scopeLineCount: number;
   scopeLines: ScopeLine[];
+  /** Unit-turn scope is generated from a budget template with nothing to write
+   *  prose about; common-area scope goes out to vendors who price from it. */
+  requireDescriptions: boolean;
   scopeConfirmedAt: string | null;
   /** True once an RFP is out — the scope's priced fields are frozen. */
   scopeLocked: boolean;
@@ -767,6 +770,7 @@ function GateRow({
           propertyId={context.propertyId}
           projectId={projectId}
           lines={context.scopeLines}
+          requireDescriptions={context.requireDescriptions}
           scopeConfirmedAt={context.scopeConfirmedAt}
           scopeLocked={context.scopeLocked}
           findings={context.preWalkFindings}
