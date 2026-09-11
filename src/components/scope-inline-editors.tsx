@@ -3,15 +3,19 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { LockIcon } from "lucide-react";
+import { ExternalLinkIcon, LockIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { updateScopeItem } from "@/lib/actions/scope";
 import { cn } from "@/lib/utils";
+import { ProductThumbnail } from "@/components/product-link";
 
 export type SpecGrid = { cols: string[]; rows: string[][] };
 
-const DEFAULT_SPEC_COLS = ["Item", "Product", "Notes"];
+/** Exactly two: what it's called, and where to see it. A third free-text
+ *  column had nowhere in particular to put anything that mattered — a
+ *  product's own page already carries the notes worth having. */
+const DEFAULT_SPEC_COLS = ["Name", "Link"];
 
 const HEADING = "text-[10px] font-bold uppercase tracking-[0.1em] text-ink-300";
 
@@ -217,10 +221,11 @@ export function SpecsEditor({
         {outForBid ? (
           <FrozenNote vendors={vendorsPricing} />
         ) : (
-          <div className="w-[470px]">
+          <div className="w-[420px]">
             <div className={cn(HEADING, "mb-2")}>Product specifications</div>
 
-            <div className="grid grid-cols-[1fr_1.3fr_1fr_24px] items-center gap-1.5">
+            <div className="grid grid-cols-[28px_1fr_1.3fr_20px] items-center gap-1.5">
+              <div />
               {grid.cols.map((c) => (
                 <div key={c} className="text-[9px] font-bold uppercase tracking-[0.1em] text-ink-300">
                   {c}
@@ -231,7 +236,6 @@ export function SpecsEditor({
               {grid.rows.map((row, ri) => (
                 <RowFields
                   key={ri}
-                  cols={grid.cols}
                   row={row}
                   onChange={(ci, v) => setCell(ri, ci, v)}
                   onBlur={() => commit(grid)}
@@ -275,31 +279,52 @@ export function SpecsEditor({
   );
 }
 
+/** Name and link, always — the two columns SpecsEditor seeds every row with.
+ *  Indexed rather than looped over `cols` generically: a link earns its own
+ *  input type and its own thumbnail, which a fully generic grid could not. */
 function RowFields({
-  cols,
   row,
   onChange,
   onBlur,
   onRemove,
 }: {
-  cols: string[];
   row: string[];
   onChange: (ci: number, value: string) => void;
   onBlur: () => void;
   onRemove: () => void;
 }) {
+  const link = row[1] ?? "";
   return (
     <>
-      {cols.map((c, ci) => (
+      <ProductThumbnail url={link} size={26} />
+      <input
+        value={row[0] ?? ""}
+        placeholder="Name"
+        onChange={(e) => onChange(0, e.target.value)}
+        onBlur={onBlur}
+        className="h-7 w-full rounded-control border border-input bg-transparent px-2 text-[12.5px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+      />
+      <span className="flex items-center gap-1">
         <input
-          key={c}
-          value={row[ci] ?? ""}
-          placeholder={c}
-          onChange={(e) => onChange(ci, e.target.value)}
+          type="url"
+          value={link}
+          placeholder="https://…"
+          onChange={(e) => onChange(1, e.target.value)}
           onBlur={onBlur}
-          className="h-7 w-full rounded-control border border-input bg-transparent px-2 text-[12.5px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="h-7 w-full min-w-0 rounded-control border border-input bg-transparent px-2 text-[12.5px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
         />
-      ))}
+        {/^https?:\/\//i.test(link) && (
+          <a
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open link"
+            className="shrink-0 text-ink-300 hover:text-navy"
+          >
+            <ExternalLinkIcon className="size-3.5" />
+          </a>
+        )}
+      </span>
       <button
         type="button"
         onClick={onRemove}

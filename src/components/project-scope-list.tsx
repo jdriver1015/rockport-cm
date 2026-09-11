@@ -1,9 +1,17 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckIcon, CopyIcon, EllipsisIcon, LockIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import {
+  CheckIcon,
+  CopyIcon,
+  EllipsisIcon,
+  ExternalLinkIcon,
+  LockIcon,
+  PencilIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import {
@@ -32,6 +40,7 @@ import {
   OutForBidChip,
   SpecsEditor,
 } from "@/components/scope-inline-editors";
+import { ProductLinkChip, ProductThumbnail } from "@/components/product-link";
 import { createScopeItem, deleteScopeItem, restoreScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { fmtDate, initials, money } from "@/lib/format";
@@ -60,7 +69,7 @@ export type ScopeVendorOption = { id: number; name: string; trade: string | null
 /** Underwriting budget for a cost code, and everything already allocated to it property-wide. */
 export type CostCodeBudget = { budget: number; allocated: number };
 
-const DEFAULT_SPEC_COLS = ["Item", "Product", "Notes"];
+const DEFAULT_SPEC_COLS = ["Name", "Link"];
 
 /** Shared grid so the column header, every row, and the total line up. */
 const GRID = "grid grid-cols-[minmax(0,1fr)_120px_120px_120px_28px] items-baseline gap-3.5";
@@ -676,15 +685,7 @@ function ScopeLineRow({
         >
           <span className="mt-2 flex flex-wrap items-center gap-1.5">
             {specRows.slice(0, 4).map((cells, i) => (
-              <span
-                key={i}
-                className="inline-flex max-w-full items-baseline gap-1.5 rounded-[5px] border border-border bg-card px-[7px] py-0.5 text-[11px] transition-colors hover:border-ink-200"
-              >
-                <span className="font-semibold text-ink-400">{cells[0] || "—"}</span>
-                <span className="truncate text-ink-700">
-                  {cells.slice(1).filter(Boolean).join(" · ")}
-                </span>
-              </span>
+              <ProductLinkChip key={i} name={cells[0] ?? ""} url={cells[1] ?? ""} className="max-w-[220px]" />
             ))}
             {specRows.length > 4 && (
               <span className="text-[11px] text-ink-400">+{specRows.length - 4} more</span>
@@ -1139,25 +1140,49 @@ function ScopeEditorDialog({
             <p className="text-[12.5px] text-ink-300">None specified.</p>
           ) : (
             <>
-              <div className="grid grid-cols-[1fr_1.3fr_1fr] gap-2">
-                {specs.cols.map((c) => (
-                  <div key={c} className={LABEL}>
-                    {c}
-                  </div>
-                ))}
-                {specs.rows.map((r, ri) =>
-                  specs.cols.map((c, ci) => (
-                    <Input
-                      key={`${ri}-${c}`}
-                      className="h-8 text-xs"
-                      disabled={outForBid}
-                      value={r[ci] ?? ""}
-                      placeholder={c}
-                      onChange={(e) => setSpecCell(ri, ci, e.target.value)}
-                      onBlur={() => commit({ specs })}
-                    />
-                  )),
-                )}
+              <div className="grid grid-cols-[28px_1fr_1.4fr] items-center gap-2">
+                <div />
+                <div className={LABEL}>Name</div>
+                <div className={LABEL}>Link</div>
+
+                {specs.rows.map((r, ri) => {
+                  const link = r[1] ?? "";
+                  return (
+                    <Fragment key={ri}>
+                      <ProductThumbnail url={link} size={28} />
+                      <Input
+                        className="h-8 text-xs"
+                        disabled={outForBid}
+                        value={r[0] ?? ""}
+                        placeholder="Name"
+                        onChange={(e) => setSpecCell(ri, 0, e.target.value)}
+                        onBlur={() => commit({ specs })}
+                      />
+                      <span className="flex items-center gap-1.5">
+                        <Input
+                          className="h-8 min-w-0 flex-1 text-xs"
+                          type="url"
+                          disabled={outForBid}
+                          value={link}
+                          placeholder="https://…"
+                          onChange={(e) => setSpecCell(ri, 1, e.target.value)}
+                          onBlur={() => commit({ specs })}
+                        />
+                        {/^https?:\/\//i.test(link) && (
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label="Open link"
+                            className="shrink-0 text-ink-300 hover:text-navy"
+                          >
+                            <ExternalLinkIcon className="size-3.5" />
+                          </a>
+                        )}
+                      </span>
+                    </Fragment>
+                  );
+                })}
               </div>
               {!outForBid && (
                 <Button size="sm" variant="ghost" className="mt-2 -ml-2" onClick={addSpecRow}>
