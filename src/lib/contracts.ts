@@ -182,6 +182,76 @@ export async function generateContractRow(bidId: number): Promise<GenerateResult
   return { ok: true, contractId: row.id };
 }
 
+export type PreviewResult = { ok: true; data: ContractData } | { ok: false; error: string };
+
+/**
+ * What generating would produce, without writing anything.
+ *
+ * Same checks and the same template fill as generateContractRow — this is
+ * meant to be trustworthy, not a rough sketch — but it reads instead of
+ * inserting, so looking is free and can happen any number of times before
+ * anyone commits to a draft row.
+ */
+export async function previewContractData(bidId: number): Promise<PreviewResult> {
+  const bid = await db().query.bids.findFirst({
+    where: and(eq(schema.bids.id, bidId), isNull(schema.bids.archivedAt)),
+    columns: { id: true, projectId: true, approved: true },
+  });
+  if (!bid) return { ok: false, error: "Bid not found" };
+  if (!bid.approved) {
+    return { ok: false, error: "Award this bid before previewing its contract" };
+  }
+  const projectId = bid.projectId;
+
+  const [{ total }] = await db()
+    .select({ total: sql<number>`coalesce(sum(${schema.bidLineItems.amount}), 0)::float8` })
+    .from(schema.bidLineItems)
+    .where(eq(schema.bidLineItems.bidId, bid.id));
+  if (total <= 0) return { ok: false, error: "The winning bid has no priced lines" };
+
+  const template = await db().query.contractTemplates.findFirst({
+    where: and(
+      eq(schema.contractTemplates.isDefault, true),
+      isNull(schema.contractTemplates.archivedAt),
+    ),
+  });
+  if (!template) {
+    return { ok: false, error: "No default contract template. Set one up in Settings first." };
+  }
+
+  const ctx = await readContractContext(projectId, bid.id);
+  if (!ctx) return { ok: false, error: "Project not found" };
+
+  const body = fillTemplate(template.body, {
+    company: COMPANY,
+    vendor: ctx.vendorName,
+    property: ctx.propertyName,
+    project: ctx.projectName,
+    amount: `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    date: new Date().toISOString().slice(0, 10),
+  });
+
+  return {
+    ok: true,
+    data: {
+      company: COMPANY,
+      propertyName: ctx.propertyName,
+      projectName: ctx.projectName,
+      vendorName: ctx.vendorName,
+      vendorContact: ctx.vendorContact,
+      body,
+      lines: ctx.lines,
+      amount: total,
+      linesArePriced: ctx.linesArePriced,
+      // No row exists yet to number against — said plainly rather than guessed.
+      contractNumber: "PREVIEW — not yet generated",
+      dateLabel: new Date().toISOString().slice(0, 10),
+      awardNote: ctx.awardNote,
+      draft: true,
+    },
+  };
+}
+
 /**
  * Record a contract that was signed outside the system: attach the actual
  * document and mark it executed directly, whether or not this award ever had

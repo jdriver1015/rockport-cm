@@ -66,3 +66,21 @@ export function fillTemplate(body: string, fields: TemplateFields): string {
     key in fields ? fields[key as keyof TemplateFields] : whole,
   );
 }
+
+/** Stand-ins for the fields a real contract would carry — enough to show what
+ *  a template will actually look like without a project or a bid behind it. */
+export const SAMPLE_FIELDS: TemplateFields = {
+  company: "Westcreek Capital",
+  vendor: "Sample Contractor LLC",
+  property: "Sample Property",
+  project: "Sample Project",
+  amount: "$25,000.00",
+  date: new Date().toISOString().slice(0, 10),
+};
+
+/** Two made-up lines, priced to add up to SAMPLE_FIELDS.amount, so the Exhibit
+ *  A table in the preview isn't empty. */
+export const SAMPLE_LINES = [
+  { index: 1, item: "Sample scope item — materials", costCode: "1000 · General Conditions", amount: 15000 },
+  { index: 2, item: "Sample scope item — labor", costCode: "2000 · Framing", amount: 10000 },
+];

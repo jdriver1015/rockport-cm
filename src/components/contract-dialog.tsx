@@ -230,31 +230,43 @@ function AwardContract({
               </div>
 
               {isNext && (
-                <Button
-                  size="sm"
-                  disabled={pending}
-                  onClick={() =>
-                    i === 0
-                      ? run(
-                          () => generateContract({ projectId, bidId: award.bidId }),
-                          "Contract generated",
-                        )
-                      : run(
-                          () =>
-                            advanceContract({
-                              projectId,
-                              contractId: contract!.id,
-                              to: STEPS[i].key as
-                                | "out_for_signature"
-                                | "vendor_signed"
-                                | "executed",
-                            }),
-                          STEPS[i].done,
-                        )
-                  }
-                >
-                  {i === 0 ? "Generate" : i === 1 ? "Mark sent" : "Mark signed"}
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  {i === 0 && (
+                    <a
+                      href={`/api/projects/${projectId}/contract/preview?bidId=${award.bidId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[12.5px] text-link hover:underline"
+                    >
+                      Preview
+                    </a>
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={pending}
+                    onClick={() =>
+                      i === 0
+                        ? run(
+                            () => generateContract({ projectId, bidId: award.bidId }),
+                            "Contract generated",
+                          )
+                        : run(
+                            () =>
+                              advanceContract({
+                                projectId,
+                                contractId: contract!.id,
+                                to: STEPS[i].key as
+                                  | "out_for_signature"
+                                  | "vendor_signed"
+                                  | "executed",
+                              }),
+                            STEPS[i].done,
+                          )
+                    }
+                  >
+                    {i === 0 ? "Generate" : i === 1 ? "Mark sent" : "Mark signed"}
+                  </Button>
+                </div>
               )}
             </div>
           );

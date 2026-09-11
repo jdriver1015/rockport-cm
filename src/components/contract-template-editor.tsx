@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2Icon } from "lucide-react";
@@ -108,12 +108,68 @@ function TemplateForm({ template }: { template: TemplateRow }) {
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(template.name);
   const [body, setBody] = useState(template.body);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [rendering, setRendering] = useState(false);
 
   const dirty = name !== template.name || body !== template.body;
   const unknown = [...body.matchAll(/\{\{(\w+)\}\}/g)]
     .map((m) => m[0])
     .filter((tok, i, all) => all.indexOf(tok) === i)
     .filter((tok) => !TEMPLATE_PLACEHOLDERS.some((p) => p.token === tok));
+
+  // Renders what's typed, not what's saved — a template is worth seeing as a
+  // real document before committing to it, with sample data standing in since
+  // there is no project behind this screen. Debounced so the PDF isn't
+  // rebuilt on every keystroke; the object URL from the previous render is
+  // revoked on cleanup so a fast typist doesn't leak one blob per keystroke.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setRendering(true);
+      void fetch("/api/contract-template/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      })
+        .then(async (res) => {
+          if (cancelled) return;
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            setPreviewError(data?.error ?? "Could not render a preview");
+            setPreviewUrl(null);
+            return;
+          }
+          const blob = await res.blob();
+          setPreviewError(null);
+          setPreviewUrl((old) => {
+            if (old) URL.revokeObjectURL(old);
+            return URL.createObjectURL(blob);
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setPreviewError("Could not render a preview");
+        })
+        .finally(() => {
+          if (!cancelled) setRendering(false);
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [body]);
+
+  // The current object URL is only ever revoked by the next render's swap or
+  // by this unmount cleanup — never by the fetch effect itself, which would
+  // revoke the URL an <iframe> is actively showing.
+  const previewUrlRef = useRef(previewUrl);
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
 
   function save() {
     startTransition(async () => {
@@ -166,14 +222,40 @@ function TemplateForm({ template }: { template: TemplateRow }) {
         )}
       </div>
 
-      <textarea
-        rows={22}
-        value={body}
-        disabled={pending}
-        onChange={(e) => setBody(e.target.value)}
-        aria-label="Template body"
-        className="w-full rounded-control border border-input bg-card px-3 py-2 font-mono text-[12.5px] leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-      />
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <textarea
+          rows={22}
+          value={body}
+          disabled={pending}
+          onChange={(e) => setBody(e.target.value)}
+          aria-label="Template body"
+          className="w-full rounded-control border border-input bg-card px-3 py-2 font-mono text-[12.5px] leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+        />
+
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between pb-1.5">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-ink-300">
+              Preview — sample vendor and amount
+            </span>
+            {rendering && <span className="text-[11px] text-ink-300">Rendering…</span>}
+          </div>
+          {previewError ? (
+            <div className="flex h-[600px] items-center justify-center rounded-control border border-dashed border-border px-4 text-center text-[12.5px] text-muted-foreground">
+              {previewError}
+            </div>
+          ) : previewUrl ? (
+            <iframe
+              title="Template preview"
+              src={previewUrl}
+              className="h-[600px] w-full rounded-control border border-border"
+            />
+          ) : (
+            <div className="flex h-[600px] items-center justify-center rounded-control border border-dashed border-border px-4 text-center text-[12.5px] text-muted-foreground">
+              Rendering the first preview…
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1.5">
