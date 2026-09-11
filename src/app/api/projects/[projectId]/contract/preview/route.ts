@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
-import { createClient } from "@/lib/supabase/server";
 import { ContractDocument } from "@/lib/contract-document";
 import { previewContractData } from "@/lib/contracts";
+import { pdfResponse, requireSignedInApiUser } from "@/lib/pdf-route";
 
 /**
  * What Generate would produce for one awarded bid, rendered without writing
@@ -20,11 +20,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ projectId: 
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const auth = await requireSignedInApiUser();
+  if (!auth.ok) return auth.response;
 
   const bidIdRaw = req.nextUrl.searchParams.get("bidId");
   const bidId = bidIdRaw == null ? NaN : Number(bidIdRaw);
@@ -44,13 +41,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ projectId: 
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
 
   const buffer = await renderToBuffer(ContractDocument({ data: res.data }));
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="preview.pdf"`,
-      // A preview is only as current as the bid and template it was built
-      // from — never worth caching.
-      "Cache-Control": "no-store",
-    },
-  });
+  return pdfResponse(buffer, "preview.pdf");
 }

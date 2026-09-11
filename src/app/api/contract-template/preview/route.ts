@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
-import { createClient } from "@/lib/supabase/server";
 import { ContractDocument, type ContractData } from "@/lib/contract-document";
 import { fillTemplate, SAMPLE_FIELDS, SAMPLE_LINES } from "@/lib/contract-template-starter";
+import { pdfResponse, requireSignedInApiUser } from "@/lib/pdf-route";
 
 /**
  * What a template body looks like as a real document — with sample data
@@ -13,11 +13,8 @@ import { fillTemplate, SAMPLE_FIELDS, SAMPLE_LINES } from "@/lib/contract-templa
  * row, so the editor can preview what's typed before it's saved.
  */
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const auth = await requireSignedInApiUser();
+  if (!auth.ok) return auth.response;
 
   const json = await req.json().catch(() => null);
   const body = typeof json?.body === "string" ? json.body : null;
@@ -45,11 +42,5 @@ export async function POST(req: NextRequest) {
   };
 
   const buffer = await renderToBuffer(ContractDocument({ data }));
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="template-preview.pdf"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  return pdfResponse(buffer, "template-preview.pdf");
 }

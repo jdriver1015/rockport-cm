@@ -468,8 +468,20 @@ export async function computePropertyBudget(
     ? `Interiors are computed from the interior plan — ${interior.unitGroups.length} unit group${interior.unitGroups.length === 1 ? "" : "s"} × ${interior.tiers.length} tier${interior.tiers.length === 1 ? "" : "s"}, ${money(interior.total)}. Set what each type costs under Unit Upgrades → Renovation types.`
     : null;
 
-  const categoryOptions = categories.map((c) => ({ id: c.id, code: c.code, name: c.name }));
-  const costCodeOptions = codes.map((c) => ({
+  // Once an interior plan exists, its per-type pricing (Unit Upgrades →
+  // Renovation types) is the only thing that ever reaches the budget for an
+  // interior cost code — computeBudgetCategories always prefers the derived
+  // amount over a hand-entered one. Offering these codes here anyway used to
+  // let someone fill out a line, get a "Budget line added" toast, and have it
+  // silently do nothing: the total never moved, and the row then had no
+  // screen left to appear on, since the table only opens the editor for
+  // lines that aren't plan-derived.
+  const addableCodes = derivedInteriors ? codes.filter((c) => !c.isInterior) : codes;
+  const categoryIdsWithAddableCodes = new Set(addableCodes.map((c) => c.categoryId));
+  const categoryOptions = categories
+    .filter((c) => categoryIdsWithAddableCodes.has(c.id))
+    .map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  const costCodeOptions = addableCodes.map((c) => ({
     id: c.id,
     categoryId: c.categoryId,
     code: c.code,

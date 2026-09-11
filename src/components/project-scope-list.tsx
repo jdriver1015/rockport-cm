@@ -216,8 +216,10 @@ export function ProjectScopeList({
         quantity: row.quantity,
         unitPrice: row.unitPrice,
         costCodeId: row.costCodeId,
-        startDate: row.startDate,
-        endDate: row.endDate,
+        // Not startDate/endDate: there's no editor left for a scope line's own
+        // dates (see the Schedule section removed from ScopeEditorDialog), so
+        // silently carrying a source row's dates onto its copy would produce
+        // data nothing in the UI can show, change, or explain.
         specs: row.specs,
       });
       if (!res.ok) {
@@ -655,20 +657,31 @@ function ScopeLineRow({
         </div>
       </div>
 
-      {description && (
-        <DescriptionEditor
-          scopeItemId={row.id}
-          propertyId={propertyId}
-          projectId={projectId}
-          value={description}
-          outForBid={frozen}
-          vendorsPricing={liveRfpCount}
-        >
+      {/*
+        One instance regardless of whether this line has a description yet —
+        same reasoning as SpecsEditor below: its popover can still be open
+        with an unsaved draft when a save elsewhere flips `description`
+        truthy/falsy, and two call sites picked by that boolean would unmount
+        the open popover out from under the user's typing.
+      */}
+      <DescriptionEditor
+        scopeItemId={row.id}
+        propertyId={propertyId}
+        projectId={projectId}
+        value={description}
+        outForBid={frozen}
+        vendorsPricing={liveRfpCount}
+      >
+        {description ? (
           <p className="mt-2 max-w-[68ch] px-1 text-[12.5px] leading-relaxed text-ink-500">
             {description}
           </p>
-        </DescriptionEditor>
-      )}
+        ) : (
+          <span className="mt-1.5 inline-block text-[11.5px] text-ink-200 underline underline-offset-[3px] transition-colors hover:text-ink-500">
+            Add description
+          </span>
+        )}
+      </DescriptionEditor>
 
       {/*
         One instance regardless of whether this line has specs yet — not two
@@ -704,23 +717,6 @@ function ScopeLineRow({
           </span>
         )}
       </SpecsEditor>
-
-      {!description && (
-        <div className="mt-1.5 text-[11.5px] text-ink-200">
-          <DescriptionEditor
-            scopeItemId={row.id}
-            propertyId={propertyId}
-            projectId={projectId}
-            value=""
-            outForBid={frozen}
-            vendorsPricing={liveRfpCount}
-          >
-            <span className="underline underline-offset-[3px] transition-colors hover:text-ink-500">
-              Add description
-            </span>
-          </DescriptionEditor>
-        </div>
-      )}
     </div>
   );
 }

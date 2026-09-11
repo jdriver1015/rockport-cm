@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { createClient } from "@/lib/supabase/server";
 import { ContractDocument } from "@/lib/contract-document";
 import { readContracts, readContractDocument } from "@/lib/contracts";
+import { pdfResponse, requireSignedInApiUser } from "@/lib/pdf-route";
 
 /**
  * The contract as a PDF.
@@ -19,11 +19,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ projectId: 
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const auth = await requireSignedInApiUser();
+  if (!auth.ok) return auth.response;
 
   // Which contract. A split job has one per award, so the caller names it; the
   // parameter stays optional for the single-contract case, which is most of them.
@@ -60,13 +57,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ projectId: 
     /[^a-zA-Z0-9 .\-_]/g,
     "_",
   );
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${filename}"`,
-      // A draft changes every time it is regenerated, and an executed one must
-      // not be served from a cache that predates the signature.
-      "Cache-Control": "no-store",
-    },
-  });
+  return pdfResponse(buffer, filename);
 }

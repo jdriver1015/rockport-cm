@@ -226,7 +226,12 @@ export function SpecsEditor({
 
             <div className="grid grid-cols-[28px_1fr_1.3fr_20px] items-center gap-1.5">
               <div />
-              {grid.cols.map((c) => (
+              {/* Hardcoded to what RowFields actually renders — two columns,
+                  always — rather than grid.cols.map(...). A line saved before
+                  the name+link simplification can still carry a 3-entry cols
+                  array; mapping over it would put a 5th header cell into this
+                  4-track grid and misalign every row under it. */}
+              {DEFAULT_SPEC_COLS.map((c) => (
                 <div key={c} className="text-[9px] font-bold uppercase tracking-[0.1em] text-ink-300">
                   {c}
                 </div>

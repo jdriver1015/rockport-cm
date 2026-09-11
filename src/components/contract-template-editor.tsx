@@ -136,11 +136,18 @@ function TemplateForm({ template }: { template: TemplateRow }) {
           if (cancelled) return;
           if (!res.ok) {
             const data = await res.json().catch(() => null);
+            // Re-checked after the await: a superseded request can still be
+            // the one whose body finishes resolving last.
+            if (cancelled) return;
             setPreviewError(data?.error ?? "Could not render a preview");
-            setPreviewUrl(null);
+            setPreviewUrl((old) => {
+              if (old) URL.revokeObjectURL(old);
+              return null;
+            });
             return;
           }
           const blob = await res.blob();
+          if (cancelled) return;
           setPreviewError(null);
           setPreviewUrl((old) => {
             if (old) URL.revokeObjectURL(old);

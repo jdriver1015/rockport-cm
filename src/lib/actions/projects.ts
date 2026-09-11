@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { PROJECT_PHASES, phaseIndex, phaseLabel } from "@/lib/stages";
@@ -329,19 +329,26 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
       ),
     );
 
-  // Advancing forward also stamps whatever phase this leaves, if it never got
-  // one — the gap that let Pre-Construction's actual date stay blank forever,
-  // since a project starts there with no "entering" transition of its own to
-  // catch it. Skipped on a reopen (a backward move): the phase being left then
-  // is the one being reconsidered, not one that just finished.
+  // Advancing forward also stamps whatever phases this move leaves behind, if
+  // they never got their own date — the gap that let Pre-Construction's actual
+  // date stay blank forever, since a project starts there with no "entering"
+  // transition of its own to catch it. `toPhase` has no adjacency requirement
+  // against project.phase, so a jump of more than one step (a caller that ever
+  // does that) skips every phase strictly in between unless they're all
+  // covered here too, not just the one immediately being left. Skipped on a
+  // reopen (a backward move): the phases being left then are being
+  // reconsidered, not phases that just finished.
   if (project.phase && phaseIndex(toPhase) > phaseIndex(project.phase)) {
+    const skipped = PROJECT_PHASES.slice(phaseIndex(project.phase), phaseIndex(toPhase)).map(
+      (p) => p.key,
+    );
     await db()
       .update(schema.projectMilestones)
       .set({ actualDate: today })
       .where(
         and(
           eq(schema.projectMilestones.projectId, parsed.data.projectId),
-          eq(schema.projectMilestones.phase, project.phase),
+          inArray(schema.projectMilestones.phase, skipped),
           isNull(schema.projectMilestones.actualDate),
           isNull(schema.projectMilestones.archivedAt),
         ),

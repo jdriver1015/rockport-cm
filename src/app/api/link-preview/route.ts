@@ -82,6 +82,14 @@ export async function GET(req: NextRequest) {
     if (!(res.headers.get("content-type") ?? "").includes("html")) {
       return NextResponse.json({ image: null, title: null });
     }
+    // redirect:"follow" already chased any redirects by this point — res.url
+    // is the final address, which can differ from the one isBlockedHost
+    // checked above. A URL that passes the check can still 302 to an internal
+    // host, so the destination has to clear the same check before its body
+    // is read.
+    if (isBlockedHost(new URL(res.url).hostname)) {
+      return NextResponse.json({ image: null, title: null });
+    }
 
     // Read just enough of the page to have a </head> — a product page's OG
     // tags live there, and the body can be megabytes of markup we don't need.

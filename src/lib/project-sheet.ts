@@ -16,6 +16,19 @@ import { phaseLabel } from "@/lib/stages";
 // was exported from.
 // ---------------------------------------------------------------------------
 
+// A spec row's Link cell is a full pasted URL — fine on screen, where
+// ProductLinkChip shows it as a clean host-name pill, but a static PDF has no
+// equivalent treatment and would otherwise print the raw address inline,
+// unwrapped, next to the item's other columns.
+function shortenIfUrl(cell: string): string {
+  if (!/^https?:\/\//i.test(cell)) return cell;
+  try {
+    return new URL(cell).hostname.replace(/^www\./, "");
+  } catch {
+    return cell;
+  }
+}
+
 export type SheetScopeLine = {
   item: string;
   category: string | null;
@@ -182,7 +195,7 @@ export async function readProjectSheet(projectId: number): Promise<ProjectSheet 
       description: s.description,
       specs: (s.specs?.rows ?? [])
         .filter((r) => r.some((c) => c.trim()))
-        .map((r) => r.filter(Boolean).join(" · ")),
+        .map((r) => r.filter(Boolean).map(shortenIfUrl).join(" · ")),
       vendorName: s.vendorName,
       budgeted: scopeLineTotal(s),
       committed: committedByLine.get(s.id) ?? null,
