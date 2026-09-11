@@ -175,7 +175,7 @@ export function SelectBidDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Bids</DialogTitle>
           <DialogDescription>
@@ -201,7 +201,7 @@ export function SelectBidDialog({
             onClose={() => setMode("compare")}
           />
         ) : (
-        <div className="max-h-[70vh] space-y-5 overflow-y-auto">
+        <div className="space-y-5">
           <div className="flex justify-end gap-2">
             {/* For a bid that came in by phone or email instead of the portal —
                 the only door into the bids table other than the invite wizard. */}
