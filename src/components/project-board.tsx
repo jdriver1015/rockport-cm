@@ -741,19 +741,18 @@ function TableView({
             already carries the date that matters, the forecast finish.
           */}
           <TableRow>
-            <TableHead className="w-[21%]">Project</TableHead>
-            <TableHead className="w-[14%]">Schedule</TableHead>
-            <TableHead className="w-[13%]">Project Mgr.</TableHead>
-            <TableHead className="w-[12%] text-right">Planned Cost</TableHead>
-            <TableHead className="w-[12%] text-right">Reconciled Cost</TableHead>
-            <TableHead className="w-[11%] text-right">Variance</TableHead>
-            <TableHead className="w-[17%]">Next Step</TableHead>
+            <TableHead className="w-[24%]">Project</TableHead>
+            <TableHead className="w-[15%]">Schedule</TableHead>
+            <TableHead className="w-[14%]">Project Mgr.</TableHead>
+            <TableHead className="w-[14%] text-right">Planned Cost</TableHead>
+            <TableHead className="w-[13%] text-right">Variance</TableHead>
+            <TableHead className="w-[20%]">Next Step</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {shown.map((g) => (
             <Fragment key={g.key}>
-              <TableGroupRow label={g.label} count={g.projects.length} colSpan={7} />
+              <TableGroupRow label={g.label} count={g.projects.length} colSpan={6} />
               {g.projects.map((p) => {
                 return (
                   <TableRow
@@ -813,13 +812,6 @@ function TableView({
                     </TableCell>
                     <TableCell>
                       <AmountCell value={p.budget} />
-                    </TableCell>
-                    <TableCell>
-                      {/* Not `positive`. Green is this app's "good news" colour
-                          and this is money spent — a large reconciled figure is
-                          not an achievement, it is just the number. Variance is
-                          the column that earns a colour. */}
-                      <AmountCell value={p.jtd} />
                     </TableCell>
                     <TableCell>
                       <VarianceCell budget={p.budget} actual={p.jtd} />
