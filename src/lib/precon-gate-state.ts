@@ -94,7 +94,13 @@ export async function readGateStates(
       .select({
         projectId: schema.bids.projectId,
         approved: sql<number>`count(*) filter (where ${schema.bids.approved})::int`,
-        outstanding: sql<number>`count(*) filter (where ${schema.bids.status} = 'sent')::int`,
+        // "sent" (still waiting on the vendor) and "received" (priced, waiting
+        // on us) are both live asks nobody has acted on. Counting only "sent"
+        // meant the gate forgot a bid the moment its own vendor priced it —
+        // "Select Bid" read as "Nothing out for bid" right when there was
+        // finally something to select.
+        outstanding: sql<number>`count(*) filter (
+          where ${schema.bids.status} in ('sent', 'received') and not ${schema.bids.approved})::int`,
         // Sent and not taken back. A withdrawn request is one we pulled so the
         // scope could change, so it must not hold the gate open. Declined still
         // counts: it did go out, the vendor just said no.

@@ -99,6 +99,7 @@ export async function computeRentRollTrendFor(propertyId: number): Promise<Trend
       totalMarketRent: schema.rentRollBatches.totalMarketRent,
       totalInPlaceRent: schema.rentRollBatches.totalInPlaceRent,
       lossToLease: schema.rentRollBatches.lossToLease,
+      committedAt: schema.rentRollBatches.committedAt,
     })
     .from(schema.rentRollBatches)
     .where(
@@ -110,8 +111,16 @@ export async function computeRentRollTrendFor(propertyId: number): Promise<Trend
     )
     .orderBy(asc(schema.rentRollBatches.asOfDate), asc(schema.rentRollBatches.createdAt));
 
-  // A snapshot with no as-of date cannot be placed on a timeline at all.
+  // A source file without a detectable "as of" banner date still committed —
+  // the day it was committed is the best fact left to place it on the
+  // timeline with, rather than dropping the snapshot from every rollup here
+  // (occupancy trend, trade-out, the property's own "committed?" check) with
+  // nothing on screen explaining why a rent roll that plainly committed
+  // isn't showing up anywhere.
   return buildRentRollTrend(
-    rows.flatMap((r) => (r.asOfDate == null ? [] : [{ ...r, asOfDate: r.asOfDate }])),
+    rows.flatMap((r) => {
+      const asOfDate = r.asOfDate ?? r.committedAt?.toISOString().slice(0, 10) ?? null;
+      return asOfDate == null ? [] : [{ ...r, asOfDate }];
+    }),
   );
 }

@@ -23,6 +23,7 @@ export async function computeTurnPerformanceFor(propertyId: number): Promise<Tur
     .select({
       batchId: schema.rentRollBatches.id,
       asOfDate: schema.rentRollBatches.asOfDate,
+      committedAt: schema.rentRollBatches.committedAt,
     })
     .from(schema.rentRollBatches)
     .where(
@@ -34,9 +35,14 @@ export async function computeTurnPerformanceFor(propertyId: number): Promise<Tur
     )
     .orderBy(asc(schema.rentRollBatches.asOfDate), asc(schema.rentRollBatches.createdAt));
 
-  const snapshots: SnapshotRef[] = snapshotRows
-    .filter((r): r is { batchId: number; asOfDate: string } => r.asOfDate != null)
-    .map((r) => ({ batchId: r.batchId, asOfDate: r.asOfDate }));
+  // A source file without a detectable "as of" banner date still committed —
+  // see rent-roll-trend.ts for the matching fallback and the reason it
+  // exists: dropping the snapshot here as well would silently exclude it
+  // from trade-out too, on top of the occupancy trend.
+  const snapshots: SnapshotRef[] = snapshotRows.flatMap((r) => {
+    const asOfDate = r.asOfDate ?? r.committedAt?.toISOString().slice(0, 10) ?? null;
+    return asOfDate == null ? [] : [{ batchId: r.batchId, asOfDate }];
+  });
 
   const [turnRows, unitRows, costRows] = await Promise.all([
     db()
