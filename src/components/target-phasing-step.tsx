@@ -153,8 +153,8 @@ export function TargetPhasingStep({
 
         {warnings.length > 0 && (
           <p className="rounded-control bg-alert-bg px-2.5 py-1.5 text-[12px] text-alert">
-            {warnings.join(" · ")}. Saving is still allowed — dates get resequenced often — but
-            check this is what you meant.
+            {warnings.join(" · ")}. Fix the order before continuing — a phase can&rsquo;t target a
+            start before the one it follows.
           </p>
         )}
       </div>

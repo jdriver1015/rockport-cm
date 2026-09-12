@@ -26,7 +26,7 @@ import { listPreWalkFindings } from "@/lib/pre-walk-findings";
 import { readBidPackage } from "@/lib/bid-package";
 import { fetchActivityLog } from "@/lib/actions/activity-log";
 import { TierBadge } from "@/components/ui/tier-badge";
-import { fmtDate, num } from "@/lib/format";
+import { num } from "@/lib/format";
 import { nextPhase } from "@/lib/stages";
 import { createClient } from "@/lib/supabase/server";
 import { parseProjectId, projectSlug } from "@/lib/slug";
@@ -401,9 +401,6 @@ export default async function ProjectDetailPage({
   // Pre-Construction", because the Pre-Construction row is stamped by hand and
   // is usually left blank.
   const upcoming = nextPhase(project.phase);
-  const nextMilestone = upcoming
-    ? (milestones.find((m) => m.phase === upcoming.key) ?? null)
-    : null;
 
   const otherProjectOptions = otherProjects.filter((p) => p.id !== projectId);
 
@@ -560,13 +557,8 @@ export default async function ProjectDetailPage({
         }
         workflow={
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader>
               <ProjectPanelSwitch />
-              <span className="text-sm text-muted-foreground">
-                {nextMilestone
-                  ? `Next up: ${nextMilestone.label}${nextMilestone.plannedDate ? ` · targeted to begin ${fmtDate(nextMilestone.plannedDate)}` : ""}`
-                  : "Final phase"}
-              </span>
             </CardHeader>
             <CardContent>
               <ProjectPhases

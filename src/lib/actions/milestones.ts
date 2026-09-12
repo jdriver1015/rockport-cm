@@ -14,6 +14,7 @@ import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
 import { fmtDate } from "@/lib/format";
 import { rebaseFromActual } from "@/lib/target-slip";
 import { phaseLabel, type ProjectPhaseKey } from "@/lib/stages";
+import { scheduleWarnings } from "@/lib/schedule-defaults";
 
 const phaseKeys = PROJECT_PHASES.map((p) => p.key) as [string, ...string[]];
 
@@ -120,6 +121,49 @@ export async function updateMilestone(input: z.input<typeof updateSchema>): Prom
 
   const project = await db().query.projects.findFirst({ where: eq(schema.projects.id, milestone.projectId) });
   if (!project) return { ok: false, error: "Project not found" };
+
+  // A target date describes a phase that hasn't begun. Once the row has an
+  // actual — stamped on entry for every phase but Pre-Construction, or set by
+  // hand for that one — the plan is history, not something this action should
+  // still let get rewritten. The client already hides the control; this is the
+  // refusal for a caller that skips it.
+  if (input.plannedDate !== undefined && milestone.actualDate) {
+    return {
+      ok: false,
+      error: `${milestone.label}'s target start is locked — the phase has already begun`,
+    };
+  }
+
+  // Target dates are only ordered against the other seeded phase rows — a
+  // custom milestone has no place in the sequence (see milestones.ts) and a
+  // phase change past this point is refused before anything is written, not
+  // just noted, so a project can never be talked into a phase that targets a
+  // start before the one it follows.
+  if (input.plannedDate !== undefined && milestone.isDefault && milestone.phase) {
+    const siblings = await db()
+      .select({ phase: schema.projectMilestones.phase, plannedDate: schema.projectMilestones.plannedDate })
+      .from(schema.projectMilestones)
+      .where(
+        and(
+          eq(schema.projectMilestones.projectId, milestone.projectId),
+          eq(schema.projectMilestones.isDefault, true),
+          isNull(schema.projectMilestones.archivedAt),
+        ),
+      );
+    const dates: Partial<Record<ProjectPhaseKey, string>> = {};
+    for (const s of siblings) {
+      if (s.phase && s.plannedDate) dates[s.phase as ProjectPhaseKey] = s.plannedDate;
+    }
+    if (d.plannedDate) {
+      dates[milestone.phase as ProjectPhaseKey] = d.plannedDate;
+    } else {
+      delete dates[milestone.phase as ProjectPhaseKey];
+    }
+    const issues = scheduleWarnings(dates);
+    if (issues.length > 0) {
+      return { ok: false, error: issues.join(" · ") };
+    }
+  }
 
   const set: Partial<typeof schema.projectMilestones.$inferInsert> = {};
   if (d.label !== undefined) {

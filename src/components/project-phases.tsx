@@ -228,7 +228,7 @@ export function ProjectPhases({
                 )}
               </div>
 
-              <div className={cn("min-w-0 flex-1", last ? "pb-0" : "pb-3")}>
+              <div className={cn("min-w-0 flex-1", last ? "pb-0" : "pb-6")}>
                 <div className={cn(GRID, "px-1")}>
                   {isCurrent ? (
                     <div className="min-w-0">
@@ -250,6 +250,11 @@ export function ProjectPhases({
                   <PhaseDates
                     phase={row}
                     canEditActual={reached(row)}
+                    // A planned date is a target for a phase that hasn't begun.
+                    // The moment it has an actual — on entry for every phase but
+                    // Pre-Construction, or by hand for that one — the plan is
+                    // history, not something still open to revision.
+                    canEditPlanned={!done}
                     emphasise={isCurrent}
                     run={
                       row.phase ? phaseRun(plannedByPhase, row.phase as ProjectPhaseKey) : null
@@ -300,12 +305,15 @@ export function ProjectPhases({
 function PhaseDates({
   phase,
   canEditActual,
+  canEditPlanned,
   emphasise,
   run,
 }: {
   phase: PhaseRow;
   /** False on a phase the project has not reached. */
   canEditActual: boolean;
+  /** False once the phase has an actual date — the plan is history by then. */
+  canEditPlanned: boolean;
   emphasise?: boolean;
   /** When this phase is planned to end, derived from the next one's start. */
   run: PhaseRun | null;
@@ -333,8 +341,15 @@ function PhaseDates({
 
   return (
     <>
-      <div className="text-right">
-        {editing === "planned" ? (
+      <div className="text-right" title={run && run.days > 0 ? `Runs thru ${fmtDateShort(run.endsIso)}` : undefined}>
+        {!canEditPlanned ? (
+          <span
+            className={cn("tabular-nums", size, "text-ink-500")}
+            title="Locked — this phase has already begun"
+          >
+            {planned ? fmtDate(planned) : "—"}
+          </span>
+        ) : editing === "planned" ? (
           <Input
             autoFocus
             type="date"
@@ -345,20 +360,13 @@ function PhaseDates({
             onBlur={() => save({ plannedDate: planned })}
           />
         ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => setEditing("planned")}
-              className={cn("tabular-nums", size, planned ? "text-ink-700" : "text-ink-300 hover:text-link")}
-            >
-              {planned ? fmtDate(planned) : "Set date"}
-            </button>
-            {planned && run && run.days > 0 && (
-              <div className="text-[10.5px] text-ink-300 tabular-nums">
-                thru {fmtDateShort(run.endsIso)}
-              </div>
-            )}
-          </>
+          <button
+            type="button"
+            onClick={() => setEditing("planned")}
+            className={cn("tabular-nums", size, planned ? "text-ink-700" : "text-ink-300 hover:text-link")}
+          >
+            {planned ? fmtDate(planned) : "Set date"}
+          </button>
         )}
       </div>
 

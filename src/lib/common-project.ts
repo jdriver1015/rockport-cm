@@ -3,7 +3,9 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { recomputeProjectBudget } from "@/lib/project-budget-derive";
-import { projectSlug } from "@/lib/slug";import type { ActionResult } from "@/lib/action-result";
+import { projectSlug } from "@/lib/slug";
+import { scheduleWarnings, type ScheduleKey } from "@/lib/schedule-defaults";
+import type { ActionResult } from "@/lib/action-result";
 
 // ---------------------------------------------------------------------------
 // Creating a common-area project.
@@ -69,6 +71,18 @@ export async function createCommonProjectRows(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const d = parsed.data;
+
+  // A common-area project has no pre-walk, so this is milestones only — but
+  // the same check as the interior wizard: no phase may target a start
+  // before the one it follows.
+  const scheduleDates: Partial<Record<ScheduleKey, string>> = {};
+  for (const m of d.milestones ?? []) {
+    if (m.plannedDate) scheduleDates[m.phase as ScheduleKey] = m.plannedDate;
+  }
+  const scheduleIssues = scheduleWarnings(scheduleDates);
+  if (scheduleIssues.length > 0) {
+    return { ok: false, error: scheduleIssues.join(" · ") };
+  }
 
   const property = await db().query.properties.findFirst({
     where: eq(schema.properties.id, d.propertyId),

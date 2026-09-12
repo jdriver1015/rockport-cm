@@ -17,6 +17,7 @@ import { DEFAULT_MILESTONES } from "@/lib/milestones";
 import {
   DEFAULT_SCHEDULE,
   blankSchedule,
+  scheduleWarnings,
   type ScheduleKey,
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
@@ -199,7 +200,12 @@ export function CommonProjectWizard({
     });
   }
 
-  const canNext = (step === 0 && name.trim().length > 0) || step === 1 || step === 2;
+  const canNext =
+    (step === 0 && name.trim().length > 0) ||
+    step === 1 ||
+    // Step 2 is target phasing — out-of-order dates block here rather than
+    // just being noted, matching the interior wizard.
+    (step === 2 && scheduleWarnings(dates).length === 0);
 
   async function handleCreate() {
     setBusy(true);

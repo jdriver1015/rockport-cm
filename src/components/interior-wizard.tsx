@@ -32,6 +32,7 @@ import {
   blankSchedule,
   describeDays,
   phaseRun,
+  scheduleWarnings,
   type ScheduleKey,
   type ScheduleSettings,
 } from "@/lib/schedule-defaults";
@@ -284,7 +285,10 @@ export function InteriorWizard({
     (step === 0 && unit) ||
     (step === 1 && group) ||
     step === 2 ||
-    step === 3 ||
+    // Step 3 is target phasing — out-of-order dates block here rather than
+    // just being noted, so a project can never be created already
+    // self-contradicting about when its own phases run.
+    (step === 3 && scheduleWarnings(dates).length === 0) ||
     step === 4;
 
   // Anything past picking a unit is work that would be lost, so leaving asks

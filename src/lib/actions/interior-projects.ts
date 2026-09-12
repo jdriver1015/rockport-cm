@@ -10,6 +10,7 @@ import { propertyPath } from "@/lib/property-path";
 import { recomputeProjectBudget } from "@/lib/project-budget-derive";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
+import { PRE_WALK_KEY, scheduleWarnings, type ScheduleKey } from "@/lib/schedule-defaults";
 
 // ---------------------------------------------------------------------------
 // Interior project creation — the wizard's final step. Snapshots the reviewed,
@@ -92,6 +93,19 @@ export async function createInteriorProject(
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
+
+  // The wizard already blocks on this client-side, but the form is directly
+  // callable, so a project can't be born with its own target phasing out of
+  // order — a later phase targeted to start before the one it follows.
+  const scheduleDates: Partial<Record<ScheduleKey, string>> = {};
+  if (d.preWalkDate) scheduleDates[PRE_WALK_KEY] = d.preWalkDate;
+  for (const m of d.milestones ?? []) {
+    if (m.plannedDate) scheduleDates[m.phase as ScheduleKey] = m.plannedDate;
+  }
+  const scheduleIssues = scheduleWarnings(scheduleDates);
+  if (scheduleIssues.length > 0) {
+    return { ok: false, error: scheduleIssues.join(" · ") };
+  }
 
   const property = await db().query.properties.findFirst({
     where: eq(schema.properties.id, d.propertyId),
