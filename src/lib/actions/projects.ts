@@ -358,9 +358,17 @@ export async function setProjectPhase(formData: FormData): Promise<ActionResult>
   // Advancing re-bases what is still ahead, straight away rather than waiting
   // for the nightly pass: arriving at this phase late makes every date after it
   // impossible, and the schedule should say so before anyone reads it.
-  const slip = await db().transaction((tx) =>
-    slipOverdueTargets(tx, parsed.data.projectId, toPhase),
-  );
+  //
+  // Forward only — same direction guard as the stamping block above. Without
+  // it, a reopen (a backward move) still ran this: "unreached" is computed
+  // purely from phase index against the NEW current phase, so reopening to
+  // Pre-Construction made every later phase read as newly overdue and pushed
+  // all of them forward — Punch and Complete jumping five-plus weeks because
+  // Pre-Construction was reopened, not because anyone changed the schedule.
+  const isAdvance = !project.phase || phaseIndex(toPhase) > phaseIndex(project.phase);
+  const slip = isAdvance
+    ? await db().transaction((tx) => slipOverdueTargets(tx, parsed.data.projectId, toPhase))
+    : null;
   if (slip) {
     await logFieldChanges({
       projectId: parsed.data.projectId,
