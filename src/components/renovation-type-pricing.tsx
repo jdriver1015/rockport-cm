@@ -50,11 +50,17 @@ export function RenovationTypePricing({
   budgetGroupId,
   lines,
   interiorCodes,
+  avgSqft,
 }: {
   propertyId: number;
   budgetGroupId: number;
   lines: PricingLine[];
   interiorCodes: InteriorCodeChoice[];
+  /** Weighted-average SF across the floorplans planned into this type — the
+   *  anchor for converting a line between $/SF and a flat dollar amount.
+   *  Null when nothing is planned into this type yet, so there is no SF to
+   *  anchor to. */
+  avgSqft: number | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -98,6 +104,21 @@ export function RenovationTypePricing({
   }
   function valueForBase(e: Record<number, Edit>, l: PricingLine): Edit {
     return e[l.costCodeId] ?? { pricingMethod: l.pricingMethod, unitPrice: String(l.unitPrice) };
+  }
+
+  /**
+   * Re-anchors the amount when the basis changes, so switching mid-edit shows
+   * the same dollar figure the old basis already meant instead of carrying the
+   * number over unchanged — $1/SF on a 1,000 SF unit becomes $1,000 flat, not
+   * $1 flat. Only fires between the two inline bases, and only when there is
+   * an SF to anchor to; anything else leaves the figure as typed.
+   */
+  function convertedAmount(from: PricingMethod, to: PricingMethod, amount: string): string {
+    if (!avgSqft || avgSqft <= 0 || !isInline(from) || !isInline(to) || from === to) return amount;
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return amount;
+    const converted = to === "sqft" ? n / avgSqft : n * avgSqft;
+    return String(Math.round(converted * 100) / 100);
   }
 
   function handleSave() {
@@ -172,7 +193,14 @@ export function RenovationTypePricing({
           <TableRow className="hover:bg-transparent">
             <TableHead>Item</TableHead>
             <TableHead className="w-48">Basis</TableHead>
-            <TableHead className="w-36 text-right">Amount</TableHead>
+            <TableHead className="w-36 text-right">
+              Amount
+              {avgSqft != null && (
+                <div className="mt-0.5 text-[10px] font-normal normal-case text-muted-foreground">
+                  converts at {Math.round(avgSqft).toLocaleString()} sf avg
+                </div>
+              )}
+            </TableHead>
             <TableHead className="w-28 text-right">Default qty</TableHead>
             <TableHead>Notes</TableHead>
             <TableHead className="w-12" />
@@ -201,9 +229,17 @@ export function RenovationTypePricing({
                       value={v.pricingMethod}
                       disabled={pending}
                       aria-label={`${l.label} basis`}
-                      onChange={(e) =>
-                        setEdit(l.costCodeId, { pricingMethod: e.target.value as PricingMethod }, l)
-                      }
+                      onChange={(e) => {
+                        const nextMethod = e.target.value as PricingMethod;
+                        setEdit(
+                          l.costCodeId,
+                          {
+                            pricingMethod: nextMethod,
+                            unitPrice: convertedAmount(v.pricingMethod, nextMethod, v.unitPrice),
+                          },
+                          l,
+                        );
+                      }}
                       className={selectClass}
                     >
                       {/* Only the two simple bases are offered; a line already on

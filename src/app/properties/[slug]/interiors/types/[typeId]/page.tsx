@@ -121,12 +121,27 @@ export default async function RenovationTypePage({
   });
 
   // Planned figures come from the pivot's own compute, summed across floorplans.
-  const planned = budget.columns
-    .filter((c) => c.tierId === groupId)
-    .reduce((acc, c) => ({ units: acc.units + c.plannedUnits, cost: acc.cost + c.totalCost }), {
-      units: 0,
-      cost: 0,
-    });
+  const tierColumns = budget.columns.filter((c) => c.tierId === groupId);
+  const planned = tierColumns.reduce(
+    (acc, c) => ({ units: acc.units + c.plannedUnits, cost: acc.cost + c.totalCost }),
+    { units: 0, cost: 0 },
+  );
+
+  // The anchor for converting a line between $/SF and a flat dollar amount: the
+  // same unit-count weighting as "Avg / unit" above, but for square footage
+  // instead of cost. A tier can span floorplans of different sizes, so this is
+  // the one number that makes "$1/SF" and "$1,000 flat" answer the same
+  // question rather than two unrelated ones.
+  const unitGroupById = new Map(budget.unitGroups.map((g) => [g.id, g]));
+  const sqftWeighted = tierColumns.reduce((sum, c) => {
+    const sqft = unitGroupById.get(c.unitGroupId)?.avgSqft;
+    return sqft != null ? sum + sqft * c.plannedUnits : sum;
+  }, 0);
+  const sqftWeightedUnits = tierColumns.reduce((sum, c) => {
+    const sqft = unitGroupById.get(c.unitGroupId)?.avgSqft;
+    return sqft != null ? sum + c.plannedUnits : sum;
+  }, 0);
+  const avgSqft = sqftWeightedUnits > 0 ? sqftWeighted / sqftWeightedUnits : null;
   const tierIndex = Math.max(
     0,
     siblings.findIndex((s) => s.id === groupId),
@@ -277,6 +292,7 @@ export default async function RenovationTypePage({
             budgetGroupId={groupId}
             lines={pricingLines}
             interiorCodes={codeChoices}
+            avgSqft={avgSqft}
           />
         </CardContent>
       </Card>
