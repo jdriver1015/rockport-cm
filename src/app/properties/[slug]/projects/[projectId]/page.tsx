@@ -235,14 +235,6 @@ export default async function ProjectDetailPage({
   }, new Map<number, number>());
   const openFindings = findings.filter((f) => f.status === "open");
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const profile = user
-    ? await db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) })
-    : null;
-
   const documentRows: DocumentRow[] = docs.map((d) => ({
     id: d.id,
     name: d.caption ?? d.storagePath.split("/").pop() ?? "document",
@@ -266,67 +258,142 @@ export default async function ProjectDetailPage({
 
   const scopeVendors: ScopeVendorOption[] = vendorOptions;
 
-  const activeCostCodes: ScopeCostCodeOption[] = await db()
-    .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
-    .from(schema.costCodes)
-    .where(
-      and(
-        eq(schema.costCodes.chartId, property.chartOfAccountsId),
-        eq(schema.costCodes.active, true),
-        eq(schema.costCodes.isInterior, project.kind === "unit"),
-      ),
-    )
-    .orderBy(asc(schema.costCodes.code));
+  // Everything below is independent of everything else here — none of these
+  // reads depend on another's result — so they run as one wave of round trips
+  // instead of one-at-a-time. This page is the highest-traffic one in the app;
+  // each sequential await used to be a full network round trip to the pooled
+  // Postgres connection this page otherwise wasn't waiting on for anything.
+  const [
+    activeCostCodes,
+    committedLineRows,
+    heldLineIds,
+    liveRfps,
+    tierLines,
+    [budgetLineRows, allPropertyScope],
+    precon,
+    preWalkFindings,
+    bidPackage,
+    liveContracts,
+    profile,
+  ] = await Promise.all([
+    db()
+      .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
+      .from(schema.costCodes)
+      .where(
+        and(
+          eq(schema.costCodes.chartId, property.chartOfAccountsId),
+          eq(schema.costCodes.active, true),
+          eq(schema.costCodes.isInterior, project.kind === "unit"),
+        ),
+      )
+      .orderBy(asc(schema.costCodes.code)) as Promise<ScopeCostCodeOption[]>,
 
-  // What an awarded vendor is actually on the hook for, line by line. Only the
-  // approved bids: an unawarded quote is a number somebody offered, not a
-  // commitment. A direct award deliberately puts its whole amount on the first
-  // line (see directAwardRows), so on those projects this is lumpy by design —
-  // the scope table says so rather than pretending the split is real.
-  const committedLineRows = await db()
-    .select({
-      scopeItemId: schema.bidLineItems.scopeItemId,
-      amount: schema.bidLineItems.amount,
-      source: schema.bids.source,
-    })
-    .from(schema.bidLineItems)
-    .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
-    .where(
-      and(
-        eq(schema.bids.projectId, projectId),
-        eq(schema.bids.approved, true),
-        isNull(schema.bids.archivedAt),
-      ),
-    );
-
-  // Which lines a vendor is currently holding. RFPs go out for a SUBSET of the
-  // scope, so this is per line — the project-wide lock froze a whole table when
-  // two of its six lines were out. Read through the same function the server
-  // guard uses, so what the row shows and what an edit is allowed to do cannot
-  // drift apart. Null means an unscoped request, which holds the whole scope.
-  const heldLineIds = await liveRfpLineIds(projectId);
-  const outForBidLineIds = heldLineIds ? [...heldLineIds] : scope.map((r) => r.id);
-
-  // A unit turn's allowance is its tier's PER-UNIT line, not the property's
-  // whole underwritten figure for the code. Comparing one unit's $1,850 floor
-  // against the property's $340,000 flooring budget is true and useless.
-  const perUnitBudgetByCode: Record<number, number> = {};
-  if (project.kind === "unit" && project.budgetGroupId != null) {
-    const tierLines = await db()
+    // What an awarded vendor is actually on the hook for, line by line. Only the
+    // approved bids: an unawarded quote is a number somebody offered, not a
+    // commitment. A direct award deliberately puts its whole amount on the first
+    // line (see directAwardRows), so on those projects this is lumpy by design —
+    // the scope table says so rather than pretending the split is real.
+    db()
       .select({
-        costCodeId: schema.budgetGroupLines.costCodeId,
-        unitPrice: schema.budgetGroupLines.unitPrice,
-        pricingMethod: schema.budgetGroupLines.pricingMethod,
+        scopeItemId: schema.bidLineItems.scopeItemId,
+        amount: schema.bidLineItems.amount,
+        source: schema.bids.source,
       })
-      .from(schema.budgetGroupLines)
-      .where(eq(schema.budgetGroupLines.budgetGroupId, project.budgetGroupId));
+      .from(schema.bidLineItems)
+      .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
+      .where(
+        and(
+          eq(schema.bids.projectId, projectId),
+          eq(schema.bids.approved, true),
+          isNull(schema.bids.archivedAt),
+        ),
+      ),
 
-    for (const l of tierLines) {
-      // The rule interior-budget.ts uses: a sqft-priced line is a rate, so the
-      // unit's own square footage turns it into money.
-      perUnitBudgetByCode[l.costCodeId] =
-        l.pricingMethod === "sqft" ? num(l.unitPrice) * (unit?.sqft ?? 0) : num(l.unitPrice);
-    }
+    // Which lines a vendor is currently holding. RFPs go out for a SUBSET of the
+    // scope, so this is per line — the project-wide lock froze a whole table when
+    // two of its six lines were out. Read through the same function the server
+    // guard uses, so what the row shows and what an edit is allowed to do cannot
+    // drift apart. Null means an unscoped request, which holds the whole scope.
+    liveRfpLineIds(projectId),
+
+    // The very function the guard uses, not a re-derivation from the bid list —
+    // a direct award is status "received" with no RFP behind it, so counting
+    // statuses here would freeze a scope nobody is pricing. Reads the same
+    // underlying bids as heldLineIds above but answers a different question
+    // (how many vendors, not which lines), so it stays a second query.
+    liveRfpCount(projectId),
+
+    // A unit turn's allowance is its tier's PER-UNIT line, not the property's
+    // whole underwritten figure for the code. Comparing one unit's $1,850 floor
+    // against the property's $340,000 flooring budget is true and useless.
+    (async () => {
+      if (project.kind !== "unit" || project.budgetGroupId == null) return [];
+      return db()
+        .select({
+          costCodeId: schema.budgetGroupLines.costCodeId,
+          unitPrice: schema.budgetGroupLines.unitPrice,
+          pricingMethod: schema.budgetGroupLines.pricingMethod,
+        })
+        .from(schema.budgetGroupLines)
+        .where(eq(schema.budgetGroupLines.budgetGroupId, project.budgetGroupId));
+    })(),
+
+    // Underwriting budget per code, and everything already allocated to it across
+    // the whole property's scope items — feeds the "remaining budget" preview in
+    // the scope item dialog.
+    Promise.all([
+      db()
+        .select({ costCodeId: schema.budgetLines.costCodeId, uwAmount: schema.budgetLines.uwAmount })
+        .from(schema.budgetLines)
+        .where(and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt))),
+      db()
+        .select({
+          costCodeId: schema.scopeItems.costCodeId,
+          quantity: schema.scopeItems.quantity,
+          unitPrice: schema.scopeItems.unitPrice,
+        })
+        .from(schema.scopeItems)
+        .innerJoin(schema.projects, eq(schema.scopeItems.projectId, schema.projects.id))
+        .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.scopeItems.archivedAt))),
+    ]),
+
+    // Gate checks for leaving the phase the project is in. The same reader the
+    // server-side check uses, so what the section shows and what an advance is
+    // allowed to do cannot drift apart.
+    readPreconGateState(projectId),
+
+    // The Define Scope gate offers the walk's findings, so they load with the
+    // page rather than on opening the dialog — it is one small query and the
+    // dialog is a click away from the gate that describes it.
+    optional(listPreWalkFindings(projectId), "pre-walk findings"),
+
+    // Guarded like the findings: the Select Bid dialog is a click away from the
+    // gate, and the project has to open even if the bid read fails.
+    readBidPackage(propertyId, projectId).catch((err) => {
+      console.error("project detail: bid package failed to load", err);
+      return { scopeItems: [], vendors: [], bids: [], lineAmounts: [] };
+    }),
+
+    readContracts(projectId),
+
+    (async () => {
+      const supabase = await createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      return user ? db().query.profiles.findFirst({ where: eq(schema.profiles.id, user.id) }) : null;
+    })(),
+  ]);
+
+  const outForBidLineIds = heldLineIds ? [...heldLineIds] : scope.map((r) => r.id);
+  const scopeLocked = liveRfps > 0;
+
+  // The rule interior-budget.ts uses: a sqft-priced line is a rate, so the
+  // unit's own square footage turns it into money.
+  const perUnitBudgetByCode: Record<number, number> = {};
+  for (const l of tierLines) {
+    perUnitBudgetByCode[l.costCodeId] =
+      l.pricingMethod === "sqft" ? num(l.unitPrice) * (unit?.sqft ?? 0) : num(l.unitPrice);
   }
 
   const committedByLine: Record<number, number> = {};
@@ -342,24 +409,10 @@ export default async function ProjectDetailPage({
     actualByCode[r.costCodeId] = (actualByCode[r.costCodeId] ?? 0) + num(r.amount);
   }
 
-  // Underwriting budget per code, and everything already allocated to it across
-  // the whole property's scope items — feeds the "remaining budget" preview in
-  // the scope item dialog.
-  const [budgetLineRows, allPropertyScope] = await Promise.all([
-    db()
-      .select({ costCodeId: schema.budgetLines.costCodeId, uwAmount: schema.budgetLines.uwAmount })
-      .from(schema.budgetLines)
-      .where(and(eq(schema.budgetLines.propertyId, propertyId), isNull(schema.budgetLines.archivedAt))),
-    db()
-      .select({
-        costCodeId: schema.scopeItems.costCodeId,
-        quantity: schema.scopeItems.quantity,
-        unitPrice: schema.scopeItems.unitPrice,
-      })
-      .from(schema.scopeItems)
-      .innerJoin(schema.projects, eq(schema.scopeItems.projectId, schema.projects.id))
-      .where(and(eq(schema.projects.propertyId, propertyId), isNull(schema.scopeItems.archivedAt))),
-  ]);
+  // The bids the contracts are for. Read off the package rather than queried
+  // again so the dialog names exactly what the Select Bid screen shows as
+  // awarded — and a split job has one award per vendor, not one per project.
+  const awardedBids = bidPackage.bids.filter((b) => b.approved);
 
   const budgetByCode: Record<number, CostCodeBudget> = {};
   for (const c of activeCostCodes) budgetByCode[c.id] = { budget: 0, allocated: 0 };
@@ -407,37 +460,10 @@ export default async function ProjectDetailPage({
   // Gate checks for leaving the phase the project is in. Every input is state
   // the page already loaded, so the checks cannot disagree with what the rest of
   // the screen shows. src/lib/phase-gates.ts held these but nothing rendered
-  // them — they were only reachable from a dialog no page mounted.
-  // The same reader the server-side check uses, so what the section shows and
-  // what an advance is allowed to do cannot drift apart. It reads the actual
-  // start itself now, from both the milestone and projects.start_date, which is
-  // why this page no longer picks the in_process milestone out separately.
-  const precon = await readPreconGateState(projectId);
-  // The Define Scope gate offers the walk's findings, so they load with the
-  // page rather than on opening the dialog — it is one small query and the
-  // dialog is a click away from the gate that describes it.
-  const preWalkFindings = await optional(
-    listPreWalkFindings(projectId).then((r) => r),
-    "pre-walk findings",
-  );
-  // Guarded like the findings: the Select Bid dialog is a click away from the
-  // gate, and the project has to open even if the bid read fails.
-  const bidPackage = (await readBidPackage(propertyId, projectId).catch((err) => {
-    console.error("project detail: bid package failed to load", err);
-    return { scopeItems: [], vendors: [], bids: [], lineAmounts: [] };
-  }))!;
-  // The bids the contracts are for. Read off the package rather than queried
-  // again so the dialog names exactly what the Select Bid screen shows as
-  // awarded — and a split job has one award per vendor, not one per project.
-  const awardedBids = bidPackage.bids.filter((b) => b.approved);
-  const liveContracts = await readContracts(projectId);
-  // The very function the guard uses, not a re-derivation from the bid list —
-  // a direct award is status "received" with no RFP behind it, so counting
-  // statuses here would freeze a scope nobody is pricing.
-  const liveRfps = await liveRfpCount(projectId);
-  const scopeLocked = liveRfps > 0;
-
-
+  // them — they were only reachable from a dialog no page mounted. `precon`
+  // reads the actual start itself, from both the milestone and
+  // projects.start_date, which is why this page doesn't pick the in_process
+  // milestone out separately.
   const gate = upcoming
     ? evaluateGates(project.phase, upcoming.key, {
         ...precon,

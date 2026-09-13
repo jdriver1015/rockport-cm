@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { AlertCircleIcon, CheckCircle2Icon, ChevronRightIcon, CircleIcon, EllipsisIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,15 +27,24 @@ import { updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
-import { WalkDialog } from "@/components/walk-dialog";
-import {
-  DefineScopeDialog,
-  type PreWalkFinding,
-  type ScopeLine,
-} from "@/components/define-scope-dialog";
-import { SelectBidDialog } from "@/components/select-bid-dialog";
-import { ContractDialog, type ContractAward, type ContractView } from "@/components/contract-dialog";
+import type { PreWalkFinding, ScopeLine } from "@/components/define-scope-dialog";
+import type { ContractAward, ContractView } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
+
+// Each of these is a whole dialog's worth of form/table markup that only ever
+// renders once someone opens a gate — dynamic-importing them keeps that code
+// out of the bundle every project page pays for on load, the same pattern
+// interior-budget-toolbar.tsx already uses for its own wizard dialog.
+const WalkDialog = dynamic(() => import("@/components/walk-dialog").then((m) => m.WalkDialog));
+const DefineScopeDialog = dynamic(() =>
+  import("@/components/define-scope-dialog").then((m) => m.DefineScopeDialog),
+);
+const SelectBidDialog = dynamic(() =>
+  import("@/components/select-bid-dialog").then((m) => m.SelectBidDialog),
+);
+const ContractDialog = dynamic(() =>
+  import("@/components/contract-dialog").then((m) => m.ContractDialog),
+);
 
 /** What the pre-con gate dialogs need to resolve their gate. */
 export type GateContext = {

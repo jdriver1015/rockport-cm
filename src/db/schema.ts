@@ -1406,7 +1406,7 @@ export const importBatches = pgTable("import_batches", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete: hidden from the import history but restorable. Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-});
+}, (t) => [index("import_batches_property_idx").on(t.propertyId)]);
 
 export const glTransactions = pgTable("gl_transactions", {
   id: serial("id").primaryKey(),
@@ -1479,7 +1479,7 @@ export const mappingRules = pgTable("mapping_rules", {
    */
   createdBy: uuid("created_by").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("mapping_rules_chart_idx").on(t.chartId)]);
 
 /**
  * Per-property memory of which GL account sections are construction/CapEx.
@@ -1552,7 +1552,13 @@ export const attachments = pgTable("attachments", {
   /** Soft-delete: hidden from the document list but restorable; the storage
    *  file is kept too (only a hard purge would ever remove it). Null = active. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (t) => [index("attachments_project_idx").on(t.projectId)]);
+}, (t) => [
+  index("attachments_project_idx").on(t.projectId),
+  // readBidPackage joins attachments to bids on this column on every project
+  // detail page load; with no index that's a sequential scan of the whole
+  // table once attachments accumulate portfolio-wide.
+  index("attachments_bid_idx").on(t.bidId),
+]);
 
 // ---------------------------------------------------------------------------
 // Site audits — a walk-through of a property producing photo-backed findings,
