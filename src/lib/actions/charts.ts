@@ -12,6 +12,7 @@ import {
   detectMapping,
   rowsFromGrid,
 } from "@/lib/chart-import";
+import { invalidateInteriorBudgetForChart } from "@/lib/interior-budget";
 
 export type { ChartImportRow } from "@/lib/chart-import";
 
@@ -20,9 +21,16 @@ export type { ChartImportRow } from "@/lib/chart-import";
 // set of categories + cost codes + mapping rules. Properties bind to one.
 // ---------------------------------------------------------------------------
 
-function revalidateCharts(chartId?: number) {
+async function revalidateCharts(chartId?: number) {
   revalidatePath("/settings/chart-of-accounts");
-  if (chartId != null) revalidatePath(`/settings/chart-of-accounts/${chartId}`);
+  if (chartId == null) return;
+  revalidatePath(`/settings/chart-of-accounts/${chartId}`);
+  // Harmless to call for a brand-new or metadata-only chart change too — it
+  // just invalidates nothing, since no property is bound to it yet (or its
+  // codes/categories didn't change). Cloning or importing rows DOES change
+  // them, and neither passes a chartId here anyway since the target is brand
+  // new with no properties bound.
+  await invalidateInteriorBudgetForChart(chartId);
 }
 
 const createChartSchema = z.object({
@@ -98,7 +106,7 @@ export async function createChart(input: {
     .insert(schema.chartsOfAccounts)
     .values({ name: parsed.data.name, description: parsed.data.description })
     .returning({ id: schema.chartsOfAccounts.id });
-  revalidateCharts();
+  await revalidateCharts();
   return { ok: true, chartId: chart.id };
 }
 
@@ -198,7 +206,7 @@ export async function cloneChart(input: {
     if (remapped.length > 0) await db().insert(schema.mappingRules).values(remapped);
   }
 
-  revalidateCharts();
+  await revalidateCharts();
   return { ok: true, chartId };
 }
 
@@ -218,7 +226,7 @@ export async function createChartFromRows(input: {
     .returning({ id: schema.chartsOfAccounts.id });
 
   const { categories, codes } = await insertChartRows(db(), chart.id, input.rows);
-  revalidateCharts();
+  await revalidateCharts();
   return { ok: true, chartId: chart.id, categories, codes };
 }
 
@@ -233,7 +241,7 @@ export async function updateChart(input: {
     .update(schema.chartsOfAccounts)
     .set({ name: parsed.data.name, description: parsed.data.description ?? null })
     .where(eq(schema.chartsOfAccounts.id, input.id));
-  revalidateCharts(input.id);
+  await revalidateCharts(input.id);
   return { ok: true };
 }
 
@@ -249,7 +257,7 @@ export async function setDefaultChart(id: number): Promise<ActionResult> {
       .set({ isDefault: true })
       .where(eq(schema.chartsOfAccounts.id, id));
   });
-  revalidateCharts(id);
+  await revalidateCharts(id);
   return { ok: true };
 }
 
@@ -279,7 +287,7 @@ export async function archiveChart(id: number): Promise<ActionResult> {
     .update(schema.chartsOfAccounts)
     .set({ archivedAt: new Date() })
     .where(eq(schema.chartsOfAccounts.id, id));
-  revalidateCharts();
+  await revalidateCharts();
   return { ok: true };
 }
 
@@ -288,7 +296,7 @@ export async function restoreChart(id: number): Promise<ActionResult> {
     .update(schema.chartsOfAccounts)
     .set({ archivedAt: null })
     .where(eq(schema.chartsOfAccounts.id, id));
-  revalidateCharts();
+  await revalidateCharts();
   return { ok: true };
 }
 

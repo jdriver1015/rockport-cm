@@ -6,14 +6,19 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { DIVISION_KEYS } from "@/lib/divisions";
+import { invalidateInteriorBudgetForChart } from "@/lib/interior-budget";
 
 // ---------------------------------------------------------------------------
 // Chart of accounts
 // ---------------------------------------------------------------------------
 
-function revalidateCoa(chartId?: number) {
+async function revalidateCoa(chartId?: number) {
   revalidatePath("/settings/chart-of-accounts");
-  if (chartId != null) revalidatePath(`/settings/chart-of-accounts/${chartId}`);
+  if (chartId == null) return;
+  revalidatePath(`/settings/chart-of-accounts/${chartId}`);
+  // A category move or a cost code's isInterior flag can change the interior
+  // budget for every property bound to this chart, not just one.
+  await invalidateInteriorBudgetForChart(chartId);
 }
 
 const categorySchema = z.object({
@@ -47,7 +52,7 @@ export async function createCategory(formData: FormData): Promise<ActionResult> 
   await db()
     .insert(schema.costCategories)
     .values({ chartId, code: parsed.data.code, name: parsed.data.name, sortOrder: maxOrder + 1 });
-  revalidateCoa(chartId);
+  await revalidateCoa(chartId);
   return { ok: true };
 }
 
@@ -59,7 +64,7 @@ export async function renameCategory(id: number, name: string): Promise<ActionRe
     .set({ name: trimmed })
     .where(eq(schema.costCategories.id, id))
     .returning({ chartId: schema.costCategories.chartId });
-  revalidateCoa(row?.chartId);
+  await revalidateCoa(row?.chartId);
   return { ok: true };
 }
 
@@ -76,7 +81,7 @@ export async function setCategoryDivision(
     .set({ division: value })
     .where(eq(schema.costCategories.id, id))
     .returning({ chartId: schema.costCategories.chartId });
-  revalidateCoa(row?.chartId);
+  await revalidateCoa(row?.chartId);
   return { ok: true };
 }
 
@@ -115,7 +120,7 @@ export async function createCostCode(formData: FormData): Promise<ActionResult> 
     name: parsed.data.name,
     isInterior: parsed.data.isInterior ?? false,
   });
-  revalidateCoa(chartId);
+  await revalidateCoa(chartId);
   return { ok: true };
 }
 
@@ -139,7 +144,7 @@ export async function updateCostCode(input: {
     .set(set)
     .where(eq(schema.costCodes.id, input.id))
     .returning({ chartId: schema.costCodes.chartId });
-  revalidateCoa(row?.chartId);
+  await revalidateCoa(row?.chartId);
   return { ok: true };
 }
 

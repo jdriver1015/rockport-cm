@@ -23,6 +23,7 @@
  * property at once — a per-property helper would be an N+1.
  */
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { unstable_cache, updateTag } from "next/cache";
 import { db, schema } from "@/db";
 import { num } from "@/lib/format";
 import { resolveGroupPricing, roundMoney, type PricingMethod, type UnitMeta } from "@/lib/pricing";
@@ -653,19 +654,88 @@ export function computeInteriorBudget(inputs: Inputs, propertyId: number): Inter
 // Entry points
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Caching
+//
+// This computation is the most expensive thing in the app by a wide margin —
+// a dozen-odd queries plus a full unit-group × tier × cost-code pivot recompute
+// in JS — and three unrelated pages (the portfolio home, every property's
+// Budget tab, and its Executive tab) each called it fresh, uncached, on every
+// single load. Caching it per property, tagged so any of the many actions that
+// can change its answer invalidate exactly the properties they touched.
+//
+// The tag is exported rather than hidden: every action that writes to a table
+// this computation reads from calls invalidateInteriorBudget(propertyId) (or
+// invalidateInteriorBudgetForChart when the write is chart-wide, e.g. a cost
+// code's isInterior flag) after its write, alongside its existing
+// revalidatePath call. `revalidate: 300` is a backstop, not the primary
+// mechanism — five minutes of staleness in case a future write path forgets
+// to invalidate, not the expected common case.
+// ---------------------------------------------------------------------------
+
+function interiorBudgetTag(propertyId: number): string {
+  return `interior-budget:${propertyId}`;
+}
+
+/** Call after any write that changes what this property's interior budget computes to. */
+export function invalidateInteriorBudget(propertyId: number): void {
+  updateTag(interiorBudgetTag(propertyId));
+}
+
+/**
+ * Call after a chart-wide write (a cost code's isInterior flag, a category
+ * move, a cloned chart) — anything that can change the interior budget for
+ * every property bound to that chart, not just one.
+ */
+export async function invalidateInteriorBudgetForChart(chartId: number): Promise<void> {
+  const rows = await db()
+    .select({ id: schema.properties.id })
+    .from(schema.properties)
+    .where(eq(schema.properties.chartOfAccountsId, chartId));
+  for (const r of rows) invalidateInteriorBudget(r.id);
+}
+
 /**
  * Interior budgets for many properties in a fixed number of queries.
  *
  * This is the ONLY sanctioned way to read an interior budget. Any caller that
  * sums `budget_lines.uw_amount` must exclude interior cost codes for properties
  * where `hasPlan` is true, or the interior budget double-counts.
+ *
+ * Cached as one entry per distinct SET of property ids, tagged with every
+ * constituent property's own tag — so a single-property call (the Budget and
+ * Executive tabs) and the portfolio home's call across every property share
+ * cache entries wherever their id sets overlap being invalidated correctly,
+ * while the portfolio home still gets its one-batched-query win on a cold
+ * cache instead of N separate single-property fetches.
  */
 export async function computeInteriorBudgets(
   propertyIds: number[],
   opts?: Parameters<typeof loadInteriorInputs>[1],
 ): Promise<Map<number, InteriorBudget>> {
-  const inputs = await loadInteriorInputs(propertyIds, opts);
-  return new Map(propertyIds.map((id) => [id, computeInteriorBudget(inputs, id)]));
+  if (propertyIds.length === 0) return new Map();
+  const sortedIds = [...new Set(propertyIds)].sort((a, b) => a - b);
+
+  // unstable_cache round-trips its return value through JSON, and byCostCode
+  // is the one Map in this shape — a Map serializes to "{}" and comes back
+  // with none of its entries, so property-budget.ts's `.get()` calls threw.
+  // Carried across the cache boundary as entries and rebuilt into a real Map
+  // on the way out, on both a hit and a miss.
+  const cached = unstable_cache(
+    async () => {
+      const inputs = await loadInteriorInputs(sortedIds, opts);
+      return sortedIds.map((id) => {
+        const budget = computeInteriorBudget(inputs, id);
+        return [id, { ...budget, byCostCode: [...budget.byCostCode.entries()] }] as const;
+      });
+    },
+    ["interior-budget", sortedIds.join(",")],
+    { tags: sortedIds.map(interiorBudgetTag), revalidate: 300 },
+  );
+  const entries = await cached();
+  return new Map(
+    entries.map(([id, budget]) => [id, { ...budget, byCostCode: new Map(budget.byCostCode) }]),
+  );
 }
 
 /** Single-property convenience. Prefer the plural form in list views. */

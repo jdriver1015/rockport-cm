@@ -6,7 +6,11 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { num } from "@/lib/format";
-import { computeInteriorBudgetFor, loadFloorplanFacts } from "@/lib/interior-budget";
+import {
+  computeInteriorBudgetFor,
+  invalidateInteriorBudget,
+  loadFloorplanFacts,
+} from "@/lib/interior-budget";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +19,7 @@ import { propertyPath } from "@/lib/property-path";
 // ---------------------------------------------------------------------------
 
 async function revalidateBudget(propertyId: number) {
+  invalidateInteriorBudget(propertyId);
   const path = await propertyPath(propertyId, "/budget");
   if (path) revalidatePath(path);
 }

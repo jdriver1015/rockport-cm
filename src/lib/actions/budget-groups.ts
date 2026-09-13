@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { invalidateInteriorBudget } from "@/lib/interior-budget";
 import { PRICING_METHODS } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
 
@@ -15,6 +16,7 @@ import { propertyPath } from "@/lib/property-path";
 // ---------------------------------------------------------------------------
 
 async function revalidateGroups(propertyId: number) {
+  invalidateInteriorBudget(propertyId);
   // The Turn Plan tab that used to show these is gone: renovation types are
   // listed under /interiors/types, and their planned units feed the Budget
   // tab's Interior pivot.

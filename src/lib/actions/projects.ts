@@ -17,6 +17,7 @@ import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
 import { isAssignableManager } from "@/lib/manager-roster";
 import { managerName } from "@/lib/project-managers";
 import { money, fmtDate } from "@/lib/format";
+import { invalidateInteriorBudget } from "@/lib/interior-budget";
 
 /**
  * Creating takes a name and nothing else.
@@ -496,6 +497,8 @@ export async function archiveProject(formData: FormData): Promise<ActionResult> 
     .set({ archivedAt: new Date() })
     .where(eq(schema.projects.id, parsed.data.projectId));
 
+  // Archiving a unit turn drops it from the interior budget's actualUnits count.
+  if (project.kind === "unit") invalidateInteriorBudget(project.propertyId);
   const _base = await propertyPath(project.propertyId);
   if (_base) {
     revalidatePath(_base);
@@ -519,6 +522,7 @@ export async function restoreProject(formData: FormData): Promise<ActionResult> 
     .set({ archivedAt: null })
     .where(eq(schema.projects.id, parsed.data.projectId));
 
+  if (project.kind === "unit") invalidateInteriorBudget(project.propertyId);
   const _base = await propertyPath(project.propertyId);
   if (_base) {
     revalidatePath(_base);

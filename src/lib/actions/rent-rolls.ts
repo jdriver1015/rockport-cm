@@ -17,8 +17,12 @@ import {
 import { validateRentRoll } from "@/lib/rent-roll-validation";
 import type { AiMapping } from "@/lib/rent-roll-mapping";
 import { propertyPath } from "@/lib/property-path";
+import { invalidateInteriorBudget } from "@/lib/interior-budget";
 
 async function revalidateProperty(propertyId: number) {
+  // Committing (or un-committing) a rent roll changes the avgSqft/unitCount
+  // every floorplan's interior budget derives from.
+  invalidateInteriorBudget(propertyId);
   const path = await propertyPath(propertyId);
   if (!path) return;
   revalidatePath(`${path}/rent-rolls`);

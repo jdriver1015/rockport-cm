@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
+import { invalidateInteriorBudget } from "@/lib/interior-budget";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,7 @@ import { propertyPath } from "@/lib/property-path";
 // ---------------------------------------------------------------------------
 
 async function revalidateBudget(propertyId: number) {
+  invalidateInteriorBudget(propertyId);
   const path = await propertyPath(propertyId, "/budget");
   if (path) revalidatePath(path);
 }

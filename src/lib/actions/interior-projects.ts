@@ -11,6 +11,7 @@ import { recomputeProjectBudget } from "@/lib/project-budget-derive";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 import { PRE_WALK_KEY, scheduleWarnings, type ScheduleKey } from "@/lib/schedule-defaults";
+import { invalidateInteriorBudget } from "@/lib/interior-budget";
 
 // ---------------------------------------------------------------------------
 // Interior project creation — the wizard's final step. Snapshots the reviewed,
@@ -361,6 +362,7 @@ export async function createInteriorProject(
   // they are committed rather than written alongside them.
   await recomputeProjectBudget(result.projectId);
 
+  invalidateInteriorBudget(d.propertyId);
   const base = await propertyPath(d.propertyId);
   if (base) {
     revalidatePath(`${base}/interiors`);
