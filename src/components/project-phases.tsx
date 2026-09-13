@@ -346,7 +346,12 @@ function PhaseDates({
     });
   }
 
-  const variance = varianceDays(planned || null, actual || null);
+  // Gated the same as the Actual cell below it: a phase not yet reached shows
+  // no actual date, so it must show no variance either — even when its row
+  // still carries an actualDate from before a reopen sent the project
+  // backward. That date is history the phase hasn't caught back up to, not
+  // a completion to measure against the plan.
+  const variance = canEditActual ? varianceDays(planned || null, actual || null) : null;
   const size = emphasise ? "text-sm" : "text-[13px]";
 
   return (
