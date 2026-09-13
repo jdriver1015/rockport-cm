@@ -272,7 +272,6 @@ export function ProjectScopeList({
     });
   }
 
-  const vendorCount = new Set(items.map((i) => i.vendorId).filter((v) => v != null)).size;
   const pricedCount = lines.filter((l) => l.budgeted != null).length;
   const unpricedCount = lines.length - pricedCount;
   const budgetedTotal = lines.reduce((s, l) => s + (l.budgeted ?? 0), 0);
@@ -299,29 +298,17 @@ export function ProjectScopeList({
       <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 pb-(--card-spacing)">
         <ProjectPanelSwitch />
 
-        <span className="text-[13px] text-ink-400">
-          {items.length} item{items.length === 1 ? "" : "s"}
-          {vendorCount > 0 && ` · ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`}
-          {" · "}
-          {/* One number, because there is only one. The budget IS what the priced
-              lines add up to, so there is nothing to type and nothing to
-              reconcile against. Unpriced lines contribute nothing and say so
-              rather than reporting a zero nobody decided. */}
-          {budgetedTotal > 0 ? (
-            <>
-              <span className="font-semibold text-ink-700 tabular-nums">{money(budgetedTotal)}</span>
-              {" budgeted"}
-              {unpricedCount > 0 && (
-                <span className="text-gold">
-                  {" · "}
-                  {unpricedCount} line{unpricedCount === 1 ? "" : "s"} unpriced
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-ink-300">not priced yet</span>
-          )}
-        </span>
+        {/* Item count, vendor count and budgeted total used to sit here too —
+            the same figures the footer total row already states once the
+            list renders below, so this line only had to earn its keep when
+            the list was empty or scrolled out of view. Dropping it lets the
+            actions sit on the same line as the tab switch instead of
+            wrapping to a row of their own. */}
+        {unpricedCount > 0 && (
+          <span className="text-[13px] text-gold">
+            {unpricedCount} line{unpricedCount === 1 ? "" : "s"} unpriced
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           <ScopeConfirmControl
