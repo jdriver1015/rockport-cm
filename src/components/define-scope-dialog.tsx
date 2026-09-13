@@ -40,8 +40,13 @@ export type ScopeLine = {
   costCodeName: string | null;
 };
 
-/** One grid for the header, every row and the totals, so the columns line up. */
-const SCOPE_GRID = "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_96px_28px] items-start gap-3.5";
+/**
+ * One grid for the header, every row and the totals, so the columns line up.
+ * No baked-in `items-*`: a line splits into a label/input/description stack
+ * of its own sub-rows (see ScopeLineRow), each choosing the alignment that
+ * suits its content rather than sharing one that suits none of them.
+ */
+const SCOPE_GRID = "grid grid-cols-[20px_minmax(0,1fr)_60px_112px_104px_28px] gap-3.5";
 
 /**
  * Resolve the Confirm Scope and Budget gate.
@@ -192,7 +197,7 @@ export function DefineScopeDialog({
               </p>
             ) : (
               <div className="rounded-card border border-border">
-                <div className={cn(SCOPE_GRID, "border-b border-border px-3 py-1.5")}>
+                <div className={cn(SCOPE_GRID, "items-center border-b border-border px-3 py-1.5")}>
                   <span />
                   <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
                     Item
@@ -467,10 +472,12 @@ function ScopeLineRow({
   }
 
   return (
-    <div className={cn(SCOPE_GRID, "px-3 py-2")}>
-      <span className="pt-2 text-[11px] tabular-nums text-ink-300">{index}</span>
-
-      <div className="min-w-0">
+    <div className="px-3 py-2">
+      {/* Budget category on its own line, so the priced row below it can
+          center its cells against each other instead of against a label
+          only the item column carries. */}
+      <div className={cn(SCOPE_GRID, "items-start")}>
+        <span />
         <div className="truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300">
           {line.costCodeName ? (
             <span className="text-ink-400">Budget category: {line.costCodeName}</span>
@@ -478,30 +485,140 @@ function ScopeLineRow({
             <span className="font-bold text-alert">NO BUDGET CATEGORY</span>
           )}
         </div>
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
 
-        <div className="mt-1">
-          {locked ? (
-            <span className="block truncate text-[13px] font-medium text-navy">{line.item}</span>
-          ) : (
-            <Input
-              className="h-8 text-[13px]"
-              value={item}
-              disabled={pending}
-              onChange={(e) => setItem(e.target.value)}
-              onBlur={() => {
-                const next = item.trim();
-                if (!next) {
-                  setItem(line.item);
-                  return;
-                }
-                if (next === line.item) return;
-                save({ item: next }, () => setItem(line.item));
-              }}
-              aria-label={`Line ${index} name`}
-            />
+      {/* The priced line: index, name, qty, unit cost, total and delete are
+          all one control's height, so centering them against each other
+          (rather than against the label above) is what actually lines up. */}
+      <div className={cn(SCOPE_GRID, "mt-1 items-center")}>
+        <span className="text-[11px] tabular-nums text-ink-300">{index}</span>
+
+        {locked ? (
+          <span className="block truncate text-[13px] font-medium text-navy">{line.item}</span>
+        ) : (
+          <Input
+            className="h-8 text-[13px]"
+            value={item}
+            disabled={pending}
+            onChange={(e) => setItem(e.target.value)}
+            onBlur={() => {
+              const next = item.trim();
+              if (!next) {
+                setItem(line.item);
+                return;
+              }
+              if (next === line.item) return;
+              save({ item: next }, () => setItem(line.item));
+            }}
+            aria-label={`Line ${index} name`}
+          />
+        )}
+
+        {locked ? (
+          <span
+            className={cn(
+              "text-right text-[13px] tabular-nums",
+              quantity ? "text-ink-700" : "text-ink-300",
+            )}
+          >
+            {quantity || "—"}
+          </span>
+        ) : (
+          <Input
+            className="h-8 text-right text-[13px] tabular-nums"
+            placeholder="Qty"
+            inputMode="decimal"
+            value={quantity}
+            disabled={pending}
+            onChange={(e) => setQuantity(e.target.value)}
+            onBlur={() => {
+              const next = quantity.trim();
+              if (next === (line.quantity ?? "")) return;
+              save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
+            }}
+            aria-label={`Line ${index} quantity`}
+          />
+        )}
+
+        {locked ? (
+          <span
+            className={cn(
+              "text-right text-[13px] tabular-nums",
+              unitPrice ? "text-ink-700" : "text-ink-300",
+            )}
+          >
+            {unitPrice ? moneyExact(Number(unitPrice)) : "—"}
+          </span>
+        ) : (
+          <Input
+            className="h-8 text-right text-[13px] tabular-nums"
+            placeholder="Unit $"
+            inputMode="decimal"
+            value={unitPrice}
+            disabled={pending}
+            onChange={(e) => setUnitPrice(e.target.value)}
+            onBlur={() => {
+              const next = unitPrice.trim();
+              if (next === (line.unitPrice ?? "")) return;
+              save({ unitPrice: next || null }, () => setUnitPrice(line.unitPrice ?? ""));
+            }}
+            aria-label={`Line ${index} unit cost`}
+          />
+        )}
+
+        <span
+          className={cn(
+            "text-right text-[13px] tabular-nums",
+            total == null ? "text-ink-300" : "text-ink-700",
           )}
-        </div>
+        >
+          {total == null ? "—" : moneyExact(total)}
+        </span>
 
+        <span className="text-right">
+          {locked ? null : confirmDelete ? (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-alert hover:underline"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await deleteScopeItem({ id: line.id, propertyId, projectId });
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  setConfirmDelete(false);
+                  router.refresh();
+                })
+              }
+              onBlur={() => setConfirmDelete(false)}
+              aria-label={`Confirm removing line ${index}`}
+            >
+              Sure?
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="text-ink-300 transition-colors hover:text-alert"
+              disabled={pending}
+              onClick={() => setConfirmDelete(true)}
+              aria-label={`Remove line ${index}`}
+            >
+              <Trash2Icon className="size-3.5" />
+            </button>
+          )}
+        </span>
+      </div>
+
+      {/* Description, on its own line below — same reasoning as the budget
+          category line above it. */}
+      <div className={cn(SCOPE_GRID, "mt-1 items-start")}>
+        <span />
         <DescriptionEditor
           scopeItemId={line.id}
           propertyId={propertyId}
@@ -511,11 +628,11 @@ function ScopeLineRow({
           vendorsPricing={liveRfpCount}
         >
           {description ? (
-            <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{description}</p>
+            <p className="text-[12px] leading-relaxed text-ink-500">{description}</p>
           ) : (
             <span
               className={cn(
-                "mt-1 inline-block text-[11.5px] underline underline-offset-[3px] transition-colors",
+                "inline-block text-[11.5px] underline underline-offset-[3px] transition-colors",
                 requireDescription
                   ? "text-alert/70 hover:text-alert"
                   : "text-ink-200 hover:text-ink-500",
@@ -525,103 +642,11 @@ function ScopeLineRow({
             </span>
           )}
         </DescriptionEditor>
+        <span />
+        <span />
+        <span />
+        <span />
       </div>
-
-      {locked ? (
-        <span
-          className={cn(
-            "pt-2 text-right text-[13px] tabular-nums",
-            quantity ? "text-ink-700" : "text-ink-300",
-          )}
-        >
-          {quantity || "—"}
-        </span>
-      ) : (
-        <Input
-          className="h-8 text-right text-[13px] tabular-nums"
-          placeholder="Qty"
-          inputMode="decimal"
-          value={quantity}
-          disabled={pending}
-          onChange={(e) => setQuantity(e.target.value)}
-          onBlur={() => {
-            const next = quantity.trim();
-            if (next === (line.quantity ?? "")) return;
-            save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
-          }}
-          aria-label={`Line ${index} quantity`}
-        />
-      )}
-
-      {locked ? (
-        <span
-          className={cn(
-            "pt-2 text-right text-[13px] tabular-nums",
-            unitPrice ? "text-ink-700" : "text-ink-300",
-          )}
-        >
-          {unitPrice ? moneyExact(Number(unitPrice)) : "—"}
-        </span>
-      ) : (
-        <Input
-          className="h-8 text-right text-[13px] tabular-nums"
-          placeholder="Unit $"
-          inputMode="decimal"
-          value={unitPrice}
-          disabled={pending}
-          onChange={(e) => setUnitPrice(e.target.value)}
-          onBlur={() => {
-            const next = unitPrice.trim();
-            if (next === (line.unitPrice ?? "")) return;
-            save({ unitPrice: next || null }, () => setUnitPrice(line.unitPrice ?? ""));
-          }}
-          aria-label={`Line ${index} unit cost`}
-        />
-      )}
-
-      <span
-        className={cn(
-          "pt-2 text-right text-[13px] tabular-nums",
-          total == null ? "text-ink-300" : "text-ink-700",
-        )}
-      >
-        {total == null ? "—" : moneyExact(total)}
-      </span>
-
-      <span className="pt-1.5 text-right">
-        {locked ? null : confirmDelete ? (
-          <button
-            type="button"
-            className="text-[11px] font-medium text-alert hover:underline"
-            disabled={pending}
-            onClick={() =>
-              startTransition(async () => {
-                const res = await deleteScopeItem({ id: line.id, propertyId, projectId });
-                if (!res.ok) {
-                  toast.error(res.error);
-                  return;
-                }
-                setConfirmDelete(false);
-                router.refresh();
-              })
-            }
-            onBlur={() => setConfirmDelete(false)}
-            aria-label={`Confirm removing line ${index}`}
-          >
-            Sure?
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="text-ink-300 transition-colors hover:text-alert"
-            disabled={pending}
-            onClick={() => setConfirmDelete(true)}
-            aria-label={`Remove line ${index}`}
-          >
-            <Trash2Icon className="size-3.5" />
-          </button>
-        )}
-      </span>
     </div>
   );
 }
