@@ -556,7 +556,15 @@ export default async function ProjectDetailPage({
       <ProjectWorkPanels
         initialTab={initialTab}
         scopeCount={scopeRows.length}
-        gate={gate ? { met: gate.metCount, total: gate.checks.length } : null}
+        gate={
+          gate
+            ? {
+                met: gate.metCount,
+                total: gate.checks.length,
+                checks: gate.checks.map((c) => ({ met: c.met, next: c.next })),
+              }
+            : null
+        }
         documentsCount={
           documentRows.length +
           bidPackage.bids.reduce((n, b) => n + b.attachments.length, 0) +

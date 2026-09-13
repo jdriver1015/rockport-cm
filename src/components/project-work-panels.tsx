@@ -6,12 +6,15 @@ import { cn } from "@/lib/utils";
 
 export type PanelKey = "scope" | "workflow" | "documents";
 
+/** Just enough of a GateCheck to color one tick. */
+export type GateTick = { met: boolean; next?: boolean };
+
 type PanelState = {
   tab: PanelKey;
   setTab: (next: PanelKey) => void;
   scopeCount: number;
   /** Gate progress for leaving the current phase. Null in the last phase. */
-  gate: { met: number; total: number } | null;
+  gate: { met: number; total: number; checks: GateTick[] } | null;
   documentsCount: number;
 };
 
@@ -39,7 +42,7 @@ export function ProjectWorkPanels({
 }: {
   initialTab: PanelKey;
   scopeCount: number;
-  gate: { met: number; total: number } | null;
+  gate: { met: number; total: number; checks: GateTick[] } | null;
   documentsCount: number;
   scope: ReactNode;
   workflow: ReactNode;
@@ -63,16 +66,47 @@ export function ProjectWorkPanels({
 }
 
 /** The count beside a segment's name. White on the selected navy segment. */
-function Count({ children, tone }: { children: ReactNode; tone?: "alert" }) {
+function Count({ children }: { children: ReactNode }) {
   return (
     <span
       className={cn(
-        "rounded-full px-1.5 py-px text-[11px] font-bold tabular-nums",
-        tone === "alert" ? "bg-alert/10 text-alert" : "bg-white text-ink-400",
+        "rounded-full bg-white px-1.5 py-px text-[11px] font-bold tabular-nums text-ink-400",
         "group-data-[active=true]/segment:bg-white/20 group-data-[active=true]/segment:text-white",
       )}
     >
       {children}
+    </span>
+  );
+}
+
+/**
+ * A miniature of the gate progress bar shown inside the Workflow panel itself
+ * (see project-phases.tsx's GateRow) — one tick per check, colored by state.
+ *
+ * Not a numeral badge: "met/total" as a fraction chip next to plain item
+ * counts on the other two tabs made the switch read as three inconsistent
+ * chips — a fixed-width, 3-character-wide pill beside two 1-character ones,
+ * and (on the active navy segment) a washed-out 20%-opacity fill beside two
+ * solid ones. Progress toward unlocking the next phase is a different kind of
+ * fact than "how many items", so it gets a different shape here, one that
+ * can't grow or shrink with the numbers.
+ */
+function GateTicks({ checks }: { checks: GateTick[] }) {
+  return (
+    <span className="flex w-8 shrink-0 gap-0.5" aria-hidden>
+      {checks.map((c, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-[3px] flex-1 rounded-full",
+            c.met
+              ? "bg-positive"
+              : c.next
+                ? "bg-navy/40 group-data-[active=true]/segment:bg-white/60"
+                : "bg-track group-data-[active=true]/segment:bg-white/20",
+          )}
+        />
+      ))}
     </span>
   );
 }
@@ -106,13 +140,7 @@ export function ProjectPanelSwitch() {
           label: (
             <>
               Workflow
-              {gate && (
-                // Red at zero: with the panel hidden, this pill is the only
-                // thing saying the phase cannot be left yet.
-                <Count tone={gate.met === 0 ? "alert" : undefined}>
-                  {gate.met}/{gate.total}
-                </Count>
-              )}
+              {gate && <GateTicks checks={gate.checks} />}
             </>
           ),
         },
