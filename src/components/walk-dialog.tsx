@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { QUARTER_HOUR_STEP } from "@/lib/walk-time";
+import { toIsoDate, todayInBusinessZone, weekdayAfter } from "@/lib/schedule-defaults";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,9 +52,15 @@ export function WalkDialog({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [date, setDate] = useState(walkDate ?? "");
+  // Nothing booked yet: pre-fill a reasonable default instead of leaving both
+  // fields blank — the nearest weekday a couple of days out (never a weekend;
+  // nobody walks a unit on a Saturday) at a normal business hour, so opening
+  // this dialog usually means picking "looks fine" over typing a date by hand.
+  const [date, setDate] = useState(
+    () => walkDate ?? toIsoDate(weekdayAfter(todayInBusinessZone(), 2)),
+  );
   // Stored as HH:MM:SS by Postgres; the input wants HH:MM.
-  const [time, setTime] = useState((walkTime ?? "").slice(0, 5));
+  const [time, setTime] = useState(() => (walkTime ?? "").slice(0, 5) || "10:00");
 
   function save() {
     startTransition(async () => {
