@@ -6,15 +6,12 @@ import { cn } from "@/lib/utils";
 
 export type PanelKey = "scope" | "workflow" | "documents";
 
-/** Just enough of a GateCheck to color one tick. */
-export type GateTick = { met: boolean; next?: boolean };
-
 type PanelState = {
   tab: PanelKey;
   setTab: (next: PanelKey) => void;
   scopeCount: number;
   /** Gate progress for leaving the current phase. Null in the last phase. */
-  gate: { met: number; total: number; checks: GateTick[] } | null;
+  gate: { met: number; total: number } | null;
   documentsCount: number;
 };
 
@@ -42,7 +39,7 @@ export function ProjectWorkPanels({
 }: {
   initialTab: PanelKey;
   scopeCount: number;
-  gate: { met: number; total: number; checks: GateTick[] } | null;
+  gate: { met: number; total: number } | null;
   documentsCount: number;
   scope: ReactNode;
   workflow: ReactNode;
@@ -80,38 +77,6 @@ function Count({ children }: { children: ReactNode }) {
 }
 
 /**
- * A miniature of the gate progress bar shown inside the Workflow panel itself
- * (see project-phases.tsx's GateRow) — one tick per check, colored by state.
- *
- * Not a numeral badge: "met/total" as a fraction chip next to plain item
- * counts on the other two tabs made the switch read as three inconsistent
- * chips — a fixed-width, 3-character-wide pill beside two 1-character ones,
- * and (on the active navy segment) a washed-out 20%-opacity fill beside two
- * solid ones. Progress toward unlocking the next phase is a different kind of
- * fact than "how many items", so it gets a different shape here, one that
- * can't grow or shrink with the numbers.
- */
-function GateTicks({ checks }: { checks: GateTick[] }) {
-  return (
-    <span className="flex w-5 shrink-0 gap-px" aria-hidden>
-      {checks.map((c, i) => (
-        <span
-          key={i}
-          className={cn(
-            "h-[3px] flex-1 rounded-full",
-            c.met
-              ? "bg-positive"
-              : c.next
-                ? "bg-navy/40 group-data-[active=true]/segment:bg-white/60"
-                : "bg-track group-data-[active=true]/segment:bg-white/20",
-          )}
-        />
-      ))}
-    </span>
-  );
-}
-
-/**
  * The switch itself, rendered from inside whichever panel is showing so it sits
  * in that panel's own card header rather than floating above the card. Renders
  * nothing outside a ProjectWorkPanels.
@@ -140,7 +105,11 @@ export function ProjectPanelSwitch() {
           label: (
             <>
               Workflow
-              {gate && <GateTicks checks={gate.checks} />}
+              {/* Same chip as Scope/Documents, styled identically — a
+                  3-character fraction runs a little wider than a 1-digit
+                  count, the same way "Documents" already runs wider than
+                  "Scope" as a word. */}
+              {gate && <Count>{gate.met}/{gate.total}</Count>}
             </>
           ),
         },
