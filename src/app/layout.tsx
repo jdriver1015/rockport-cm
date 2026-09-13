@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
+import { Source_Serif_4, Inter, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
 import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
@@ -10,11 +10,11 @@ import { db, schema } from "@/db";
 import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
-// Display serif — wordmark, page titles, and card titles only. Fraunces over
-// Newsreader: same editorial serif register, but drawn with cleaner, more
-// contemporary letterforms — Newsreader's cedilla (as in "Façade") in
-// particular sat oddly at heading weights.
-const fraunces = Fraunces({
+// Display serif — wordmark, page titles, and card titles only. Fraunces read
+// as too quirky at heading sizes (its soft, exaggerated curves are the whole
+// point of that typeface); Source Serif 4 keeps the same editorial register
+// with plain, contemporary letterforms instead.
+const sourceSerif = Source_Serif_4({
   variable: "--font-serif",
   subsets: ["latin"],
   weight: ["500", "600"],
@@ -104,7 +104,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${inter.variable} ${geistMono.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      className={`${sourceSerif.variable} ${inter.variable} ${geistMono.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <header className="bg-navy text-white print:hidden">

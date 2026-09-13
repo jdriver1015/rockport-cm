@@ -505,7 +505,12 @@ export default async function ProjectDetailPage({
                 different categories. Naming one of them at the top of the page
                 described the project as something it is not.
               */}
-              {unit && (
+              {/* Skipped whenever the name already leads with "Unit {n}" — the
+                  default a unit-turn project is created with ("Unit 313
+                  Interior"), but also any custom name written the same way.
+                  Only a name that doesn't lead with it needs this line to
+                  say which unit the project is on. */}
+              {unit && !project.name.trim().startsWith(`Unit ${unit.unitNumber}`) && (
                 <p className="text-sm text-muted-foreground">Unit {unit.unitNumber}</p>
               )}
             </div>
