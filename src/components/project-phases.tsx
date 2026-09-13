@@ -58,6 +58,8 @@ export type GateContext = {
   scopeConfirmedAt: string | null;
   /** True once an RFP is out — the scope's priced fields are frozen. */
   scopeLocked: boolean;
+  /** How many vendors are pricing the live RFP, for the frozen-scope note. */
+  liveRfpCount: number;
   preWalkFindings: PreWalkFinding[];
   bidPackage: BidPackageOption;
   preWalkDate: string | null;
@@ -796,6 +798,7 @@ function GateRow({
           requireDescriptions={context.requireDescriptions}
           scopeConfirmedAt={context.scopeConfirmedAt}
           scopeLocked={context.scopeLocked}
+          liveRfpCount={context.liveRfpCount}
           findings={context.preWalkFindings}
         />
       )}

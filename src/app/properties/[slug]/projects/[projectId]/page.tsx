@@ -606,6 +606,7 @@ export default async function ProjectDetailPage({
                       activeCostCodes.find((c) => c.id === r.costCodeId)?.name ?? null,
                   })),
                   scopeLocked,
+                  liveRfpCount: liveRfps,
                   scopeConfirmedAt: precon.scopeConfirmedAt?.toISOString().slice(0, 10) ?? null,
                   preWalkFindings,
                   bidPackage,

@@ -19,6 +19,7 @@ import { importFindingsToScope } from "@/lib/actions/walks";
 import { deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { scopeLineTotal } from "@/lib/scope-total";
+import { DescriptionEditor } from "@/components/scope-inline-editors";
 
 export type PreWalkFinding = {
   id: number;
@@ -40,8 +41,7 @@ export type ScopeLine = {
 };
 
 /** One grid for the header, every row and the totals, so the columns line up. */
-const SCOPE_GRID =
-  "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_96px_minmax(0,140px)_28px] items-start gap-3.5";
+const SCOPE_GRID = "grid grid-cols-[20px_minmax(0,1fr)_64px_84px_96px_28px] items-start gap-3.5";
 
 /**
  * Resolve the Confirm Scope and Budget gate.
@@ -52,8 +52,12 @@ const SCOPE_GRID =
  *
  * Editable here: the wording, the description, the quantity, the unit cost, and
  * whether the line belongs at all — everything that decides what a vendor is
- * asked to price and what it is expected to come to. Cost codes, dates, vendors
- * and spec grids stay on the project's Scope tab, which is built for them.
+ * asked to price and what it is expected to come to. Dates, vendors and spec
+ * grids stay on the project's Scope tab, which is built for them. The budget
+ * category rides along as a label, the same read-only note the Scope tab
+ * shows on its own rows — it is set there, not here, but a person confirming
+ * what vendors will price needs to see where each line lands without
+ * switching tabs to check.
  * Missing cost codes are flagged rather than fixed here: this is the last
  * moment before the scope is priced, and a line with no code will not
  * reconcile later — but unlike a description, there's no single field this
@@ -68,6 +72,7 @@ export function DefineScopeDialog({
   requireDescriptions,
   scopeConfirmedAt,
   scopeLocked,
+  liveRfpCount,
   findings,
 }: {
   open: boolean;
@@ -82,6 +87,8 @@ export function DefineScopeDialog({
   scopeConfirmedAt: string | null;
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
   scopeLocked: boolean;
+  /** How many vendors are pricing the live RFP, for the frozen-line note. */
+  liveRfpCount: number;
   findings: PreWalkFinding[];
 }) {
   const router = useRouter();
@@ -199,9 +206,6 @@ export function DefineScopeDialog({
                   <span className="text-right text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
                     Total
                   </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-300">
-                    Budget category
-                  </span>
                   <span />
                 </div>
 
@@ -215,6 +219,7 @@ export function DefineScopeDialog({
                       projectId={projectId}
                       locked={scopeLocked}
                       requireDescription={requireDescriptions}
+                      liveRfpCount={liveRfpCount}
                     />
                   ))}
                 </div>
@@ -241,7 +246,6 @@ export function DefineScopeDialog({
                       {scopeTotal > 0 ? moneyExact(scopeTotal) : "—"}
                     </span>
                     <span />
-                    <span />
                   </div>
 
                   {/*
@@ -263,23 +267,14 @@ export function DefineScopeDialog({
             )}
 
             {missingCode > 0 && (
-              // The last moment this is cheap to fix. After the bid comes back
-              // the spend has nowhere to reconcile to and nobody remembers why.
+              // Which lines is already visible below, flagged in red — this
+              // adds the one thing the row can't say: where to go fix it. The
+              // last moment it's cheap to; after the bid comes back the spend
+              // has nowhere to reconcile to.
               <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
                 <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
-                {missingCode} line{missingCode === 1 ? " has" : "s have"} no budget category — set
-                them on the project&apos;s Scope tab or the spend will not reconcile.
-              </p>
-            )}
-
-            {missingDescription > 0 && (
-              // Confirming requires a description on common-area scope — a
-              // vendor prices from what is written, not from the line's name
-              // alone.
-              <p className="flex items-start gap-1.5 text-[11.5px] text-alert">
-                <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
-                {missingDescription} line{missingDescription === 1 ? " has" : "s have"} no
-                description — add one below before this can be confirmed.
+                Lines flagged below have no budget category — set them on the project&apos;s Scope
+                tab or the spend will not reconcile.
               </p>
             )}
           </div>
@@ -432,6 +427,7 @@ function ScopeLineRow({
   projectId,
   locked,
   requireDescription,
+  liveRfpCount,
 }: {
   index: number;
   line: ScopeLine;
@@ -441,20 +437,22 @@ function ScopeLineRow({
   /** Common-area scope needs a sentence a vendor can price from; a unit
    *  turn's lines come from a budget template with nothing to write. */
   requireDescription: boolean;
+  liveRfpCount: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [item, setItem] = useState(line.item);
-  const [description, setDescription] = useState(line.materialQuality ?? "");
   const [quantity, setQuantity] = useState(line.quantity ?? "");
   const [unitPrice, setUnitPrice] = useState(line.unitPrice ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const description = line.materialQuality?.trim() ?? "";
 
   // Off the edited values, not the saved ones, so the number moves as you type.
   const total = scopeLineTotal({ quantity: quantity || null, unitPrice: unitPrice || null });
 
   function save(
-    patch: { item?: string; materialQuality?: string | null; quantity?: string | null; unitPrice?: string | null },
+    patch: { item?: string; quantity?: string | null; unitPrice?: string | null },
     revert: () => void,
   ) {
     startTransition(async () => {
@@ -473,71 +471,113 @@ function ScopeLineRow({
       <span className="pt-2 text-[11px] tabular-nums text-ink-300">{index}</span>
 
       <div className="min-w-0">
-        <Input
-          className="h-8 text-[13px]"
-          value={item}
-          disabled={pending || locked}
-          onChange={(e) => setItem(e.target.value)}
-          onBlur={() => {
-            const next = item.trim();
-            if (!next) {
-              setItem(line.item);
-              return;
-            }
-            if (next === line.item) return;
-            save({ item: next }, () => setItem(line.item));
-          }}
-          aria-label={`Line ${index} name`}
-        />
-        <Input
-          className={cn(
-            "mt-1 h-7 text-[11.5px]",
-            !description.trim() && requireDescription && "border-alert/50 placeholder:text-alert/70",
+        <div className="truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300">
+          {line.costCodeName ? (
+            <span className="text-ink-400">Budget category: {line.costCodeName}</span>
+          ) : (
+            <span className="font-bold text-alert">NO BUDGET CATEGORY</span>
           )}
-          value={description}
-          disabled={pending || locked}
-          placeholder={
-            requireDescription ? "Description (required) — what the contractor prices" : "Description"
-          }
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => {
-            const next = description.trim();
-            if (next === (line.materialQuality ?? "")) return;
-            save({ materialQuality: next || null }, () => setDescription(line.materialQuality ?? ""));
-          }}
-          aria-label={`Line ${index} description`}
-        />
+        </div>
+
+        <div className="mt-1">
+          {locked ? (
+            <span className="block truncate text-[13px] font-medium text-navy">{line.item}</span>
+          ) : (
+            <Input
+              className="h-8 text-[13px]"
+              value={item}
+              disabled={pending}
+              onChange={(e) => setItem(e.target.value)}
+              onBlur={() => {
+                const next = item.trim();
+                if (!next) {
+                  setItem(line.item);
+                  return;
+                }
+                if (next === line.item) return;
+                save({ item: next }, () => setItem(line.item));
+              }}
+              aria-label={`Line ${index} name`}
+            />
+          )}
+        </div>
+
+        <DescriptionEditor
+          scopeItemId={line.id}
+          propertyId={propertyId}
+          projectId={projectId}
+          value={line.materialQuality ?? ""}
+          outForBid={locked}
+          vendorsPricing={liveRfpCount}
+        >
+          {description ? (
+            <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{description}</p>
+          ) : (
+            <span
+              className={cn(
+                "mt-1 inline-block text-[11.5px] underline underline-offset-[3px] transition-colors",
+                requireDescription
+                  ? "text-alert/70 hover:text-alert"
+                  : "text-ink-200 hover:text-ink-500",
+              )}
+            >
+              {requireDescription ? "Add description (required)" : "Add description"}
+            </span>
+          )}
+        </DescriptionEditor>
       </div>
 
-      <Input
-        className="h-8 text-right text-[13px] tabular-nums"
-        placeholder="Qty"
-        inputMode="decimal"
-        value={quantity}
-        disabled={pending || locked}
-        onChange={(e) => setQuantity(e.target.value)}
-        onBlur={() => {
-          const next = quantity.trim();
-          if (next === (line.quantity ?? "")) return;
-          save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
-        }}
-        aria-label={`Line ${index} quantity`}
-      />
+      {locked ? (
+        <span
+          className={cn(
+            "pt-2 text-right text-[13px] tabular-nums",
+            quantity ? "text-ink-700" : "text-ink-300",
+          )}
+        >
+          {quantity || "—"}
+        </span>
+      ) : (
+        <Input
+          className="h-8 text-right text-[13px] tabular-nums"
+          placeholder="Qty"
+          inputMode="decimal"
+          value={quantity}
+          disabled={pending}
+          onChange={(e) => setQuantity(e.target.value)}
+          onBlur={() => {
+            const next = quantity.trim();
+            if (next === (line.quantity ?? "")) return;
+            save({ quantity: next || null }, () => setQuantity(line.quantity ?? ""));
+          }}
+          aria-label={`Line ${index} quantity`}
+        />
+      )}
 
-      <Input
-        className="h-8 text-right text-[13px] tabular-nums"
-        placeholder="Unit $"
-        inputMode="decimal"
-        value={unitPrice}
-        disabled={pending || locked}
-        onChange={(e) => setUnitPrice(e.target.value)}
-        onBlur={() => {
-          const next = unitPrice.trim();
-          if (next === (line.unitPrice ?? "")) return;
-          save({ unitPrice: next || null }, () => setUnitPrice(line.unitPrice ?? ""));
-        }}
-        aria-label={`Line ${index} unit cost`}
-      />
+      {locked ? (
+        <span
+          className={cn(
+            "pt-2 text-right text-[13px] tabular-nums",
+            unitPrice ? "text-ink-700" : "text-ink-300",
+          )}
+        >
+          {unitPrice ? moneyExact(Number(unitPrice)) : "—"}
+        </span>
+      ) : (
+        <Input
+          className="h-8 text-right text-[13px] tabular-nums"
+          placeholder="Unit $"
+          inputMode="decimal"
+          value={unitPrice}
+          disabled={pending}
+          onChange={(e) => setUnitPrice(e.target.value)}
+          onBlur={() => {
+            const next = unitPrice.trim();
+            if (next === (line.unitPrice ?? "")) return;
+            save({ unitPrice: next || null }, () => setUnitPrice(line.unitPrice ?? ""));
+          }}
+          aria-label={`Line ${index} unit cost`}
+        />
+      )}
 
       <span
         className={cn(
@@ -546,14 +586,6 @@ function ScopeLineRow({
         )}
       >
         {total == null ? "—" : moneyExact(total)}
-      </span>
-
-      <span className="min-w-0 pt-2">
-        {line.costCodeName ? (
-          <span className="block truncate text-[11.5px] text-ink-500">{line.costCodeName}</span>
-        ) : (
-          <span className="text-[11.5px] text-alert">No budget category</span>
-        )}
       </span>
 
       <span className="pt-1.5 text-right">
