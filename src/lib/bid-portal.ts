@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { recordBidEvent } from "@/lib/bid-events";
 
@@ -240,18 +240,50 @@ export async function issueBidToken(
   bidId: number,
   createdBy: string | null,
 ): Promise<{ token: string; expiresAt: Date }> {
-  const token = randomBytes(32).toString("base64url");
+  const [issued] = await issueBidTokens([{ bidId, createdBy }]);
+  return { token: issued.token, expiresAt: issued.expiresAt };
+}
+
+/**
+ * Same as issueBidToken, for every bid in one round trip.
+ *
+ * A multi-vendor RFP send used to open one revoke-then-insert transaction per
+ * vendor — N sequential round trips against the pool for what is, structurally,
+ * one revoke and one insert either way. Tokens are generated up front (that part
+ * needs no database at all) and the two writes are each a single statement
+ * covering every bid.
+ */
+export async function issueBidTokens(
+  requests: { bidId: number; createdBy: string | null }[],
+): Promise<{ bidId: number; token: string; expiresAt: Date }[]> {
+  if (requests.length === 0) return [];
   const expiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 86_400_000);
+  const issued = requests.map((r) => ({ ...r, token: randomBytes(32).toString("base64url") }));
 
   await db().transaction(async (tx) => {
     await tx
       .update(schema.bidAccessTokens)
       .set({ revokedAt: new Date() })
-      .where(and(eq(schema.bidAccessTokens.bidId, bidId), isNull(schema.bidAccessTokens.revokedAt)));
-    await tx.insert(schema.bidAccessTokens).values({ bidId, token, expiresAt, createdBy });
+      .where(
+        and(
+          inArray(
+            schema.bidAccessTokens.bidId,
+            issued.map((i) => i.bidId),
+          ),
+          isNull(schema.bidAccessTokens.revokedAt),
+        ),
+      );
+    await tx.insert(schema.bidAccessTokens).values(
+      issued.map((i) => ({
+        bidId: i.bidId,
+        token: i.token,
+        expiresAt,
+        createdBy: i.createdBy,
+      })),
+    );
   });
 
-  return { token, expiresAt };
+  return issued.map((i) => ({ bidId: i.bidId, token: i.token, expiresAt }));
 }
 
 /** Kill a bid's link without issuing a new one. */

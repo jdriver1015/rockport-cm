@@ -6,8 +6,8 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { propertyProjectPath } from "@/lib/property-path";
 import { sendBidPackageRows } from "@/lib/bid-package";
-import { issueBidToken } from "@/lib/bid-portal";
-import { recordBidEvent } from "@/lib/bid-events";
+import { issueBidTokens } from "@/lib/bid-portal";
+import { recordBidEvents, type BidEventKind } from "@/lib/bid-events";
 import { invitationHtml, invitationSubject, invitationText } from "@/lib/bid-invitation";
 import { appOrigin, mailConfigured, sendEmail } from "@/lib/email";
 import { createClient } from "@/lib/supabase/server";
@@ -112,24 +112,35 @@ export async function sendBidInvitations(
     });
   }
 
+  // Minted for every bid up front, in one revoke-then-insert covering the
+  // whole batch rather than one transaction per vendor: the request is real
+  // regardless of whether mail goes out, so a link nobody can reach is the
+  // state this replaced, and there is no vendor-specific input a token needs.
+  const issued = await issueBidTokens(
+    res.created.map((c) => ({ bidId: c.bidId, createdBy: user?.id ?? null })),
+  );
+  const tokenByBid = new Map(issued.map((i) => [i.bidId, i.token]));
+
+  type DeliveryEvent = { bidId: number; kind: BidEventKind; meta: Record<string, string> };
+
   const deliveries = res.created.map(async (c) => {
     const name = vendorName.get(c.vendorId) ?? "Vendor";
     const contact = contactFor.get(c.vendorId) ?? null;
     const address = contact?.email ?? null;
-
-    // Minted regardless of whether mail goes out: the request is real, and a
-    // link nobody can reach is the state this replaced.
-    const { token } = await issueBidToken(c.bidId, user?.id ?? null);
+    const token = tokenByBid.get(c.bidId)!;
     const link = `${appOrigin()}/bid/${token}`;
 
     if (!address) {
-      await recordBidEvent(c.bidId, "invited", { delivery: "no contact on file" });
+      const event: DeliveryEvent = { bidId: c.bidId, kind: "invited", meta: { delivery: "no contact on file" } };
       return {
-        vendorId: c.vendorId,
-        vendorName: name,
-        email: null,
-        link,
-        status: "no_email" as const,
+        event,
+        outcome: {
+          vendorId: c.vendorId,
+          vendorName: name,
+          email: null,
+          link,
+          status: "no_email" as const,
+        },
       };
     }
 
@@ -146,13 +157,20 @@ export async function sendBidInvitations(
     };
 
     if (!configured) {
-      await recordBidEvent(c.bidId, "invited", { delivery: "not configured", to: address });
+      const event: DeliveryEvent = {
+        bidId: c.bidId,
+        kind: "invited",
+        meta: { delivery: "not configured", to: address },
+      };
       return {
-        vendorId: c.vendorId,
-        vendorName: name,
-        email: address,
-        link,
-        status: "not_configured" as const,
+        event,
+        outcome: {
+          vendorId: c.vendorId,
+          vendorName: name,
+          email: address,
+          link,
+          status: "not_configured" as const,
+        },
       };
     }
 
@@ -163,18 +181,21 @@ export async function sendBidInvitations(
       text: invitationText(mail),
     });
 
-    await recordBidEvent(c.bidId, "invited", {
-      to: address,
-      delivery: sent.ok ? "sent" : "failed",
-    });
-
+    const event: DeliveryEvent = {
+      bidId: c.bidId,
+      kind: "invited",
+      meta: { to: address, delivery: sent.ok ? "sent" : "failed" },
+    };
     return {
-      vendorId: c.vendorId,
-      vendorName: name,
-      email: address,
-      link,
-      status: (sent.ok ? "sent" : "failed") as InvitationOutcome["status"],
-      detail: sent.ok ? undefined : sent.error,
+      event,
+      outcome: {
+        vendorId: c.vendorId,
+        vendorName: name,
+        email: address,
+        link,
+        status: (sent.ok ? "sent" : "failed") as InvitationOutcome["status"],
+        detail: sent.ok ? undefined : sent.error,
+      },
     };
   });
 
@@ -182,7 +203,11 @@ export async function sendBidInvitations(
   // per vendor. Sequentially, a slow provider could exhaust the request budget
   // partway down the list and strand the rest with a bid and a link but no
   // invitation — and re-running would skip them as "already has a live request".
-  outcomes.push(...(await Promise.all(deliveries)));
+  const delivered = await Promise.all(deliveries);
+  outcomes.push(...delivered.map((r) => r.outcome));
+  // One insert for the whole batch's "invited" trail, once every outcome — sent,
+  // no email on file, provider failure — has actually settled.
+  await recordBidEvents(delivered.map((r) => r.event));
 
   const path = await propertyProjectPath(d.propertyId, d.projectId);
   if (path) revalidatePath(path);

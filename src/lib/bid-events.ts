@@ -44,6 +44,28 @@ export async function recordBidEvent(
 }
 
 /**
+ * Same as recordBidEvent, for a batch of events in one insert.
+ *
+ * A multi-vendor RFP send used to record each vendor's "invited" event with its
+ * own round trip once every delivery had resolved. The outcome (sent, no email
+ * on file, provider failure) differs per vendor and isn't known until the send
+ * attempt finishes, so the events still can't be written before that — but once
+ * every attempt has settled, they go in as one insert instead of N.
+ */
+export async function recordBidEvents(
+  events: { bidId: number; kind: BidEventKind; meta?: Record<string, string | number> }[],
+): Promise<void> {
+  if (events.length === 0) return;
+  try {
+    await db()
+      .insert(schema.bidEvents)
+      .values(events.map((e) => ({ bidId: e.bidId, kind: e.kind, meta: e.meta ?? null })));
+  } catch (err) {
+    console.error(`bulk bid events (${events.length}) failed to record`, err);
+  }
+}
+
+/**
  * Record an event at most once an hour.
  *
  * A tracking pixel fires every time a mail client renders the message —
