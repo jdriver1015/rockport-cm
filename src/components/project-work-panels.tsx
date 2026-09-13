@@ -93,7 +93,7 @@ function Count({ children }: { children: ReactNode }) {
  */
 function GateTicks({ checks }: { checks: GateTick[] }) {
   return (
-    <span className="flex w-8 shrink-0 gap-0.5" aria-hidden>
+    <span className="flex w-5 shrink-0 gap-px" aria-hidden>
       {checks.map((c, i) => (
         <span
           key={i}
