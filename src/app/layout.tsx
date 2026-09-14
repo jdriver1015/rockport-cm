@@ -17,7 +17,9 @@ import "./globals.css";
 const sourceSerif = Source_Serif_4({
   variable: "--font-serif",
   subsets: ["latin"],
-  weight: ["500", "600"],
+  // Every font-serif heading in the app pairs it with font-semibold (600) —
+  // no weight-500 usage exists, so that file would only add dead weight.
+  weight: ["600"],
 });
 
 // UI / body sans — everything else: navigation, KPIs, tables, body copy.

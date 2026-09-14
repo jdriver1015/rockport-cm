@@ -51,6 +51,7 @@ export function DescriptionEditor({
   value,
   outForBid,
   vendorsPricing,
+  ariaLabel,
   children,
 }: {
   scopeItemId: number;
@@ -59,6 +60,10 @@ export function DescriptionEditor({
   value: string;
   outForBid: boolean;
   vendorsPricing: number;
+  /** Distinguishes one row's trigger from another for screen readers, whose
+   *  accessible name otherwise falls back to the (often identical, often
+   *  empty) children — e.g. "Line 3 description" vs "Line 7 description". */
+  ariaLabel?: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -108,6 +113,7 @@ export function DescriptionEditor({
             // The row itself opens the dialog, so a click meant for the
             // description must not also open it.
             onClick={(e) => e.stopPropagation()}
+            aria-label={ariaLabel}
             className="cursor-text rounded-[5px] transition-colors hover:bg-hover"
           />
         }
@@ -339,6 +345,37 @@ function RowFields({
         ×
       </button>
     </>
+  );
+}
+
+/**
+ * The small tracked label every scope-line row leads with: which budget
+ * category the line is on, or a loud flag when it has none. Shared between
+ * the Scope tab and the pre-con gate dialog so the wording and styling of
+ * this read-only note can't drift between the two places it appears.
+ */
+export function BudgetCategoryLabel({
+  name,
+  className,
+  children,
+}: {
+  name: string | null;
+  className?: string;
+  /** Extra detail appended after the name — allowance/tier/sharing on the
+   *  Scope tab, nothing in the gate dialog. */
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={cn("truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300", className)}>
+      {name ? (
+        <>
+          <span className="text-ink-400">Budget category: {name}</span>
+          {children}
+        </>
+      ) : (
+        <span className="font-bold text-alert">NO BUDGET CATEGORY</span>
+      )}
+    </div>
   );
 }
 

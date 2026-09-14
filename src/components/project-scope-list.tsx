@@ -36,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ProjectPanelSwitch } from "@/components/project-work-panels";
 import {
+  BudgetCategoryLabel,
   DescriptionEditor,
   OutForBidChip,
   SpecsEditor,
@@ -485,10 +486,10 @@ function ScopeLineRow({
     >
       <div className={GRID}>
         <div className="min-w-0">
-          <div className="truncate text-[10px] font-semibold tracking-[0.05em] text-ink-300">
-            {code ? (
+          <BudgetCategoryLabel name={code?.name ?? null}>
+            {code && (
               <>
-                <span className="text-ink-400">Budget category: {code.name} · </span>
+                {" · "}
                 {allowance > 0 ? (
                   <span>
                     {money(allowance)} {perUnit ? "per unit" : "allowance"}
@@ -502,10 +503,8 @@ function ScopeLineRow({
                 )}
                 {sharing > 1 && <span className="text-ink-300"> · {sharing} lines on this code</span>}
               </>
-            ) : (
-              <span className="font-bold text-alert">NO BUDGET CATEGORY</span>
             )}
-          </div>
+          </BudgetCategoryLabel>
 
           <div className="mt-0.5 flex items-center gap-2">
             <span className="truncate text-sm font-semibold leading-snug text-navy">
@@ -669,6 +668,7 @@ function ScopeLineRow({
         value={description}
         outForBid={frozen}
         vendorsPricing={liveRfpCount}
+        ariaLabel={`${row.item || "Untitled item"} description`}
       >
         {description ? (
           <p className="mt-2 max-w-[68ch] px-1 text-[12.5px] leading-relaxed text-ink-500">

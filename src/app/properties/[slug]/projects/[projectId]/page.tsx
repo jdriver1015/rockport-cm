@@ -50,6 +50,22 @@ async function optional<T>(query: PromiseLike<T[]>, label: string): Promise<T[]>
   }
 }
 
+/**
+ * Does this project name already say which unit it's on?
+ *
+ * Case- and whitespace-insensitive, and requires a word boundary right after
+ * the number — a plain `startsWith` would both miss a harmless rename like
+ * "unit 313 interior" (lowercase) or "Unit  313 Interior" (doubled space),
+ * and wrongly match unit "31" against a name that actually says "Unit 313".
+ */
+function nameStatesUnit(name: string, unitNumber: string): boolean {
+  const normalized = name.trim().replace(/\s+/g, " ").toLowerCase();
+  const prefix = `unit ${unitNumber}`.toLowerCase();
+  if (!normalized.startsWith(prefix)) return false;
+  const boundary = normalized.charAt(prefix.length);
+  return boundary === "" || !/[a-z0-9]/i.test(boundary);
+}
+
 export default async function ProjectDetailPage({
   params,
   searchParams,
@@ -510,7 +526,7 @@ export default async function ProjectDetailPage({
                   Interior"), but also any custom name written the same way.
                   Only a name that doesn't lead with it needs this line to
                   say which unit the project is on. */}
-              {unit && !project.name.trim().startsWith(`Unit ${unit.unitNumber}`) && (
+              {unit && !nameStatesUnit(project.name, unit.unitNumber) && (
                 <p className="text-sm text-muted-foreground">Unit {unit.unitNumber}</p>
               )}
             </div>
