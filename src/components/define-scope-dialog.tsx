@@ -263,9 +263,9 @@ export function DefineScopeDialog({
                   */}
                   {unpricedCount > 0 && (
                     <p className="mt-2 pl-8 text-[11.5px] text-gold">
-                      {unpricedCount} line{unpricedCount === 1 ? "" : "s"} still need
-                      {unpricedCount === 1 ? "s" : ""} a price. A vendor cannot quote a line with
-                      no price on it.
+                      {`${unpricedCount} line${unpricedCount === 1 ? "" : "s"} still need${
+                        unpricedCount === 1 ? "s" : ""
+                      } a price. A vendor cannot quote a line with no price on it.`}
                     </p>
                   )}
                 </div>

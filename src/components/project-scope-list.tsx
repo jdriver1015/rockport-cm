@@ -644,8 +644,9 @@ function ScopeLineRow({
                 // one it throws at render instead of degrading.
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="max-w-[190px] text-[10.5px] leading-snug font-normal text-ink-300">
-                    {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this scope.
-                    Withdraw the request{liveRfpCount === 1 ? "" : "s"} to add or remove lines.
+                    {`${liveRfpCount} vendor${
+                      liveRfpCount === 1 ? " is" : "s are"
+                    } pricing this scope. Withdraw the request${liveRfpCount === 1 ? "" : "s"} to add or remove lines.`}
                   </DropdownMenuLabel>
                 </DropdownMenuGroup>
               )}
@@ -963,9 +964,8 @@ function ScopeEditorDialog({
     if (unbudgeted) {
       return (
         <p className="mt-1.5 text-[11.5px] leading-relaxed text-gold">
-          <b className="font-semibold">No allowance on this category.</b> {money(total)} here is
-          unbudgeted — move it to a category with an allowance, or get the approval on record before
-          releasing a contract.
+          <b className="font-semibold">No allowance on this category.</b>{" "}
+          {`${money(total)} here is unbudgeted — move it to a category with an allowance, or get the approval on record before releasing a contract.`}
         </p>
       );
     }
@@ -973,9 +973,10 @@ function ScopeEditorDialog({
     if (overBudget) {
       return (
         <p className="mt-1.5 text-[11.5px] leading-relaxed text-alert">
-          <b className="font-semibold">{money(Math.abs(remaining!))} over</b> the{" "}
-          {money(allowance)} {perUnitBudgetByCode ? "per-unit tier budget" : "allowance"}. Confirm
-          the approval before releasing a contract.
+          <b className="font-semibold">{`${money(Math.abs(remaining!))} over`}</b> the{" "}
+          {`${money(allowance)} ${
+            perUnitBudgetByCode ? "per-unit tier budget" : "allowance"
+          }. Confirm the approval before releasing a contract.`}
         </p>
       );
     }
@@ -1017,11 +1018,11 @@ function ScopeEditorDialog({
             <LockIcon className="mt-0.5 size-3.5 shrink-0" />
             <span>
               <b className="font-semibold">
-                {liveRfpCount} vendor{liveRfpCount === 1 ? " is" : "s are"} pricing this line.
+                {`${liveRfpCount} vendor${liveRfpCount === 1 ? " is" : "s are"} pricing this line.`}
               </b>{" "}
-              Its price, category, description and specifications are what they were asked to quote,
-              so they are locked until the request{liveRfpCount === 1 ? " is" : "s are"} withdrawn.
-              Dates are still editable.
+              {`Its price, category, description and specifications are what they were asked to quote, so they are locked until the request${
+                liveRfpCount === 1 ? " is" : "s are"
+              } withdrawn. Dates are still editable.`}
             </span>
           </div>
         )}

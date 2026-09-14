@@ -36,9 +36,9 @@ function FrozenNote({ vendors }: { vendors: number }) {
     <div className="w-[300px]">
       <div className={HEADING}>Out for bid</div>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-500">
-        {vendors} vendor{vendors === 1 ? " is" : "s are"} pricing this line. Its description and
-        specifications are what they were asked to quote, so they cannot change until the request
-        {vendors === 1 ? " is" : "s are"} withdrawn.
+        {`${vendors} vendor${vendors === 1 ? " is" : "s are"} pricing this line. Its description and specifications are what they were asked to quote, so they cannot change until the request${
+          vendors === 1 ? " is" : "s are"
+        } withdrawn.`}
       </p>
     </div>
   );

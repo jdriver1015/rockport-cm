@@ -340,9 +340,9 @@ export function BidInviteWizard({
 
             {noEmail.length > 0 && (
               <p className="mt-2.5 text-[11.5px] text-gold">
-                {noEmail.map((v) => v.name).join(", ")} {noEmail.length === 1 ? "has" : "have"} no
-                contact email. The request and link are still created — you will be given the link to
-                pass on.
+                {`${noEmail.map((v) => v.name).join(", ")} ${
+                  noEmail.length === 1 ? "has" : "have"
+                } no contact email. The request and link are still created — you will be given the link to pass on.`}
               </p>
             )}
           </>
