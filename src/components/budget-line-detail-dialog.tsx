@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
-import { phaseLabel } from "@/lib/stages";
+import { StageDot } from "@/components/ui/stage-dot";
 import { updateBudgetLine, deleteBudgetLine, restoreBudgetLine } from "@/lib/actions/budget";
 import { projectSlug } from "@/lib/slug";
 import type { BudgetLineRow } from "@/components/budget-view";
@@ -182,11 +182,8 @@ function DialogBody({
         </form>
       ) : (
         <div className="space-y-4">
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <dl>
             <Figure label="Budgeted" value={money(line.budget)} />
-            <Figure label="Planned" value={money(line.planned)} />
-            <Figure label="In Process" value={money(line.inProcess)} />
-            <Figure label="Completed" value={money(line.completed)} />
           </dl>
 
           {line.isInterior && line.perUnitAmount !== null && line.plannedUnits !== null && (
@@ -198,7 +195,11 @@ function DialogBody({
 
           <div>
             <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Projects ({line.projects.length})
+              {line.projects.length === 0
+                ? "Projects (0)"
+                : `${line.projects.length} project${line.projects.length === 1 ? "" : "s"} · ${money(
+                    line.projects.reduce((s, p) => s + p.committed, 0),
+                  )} committed`}
             </h4>
             {line.projects.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -214,9 +215,7 @@ function DialogBody({
                     >
                       {p.name}
                     </Link>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {phaseLabel(p.phase)}
-                    </span>
+                    <StageDot phase={p.phase} className="shrink-0" />
                     <span className="shrink-0 tabular-nums text-muted-foreground">
                       {money(p.completed)} / {money(p.budget)}
                     </span>
@@ -243,9 +242,9 @@ function DialogBody({
 
 function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-muted px-3 py-2">
+    <div className="inline-block rounded-md border bg-muted px-3 py-2">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums font-medium text-navy">{value}</dd>
+      <dd className="text-lg tabular-nums font-semibold text-navy">{value}</dd>
     </div>
   );
 }
