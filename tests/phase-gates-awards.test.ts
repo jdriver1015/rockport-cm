@@ -23,6 +23,7 @@ import { evaluateGates } from "@/lib/phase-gates";
 const base = {
   preWalkDate: "2026-08-01",
   preWalkAuditStatus: "complete" as const,
+  preWalkAuditId: 1,
   scopeLineCount: 5,
   scopeConfirmedAt: new Date("2026-08-02"),
   approvedBudget: 60000,
@@ -43,6 +44,7 @@ const base = {
   scopeTotalCount: 5,
   hasActualStart: false,
   punchWalkStatus: null,
+  punchWalkAuditId: null,
   punchWalkDate: null,
   openFindingCount: 0,
   openFindingAuditId: null,

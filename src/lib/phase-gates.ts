@@ -76,6 +76,9 @@ export type PreconGateState = {
   preWalkDate: string | null;
   /** The linked pre-walk audit's status, or null when no walk exists yet. */
   preWalkAuditStatus: "draft" | "complete" | null;
+  /** The audit itself, so a started walk can be linked to directly instead of
+   *  through the workflow tab's dialog. Null until the walk has been started. */
+  preWalkAuditId: number | null;
   scopeLineCount: number;
   /** projects.scope_confirmed_at — the scope is agreed and ready to price. */
   scopeConfirmedAt: Date | null;
@@ -126,6 +129,9 @@ export type ProgressGateState = {
    * gate — null when no punch walk has been started.
    */
   punchWalkStatus: "draft" | "complete" | null;
+  /** The audit itself, mirroring preWalkAuditId — lets a started punch walk be
+   *  linked to directly too. */
+  punchWalkAuditId: number | null;
   /** projects.punch_walk_date — the walk is on the calendar. */
   punchWalkDate: string | null;
   openFindingCount: number;
@@ -146,12 +152,17 @@ function preWalkCheck(state: PreconGateState): GateCheck {
     return { key: "pre_walk", label: "Pre-Walk Complete", met: true, detail: "Walked" };
   }
   if (state.preWalkAuditStatus === "draft") {
+    // Once the walk exists, the thing to press goes straight to it — not
+    // through the workflow tab's dialog to a "Continue walk" button that
+    // opens the same screen a click later.
     return {
       key: "pre_walk",
       label: "Pre-Walk Started",
       short: "Finish pre-walk",
       met: false,
       detail: "Walk in progress",
+      target: "audits",
+      auditId: state.preWalkAuditId,
     };
   }
   if (state.preWalkDate) {
@@ -183,12 +194,15 @@ function punchWalkCheck(state: ProgressGateState): GateCheck {
     return { key: "punch_walk", label: "Punch Walk Complete", met: true, detail: "Walked" };
   }
   if (state.punchWalkStatus === "draft") {
+    // Mirrors preWalkCheck's draft branch — see its comment.
     return {
       key: "punch_walk",
       label: "Punch Walk Started",
       short: "Finish punch walk",
       met: false,
       detail: "Walk in progress",
+      target: "audits",
+      auditId: state.punchWalkAuditId,
     };
   }
   if (state.punchWalkDate) {
@@ -517,12 +531,15 @@ export type NextStep =
 /**
  * Where a gate with no dialog sends you instead.
  *
- * A gate with a key owns a dialog on the workflow tab; anything else says where
- * it is resolved. This used to string-match `label`, which made the routing a
- * hostage to the wording.
+ * A gate with a key owns a dialog on the workflow tab by default; anything
+ * else says where it is resolved. An explicit `target` overrides that
+ * default even on a keyed check — the pre-walk and punch-walk gates use this
+ * once their audit exists, so "Finish pre-walk" lands on the walk itself
+ * instead of on a dialog whose only job left is a second click to get there.
+ * This used to string-match `label`, which made the routing a hostage to the
+ * wording.
  */
 function targetForCheck(check: GateCheck): "workflow" | "audits" | "gl" {
-  if (check.key) return "workflow";
   return check.target ?? "workflow";
 }
 

@@ -23,6 +23,7 @@ import { PROJECT_PHASES, nextPhase } from "@/lib/stages";
 const fresh = {
   preWalkDate: null,
   preWalkAuditStatus: null,
+  preWalkAuditId: null,
   scopeLineCount: 0,
   scopeConfirmedAt: null,
   approvedBudget: 0,
@@ -40,6 +41,7 @@ const fresh = {
   bidsOutstanding: 0,
   hasActualStart: false,
   punchWalkStatus: null,
+  punchWalkAuditId: null,
   punchWalkDate: null,
   openFindingCount: 0,
   openFindingAuditId: null,
@@ -104,13 +106,22 @@ describe("pre-con walks its gates in order", () => {
     expect(step).toMatchObject({ kind: "goto", gate: "pre_walk", label: "Do pre-walk" });
   });
 
-  test("walk in progress — finish it", () => {
+  test("walk in progress — finish it, at the walk itself", () => {
     const step = stepFrom("precon", {
       ...fresh,
       preWalkDate: "2026-08-01",
       preWalkAuditStatus: "draft",
+      preWalkAuditId: 11,
     });
-    expect(step).toMatchObject({ kind: "goto", gate: "pre_walk", label: "Finish pre-walk" });
+    // Once the walk exists there is nothing left for the workflow tab's dialog
+    // to do — the button goes straight to the audit that holds it.
+    expect(step).toEqual({
+      kind: "goto",
+      gate: "pre_walk",
+      label: "Finish pre-walk",
+      target: "audits",
+      auditId: 11,
+    });
   });
 
   test("walked, no scope yet — write one", () => {
@@ -287,9 +298,29 @@ describe("the later phases", () => {
     expect(step).toMatchObject({ gate: "punch_walk", label: "Do punch walk" });
   });
 
-  test("punch walk in progress — finish it", () => {
-    const step = stepFrom("punch", { ...preconDone, punchWalkStatus: "draft" });
-    expect(step).toMatchObject({ gate: "punch_walk", label: "Finish punch walk" });
+  test("punch walk in progress — finish it, at the walk itself", () => {
+    const step = stepFrom("punch", {
+      ...preconDone,
+      punchWalkStatus: "draft",
+      punchWalkAuditId: 22,
+    });
+    expect(step).toEqual({
+      kind: "goto",
+      gate: "punch_walk",
+      label: "Finish punch walk",
+      target: "audits",
+      auditId: 22,
+    });
+  });
+
+  test("punch walk in progress but the audit could not be identified — still routes to audits", () => {
+    const step = stepFrom("punch", { ...preconDone, punchWalkStatus: "draft", punchWalkAuditId: null });
+    expect(step).toEqual({
+      kind: "goto",
+      gate: "punch_walk",
+      label: "Finish punch walk",
+      target: "audits",
+    });
   });
 
   test("complete has nothing left to offer", () => {

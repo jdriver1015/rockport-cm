@@ -21,9 +21,6 @@ import { WALK_KINDS } from "@/lib/walk-kinds";
  */
 export type PreconGateExtras = {
   preWalkTime: string | null;
-  preWalkAuditId: number | null;
-  /** The punch walk's audit, so its dialog can open the walk it belongs to. */
-  punchWalkAuditId: number | null;
 };
 
 export type FullGateState = PreconGateState & PreconGateExtras & ProgressGateState;
