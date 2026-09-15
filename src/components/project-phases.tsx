@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { AlertCircleIcon, CheckCircle2Icon, ChevronRightIcon, CircleIcon, EllipsisIcon } from "lucide-react";
@@ -747,7 +748,19 @@ function GateRow({
               )}
             </div>
 
-            {clickable ? (
+            {clickable && check.target === "audits" && check.auditId != null ? (
+              // The walk already exists — send this straight to it instead of
+              // opening the dialog just to click Continue walk a second time.
+              <Button
+                size="sm"
+                variant={check.next ? "default" : "ghost"}
+                render={<Link href={`/properties/${context!.propertySlug}/audits/${check.auditId}`} />}
+                nativeButton={false}
+              >
+                Open
+                <ChevronRightIcon className="size-3.5" />
+              </Button>
+            ) : clickable ? (
               <Button
                 size="sm"
                 variant={check.next ? "default" : "ghost"}
