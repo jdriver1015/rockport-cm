@@ -44,8 +44,11 @@ export function ArchiveProjectDialog({
       }
       toast.success("Project archived");
       setOpen(false);
+      // No refresh() after push() — see walk-dialog.tsx's go(). Every page in
+      // this app is force-dynamic, so push() alone always fetches the
+      // destination fresh; refresh() right after races the navigation and can
+      // strand it on the old page.
       router.push(redirectTo ?? `/properties/${propertySlug}`);
-      router.refresh();
     });
   }
 

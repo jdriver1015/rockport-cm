@@ -26,8 +26,9 @@ export function SignUpForm() {
       if (result.needsConfirmation) {
         setConfirmEmail(String(fd.get("email")));
       } else {
+        // No refresh() after push() — see walk-dialog.tsx's go() / the same
+        // fix in reset-password-form.tsx.
         router.push("/");
-        router.refresh();
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign up");

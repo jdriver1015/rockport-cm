@@ -37,8 +37,8 @@ export function RentRollUpload({
       toast.success(`Uploaded ${file.name} — parsing…`);
       onDone?.();
       // Land on the new batch; the detail page kicks off parsing + progress.
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}/rent-rolls/${data.batchId}`);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload rent roll");
     } finally {

@@ -50,8 +50,11 @@ export function ArchivePropertyDialog({
       setOpen(false);
       // Back to the portfolio: staying here would leave the reader on a property
       // that no longer appears in any list.
+      //
+      // No refresh() after push() — see walk-dialog.tsx's go(). The portfolio
+      // is force-dynamic, so push() alone fetches it fresh; refresh() right
+      // after races the navigation and can strand it on the old page.
       router.push("/");
-      router.refresh();
     });
   }
 

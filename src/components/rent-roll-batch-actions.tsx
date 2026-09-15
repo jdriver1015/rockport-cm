@@ -51,8 +51,8 @@ export function DeleteRentRollButton({
             return;
           }
           toast.success("Rent roll deleted");
+          // No refresh() after push() — see walk-dialog.tsx's go().
           router.push(`/properties/${propertySlug}/rent-rolls`);
-          router.refresh();
         });
       }}
     >

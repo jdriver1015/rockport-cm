@@ -70,8 +70,8 @@ export function AddChartDialog({ charts }: { charts: ChartOption[] }) {
     toast.success("Chart created");
     setOpen(false);
     reset();
+    // No refresh() after push() — see walk-dialog.tsx's go().
     router.push(`/settings/chart-of-accounts/${chartId}`);
-    router.refresh();
   }
 
   async function handleBlank(e: React.FormEvent<HTMLFormElement>) {

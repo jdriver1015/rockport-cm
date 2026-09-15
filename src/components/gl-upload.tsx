@@ -51,8 +51,8 @@ export function GlUpload({
       }
       onDone?.();
       // Land on the new batch — account picker (needs_accounts) or review queue.
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}/gl/${data.batchId}`);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload GL file");
     } finally {

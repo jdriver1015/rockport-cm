@@ -38,8 +38,11 @@ export function SignInForm() {
         toast.error(result.error);
         return;
       }
+      // No refresh() after push() — see walk-dialog.tsx's go(). The request
+      // carries the freshly-set session cookie, so push() alone lands
+      // signed in; refresh() right after races the navigation and can
+      // strand it on this page.
       router.push(next);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign in");
     } finally {

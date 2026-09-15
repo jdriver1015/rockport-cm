@@ -47,12 +47,19 @@ export function EditPropertyDialog({ property }: { property: EditablePropertyDat
       setOpen(false);
       // A rename changes the property's slug — swap it into the current path
       // (preserving whatever sub-page we're on) instead of 404ing on refresh.
+      //
+      // No refresh() after push() — see walk-dialog.tsx's go(): the renamed
+      // path was never in the client's router cache, so push() alone fetches
+      // it fresh, and refresh() right after races the navigation. It's still
+      // needed on the no-rename path below, to pick up the other edited
+      // fields without leaving this page.
       if (result.slug !== property.slug) {
         const segments = pathname.split("/");
         segments[2] = result.slug;
         router.push(segments.join("/"));
+      } else {
+        router.refresh();
       }
-      router.refresh();
     } finally {
       setBusy(false);
     }

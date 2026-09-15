@@ -343,8 +343,8 @@ export function InteriorWizard({
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Unit upgrade created");
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}`);
-      router.refresh();
     } finally {
       setBusy(false);
     }

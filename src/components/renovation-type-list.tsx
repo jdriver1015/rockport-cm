@@ -193,8 +193,8 @@ function RowMenu({
                   return;
                 }
                 toast.success("Renovation type duplicated");
+                // No refresh() after push() — see walk-dialog.tsx's go().
                 router.push(`/properties/${propertySlug}/interiors/types/${res.groupId}`);
-                router.refresh();
               })
             }
           >
@@ -277,8 +277,8 @@ function AddTypeDialog({
   const [pending, startTransition] = useTransition();
 
   function goTo(groupId: number) {
+    // No refresh() after push() — see walk-dialog.tsx's go().
     router.push(`/properties/${propertySlug}/interiors/types/${groupId}`);
-    router.refresh();
   }
 
   return (

@@ -73,8 +73,8 @@ export function GlColumnMapper({
         return;
       }
       toast.success("Columns mapped");
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}/gl/${batchId}`);
-      router.refresh();
     });
   }
 

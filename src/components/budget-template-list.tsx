@@ -47,8 +47,8 @@ export function AddTemplateDialog() {
       if (!result.ok) return toast.error(result.error);
       toast.success("Template created");
       setOpen(false);
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/settings/renovation-types/${result.templateId}`);
-      router.refresh();
     } finally {
       setBusy(false);
     }
@@ -135,8 +135,8 @@ export function TemplateRowActions({
       const result = await duplicateBudgetTemplate(id);
       if (!result.ok) return toast.error(result.error);
       toast.success("Template duplicated");
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/settings/renovation-types/${result.templateId}`);
-      router.refresh();
     } finally {
       setBusy(false);
     }

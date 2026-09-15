@@ -76,8 +76,8 @@ export function GlAccountPicker({
         return;
       }
       toast.success(`Imported ${res.count} transaction${res.count === 1 ? "" : "s"}`);
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}/gl/${batchId}`);
-      router.refresh();
     });
   }
 

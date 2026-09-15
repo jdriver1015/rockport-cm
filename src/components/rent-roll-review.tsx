@@ -146,8 +146,8 @@ export function RentRollReview({
         return;
       }
       toast.success("Rent roll committed");
+      // No refresh() after push() — see walk-dialog.tsx's go().
       router.push(`/properties/${propertySlug}/rent-rolls`);
-      router.refresh();
     });
   }
 
