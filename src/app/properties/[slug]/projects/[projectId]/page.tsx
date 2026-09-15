@@ -387,7 +387,7 @@ export default async function ProjectDetailPage({
     // gate, and the project has to open even if the bid read fails.
     readBidPackage(propertyId, projectId).catch((err) => {
       console.error("project detail: bid package failed to load", err);
-      return { scopeItems: [], vendors: [], bids: [], lineAmounts: [] };
+      return { scopeItems: [], vendors: [], bids: [], lineAmounts: [], rateAgreements: [] };
     }),
 
     readContracts(projectId),

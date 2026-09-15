@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { invalidateInteriorBudget } from "@/lib/interior-budget";
-import { PRICING_METHODS } from "@/lib/pricing";
+import { INLINE_PRICING_METHODS, PRICING_METHODS } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
@@ -511,7 +511,7 @@ const tierDefaultsSchema = z.object({
          * through here, so an exotic method can't be flattened to `fixed` by
          * someone editing an unrelated row.
          */
-        pricingMethod: z.enum(["fixed", "sqft"]),
+        pricingMethod: z.enum(INLINE_PRICING_METHODS),
         unitPrice: z.coerce.number().nonnegative("Price must be zero or more"),
       }),
     )

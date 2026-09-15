@@ -20,17 +20,19 @@ import {
   type PricingMethod,
 } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
-import { addGroupLine, deleteGroupLine, updateTierDefaults } from "@/lib/actions/budget-groups";
+import {
+  addRateAgreementLine,
+  deleteRateAgreementLine,
+  updateRateAgreementLines,
+} from "@/lib/actions/rate-agreements";
 
-export type PricingLine = {
+export type AgreementPricingLine = {
   id: number;
   costCodeId: number;
   code: string;
   label: string;
   pricingMethod: PricingMethod;
   unitPrice: number;
-  defaultQuantity: number | null;
-  notes: string | null;
 };
 
 export type InteriorCodeChoice = { id: number; code: string; name: string };
@@ -43,22 +45,23 @@ const selectClass =
 
 type Edit = { pricingMethod: PricingMethod; unitPrice: string };
 
-export function RenovationTypePricing({
+/**
+ * A vendor's rate-sheet lines for one agreement — the same batch-edit grid
+ * shape as RenovationTypePricing (a tier's own defaults), scoped to one
+ * vendor's committed prices instead. Only fixed/sqft are editable inline,
+ * matching that component; a line inherited from the tier at another method
+ * shows read-only rather than silently flattening to one of these two.
+ */
+export function VendorRateAgreementPricing({
   propertyId,
-  budgetGroupId,
+  agreementId,
   lines,
   interiorCodes,
-  avgSqft,
 }: {
   propertyId: number;
-  budgetGroupId: number;
-  lines: PricingLine[];
+  agreementId: number;
+  lines: AgreementPricingLine[];
   interiorCodes: InteriorCodeChoice[];
-  /** Weighted-average SF across the floorplans planned into this type — the
-   *  anchor for converting a line between $/SF and a flat dollar amount.
-   *  Null when nothing is planned into this type yet, so there is no SF to
-   *  anchor to. */
-  avgSqft: number | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -66,15 +69,9 @@ export function RenovationTypePricing({
   const [addSearch, setAddSearch] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const valueFor = (l: PricingLine): Edit =>
-    edits[l.costCodeId] ?? {
-      pricingMethod: l.pricingMethod,
-      unitPrice: String(l.unitPrice),
-    };
+  const valueFor = (l: AgreementPricingLine): Edit =>
+    edits[l.costCodeId] ?? { pricingMethod: l.pricingMethod, unitPrice: String(l.unitPrice) };
 
-  // Batch save rather than save-on-blur: changing a default reprices every unit
-  // planned into this type, so it gets an explicit commit and a report of how
-  // many negotiated cells keep their own figure.
   const dirty = lines.filter((l) => {
     const v = edits[l.costCodeId];
     if (!v) return false;
@@ -94,29 +91,11 @@ export function RenovationTypePricing({
       })
     : available;
 
-  function setEdit(costCodeId: number, patch: Partial<Edit>, base: PricingLine) {
+  function setEdit(costCodeId: number, patch: Partial<Edit>, base: AgreementPricingLine) {
     setEdits((e) => ({
       ...e,
-      [costCodeId]: { ...valueForBase(e, base), ...patch },
+      [costCodeId]: { ...(e[costCodeId] ?? { pricingMethod: base.pricingMethod, unitPrice: String(base.unitPrice) }), ...patch },
     }));
-  }
-  function valueForBase(e: Record<number, Edit>, l: PricingLine): Edit {
-    return e[l.costCodeId] ?? { pricingMethod: l.pricingMethod, unitPrice: String(l.unitPrice) };
-  }
-
-  /**
-   * Re-anchors the amount when the basis changes, so switching mid-edit shows
-   * the same dollar figure the old basis already meant instead of carrying the
-   * number over unchanged — $1/SF on a 1,000 SF unit becomes $1,000 flat, not
-   * $1 flat. Only fires between the two inline bases, and only when there is
-   * an SF to anchor to; anything else leaves the figure as typed.
-   */
-  function convertedAmount(from: PricingMethod, to: PricingMethod, amount: string): string {
-    if (!avgSqft || avgSqft <= 0 || !isInline(from) || !isInline(to) || from === to) return amount;
-    const n = Number(amount);
-    if (!Number.isFinite(n)) return amount;
-    const converted = to === "sqft" ? n / avgSqft : n * avgSqft;
-    return String(Math.round(converted * 100) / 100);
   }
 
   function handleSave() {
@@ -128,34 +107,21 @@ export function RenovationTypePricing({
     });
     if (payload.length === 0 || invalid) return;
     startTransition(async () => {
-      const res = await updateTierDefaults({ propertyId, budgetGroupId, lines: payload });
+      const res = await updateRateAgreementLines({ propertyId, agreementId, lines: payload });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success(
-        res.overriddenCells > 0
-          ? `${res.updated} default(s) saved — ${res.overriddenCells} negotiated cell(s) keep their own figure`
-          : `${res.updated} default(s) saved`,
-      );
+      toast.success(`${res.updated} price${res.updated === 1 ? "" : "s"} saved`);
       setEdits({});
       router.refresh();
     });
   }
 
-  function handleRemove(l: PricingLine, confirm = false) {
+  function handleRemove(l: AgreementPricingLine) {
     startTransition(async () => {
-      const res = await deleteGroupLine({ id: l.id, propertyId, confirm });
+      const res = await deleteRateAgreementLine({ id: l.id, propertyId });
       if (!res.ok) {
-        // The action refuses a line carrying negotiated overrides until told
-        // twice — keep that as a deliberate second step, not a silent force.
-        if (!confirm) {
-          toast.error(res.error, {
-            action: { label: "Remove anyway", onClick: () => handleRemove(l, true) },
-            duration: 12000,
-          });
-          return;
-        }
         toast.error(res.error);
         return;
       }
@@ -166,13 +132,7 @@ export function RenovationTypePricing({
 
   function handleAdd(costCodeId: number) {
     startTransition(async () => {
-      const fd = new FormData();
-      fd.set("propertyId", String(propertyId));
-      fd.set("budgetGroupId", String(budgetGroupId));
-      fd.set("costCodeId", String(costCodeId));
-      fd.set("pricingMethod", "fixed");
-      fd.set("unitPrice", "0");
-      const res = await addGroupLine(fd);
+      const res = await addRateAgreementLine({ agreementId, propertyId, costCodeId });
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -191,24 +151,15 @@ export function RenovationTypePricing({
           <TableRow className="hover:bg-transparent">
             <TableHead>Item</TableHead>
             <TableHead className="w-48">Basis</TableHead>
-            <TableHead className="w-36 text-right">
-              Amount
-              {avgSqft != null && (
-                <div className="mt-0.5 text-[10px] font-normal normal-case text-muted-foreground">
-                  converts at {Math.round(avgSqft).toLocaleString()} sf avg
-                </div>
-              )}
-            </TableHead>
-            <TableHead className="w-28 text-right">Default qty</TableHead>
-            <TableHead>Notes</TableHead>
+            <TableHead className="w-36 text-right">Amount</TableHead>
             <TableHead className="w-12" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {lines.length === 0 ? (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                No priced items yet — add one for each cost code in this type.
+              <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                No priced items yet — add one for each cost code this vendor is quoting.
               </TableCell>
             </TableRow>
           ) : (
@@ -227,30 +178,18 @@ export function RenovationTypePricing({
                       value={v.pricingMethod}
                       disabled={pending}
                       aria-label={`${l.label} basis`}
-                      onChange={(e) => {
-                        const nextMethod = e.target.value as PricingMethod;
-                        setEdit(
-                          l.costCodeId,
-                          {
-                            pricingMethod: nextMethod,
-                            unitPrice: convertedAmount(v.pricingMethod, nextMethod, v.unitPrice),
-                          },
-                          l,
-                        );
-                      }}
+                      onChange={(e) =>
+                        setEdit(l.costCodeId, { pricingMethod: e.target.value as PricingMethod }, l)
+                      }
                       className={selectClass}
                     >
-                      {/* Only the two simple bases are offered; a line already on
-                          another method keeps it as a visible option. */}
                       {INLINE_PRICING_METHODS.map((m) => (
                         <option key={m} value={m}>
                           {PRICING_METHOD_LABELS[m]}
                         </option>
                       ))}
                       {!isInline(l.pricingMethod) && (
-                        <option value={l.pricingMethod}>
-                          {PRICING_METHOD_LABELS[l.pricingMethod]}
-                        </option>
+                        <option value={l.pricingMethod}>{PRICING_METHOD_LABELS[l.pricingMethod]}</option>
                       )}
                     </select>
                   </TableCell>
@@ -266,23 +205,12 @@ export function RenovationTypePricing({
                         onChange={(e) => setEdit(l.costCodeId, { unitPrice: e.target.value }, l)}
                       />
                     ) : (
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        Set in line details
-                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground">Not supported here</span>
                     )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {l.defaultQuantity != null ? Number(l.defaultQuantity).toLocaleString() : "—"}
-                  </TableCell>
-                  <TableCell className="whitespace-normal text-xs text-muted-foreground">
-                    {l.notes ?? "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
-                      <DropdownMenuTrigger
-                        disabled={pending}
-                        render={<Button variant="ghost" size="icon-sm" />}
-                      >
+                      <DropdownMenuTrigger disabled={pending} render={<Button variant="ghost" size="icon-sm" />}>
                         <EllipsisIcon />
                         <span className="sr-only">Actions</span>
                       </DropdownMenuTrigger>
@@ -303,7 +231,7 @@ export function RenovationTypePricing({
           )}
 
           <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={6} className="border-t border-border bg-muted/30 py-2">
+            <TableCell colSpan={4} className="border-t border-border bg-muted/30 py-2">
               {adding ? (
                 <div className="space-y-2">
                   <Input
@@ -317,7 +245,7 @@ export function RenovationTypePricing({
                     {filtered.length === 0 ? (
                       <p className="px-3 py-3 text-xs text-muted-foreground">
                         {available.length === 0
-                          ? "Every interior cost code is already on this type."
+                          ? "Every interior cost code is already on this agreement."
                           : "No matching cost codes."}
                       </p>
                     ) : (
@@ -352,12 +280,8 @@ export function RenovationTypePricing({
                           ? "No changes yet."
                           : `${dirty.length} unsaved change${dirty.length === 1 ? "" : "s"}`}
                     </span>
-                    <Button
-                      size="sm"
-                      disabled={pending || dirty.length === 0 || invalid}
-                      onClick={handleSave}
-                    >
-                      Save defaults
+                    <Button size="sm" disabled={pending || dirty.length === 0 || invalid} onClick={handleSave}>
+                      Save prices
                     </Button>
                   </div>
                 </div>

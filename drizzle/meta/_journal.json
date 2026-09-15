@@ -407,6 +407,20 @@
       "when": 1789259402655,
       "tag": "0057_certain_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1789440678493,
+      "tag": "0058_lowly_bushwacker",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1789440728579,
+      "tag": "0059_enable_rls_rate_agreements",
+      "breakpoints": true
     }
   ]
 }

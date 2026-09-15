@@ -13,6 +13,8 @@ import {
   type InteriorCodeChoice,
   type PricingLine,
 } from "@/components/renovation-type-pricing";
+import { VendorRateAgreementsSection } from "@/components/vendor-rate-agreements-section";
+import { listAgreementsForGroup } from "@/lib/rate-agreements";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
 import { mergeTradeScopes, writtenCount } from "@/lib/trade-scope";
@@ -55,7 +57,7 @@ export default async function RenovationTypePage({
   });
   if (!group || group.propertyId !== propertyId) notFound();
 
-  const [lines, interiorCodes, siblings, template, budget, scopeRows, specTables, scopeCounts] =
+  const [lines, interiorCodes, siblings, template, budget, scopeRows, specTables, scopeCounts, agreements, activeVendors] =
     await Promise.all([
     db()
       .select()
@@ -100,6 +102,12 @@ export default async function RenovationTypePage({
       })
       .from(schema.tradeScopes)
       .groupBy(schema.tradeScopes.budgetGroupId, schema.tradeScopes.templateId),
+    listAgreementsForGroup(groupId),
+    db()
+      .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
+      .from(schema.vendors)
+      .where(eq(schema.vendors.active, true))
+      .orderBy(asc(schema.vendors.name)),
   ]);
 
   const codeById = new Map(interiorCodes.map((c) => [c.id, c]));
@@ -296,6 +304,14 @@ export default async function RenovationTypePage({
           />
         </CardContent>
       </Card>
+
+      <VendorRateAgreementsSection
+        propertyId={propertyId}
+        budgetGroupId={groupId}
+        agreements={agreements}
+        vendors={activeVendors}
+        interiorCodes={codeChoices}
+      />
 
       <Card>
         <CardHeader className="flex flex-row items-baseline justify-between gap-3">

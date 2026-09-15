@@ -3,6 +3,11 @@ import { db, schema } from "@/db";
 import { scopeLineTotal } from "@/lib/scope-total";
 import { readBidEvents, summarise, type BidProgress } from "@/lib/bid-events";
 import { resolveVendorContacts } from "@/lib/vendor-contact";
+import {
+  listActiveAgreementsForProject,
+  priceAgreementForProject,
+  type AgreementPreview,
+} from "@/lib/rate-agreements";
 
 // ---------------------------------------------------------------------------
 // Sending a scope out for pricing.
@@ -26,6 +31,7 @@ export type BidPackageOption = {
   scopeItems: {
     id: number;
     item: string;
+    costCodeId: number | null;
     costCodeName: string | null;
     /** What the scope itself says this line should cost, for comparison. */
     budgeted: number | null;
@@ -67,6 +73,10 @@ export type BidPackageOption = {
    * vendor was never asked to price that line, which is different from zero.
    */
   lineAmounts: { bidId: number; scopeItemId: number; amount: number }[];
+  /** Standing vendor rate agreements matching this project's own tier, priced
+   *  against its confirmed scope — empty for anything but an active unit turn
+   *  with at least one active agreement on its tier. */
+  rateAgreements: { id: number; vendorName: string; preview: AgreementPreview }[];
 };
 
 /** Everything the Select Bid dialog needs, in one read. */
@@ -74,11 +84,12 @@ export async function readBidPackage(
   propertyId: number,
   projectId: number,
 ): Promise<BidPackageOption> {
-  const [scopeItems, vendors, bids, tokens, lineRows, attachmentRows] = await Promise.all([
+  const [scopeItems, vendors, bids, tokens, lineRows, attachmentRows, rateAgreements] = await Promise.all([
     db()
       .select({
         id: schema.scopeItems.id,
         item: schema.scopeItems.item,
+        costCodeId: schema.scopeItems.costCodeId,
         costCodeName: schema.costCodes.name,
         quantity: schema.scopeItems.quantity,
         unitPrice: schema.scopeItems.unitPrice,
@@ -181,6 +192,22 @@ export async function readBidPackage(
         ),
       )
       .orderBy(asc(schema.attachments.createdAt)),
+    // Empty for a common-area project, or a unit turn whose tier has no active
+    // agreement — the common, unremarkable case.
+    (async () => {
+      const active = await listActiveAgreementsForProject(projectId);
+      if (active.length === 0) return [];
+      const priced = await Promise.all(
+        active.map(async (a) => ({
+          id: a.id,
+          vendorName: a.vendorName,
+          preview: await priceAgreementForProject(a.id, projectId),
+        })),
+      );
+      return priced.filter(
+        (p): p is { id: number; vendorName: string; preview: AgreementPreview } => p.preview != null,
+      );
+    })(),
   ]);
 
   const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
@@ -207,6 +234,7 @@ export async function readBidPackage(
     scopeItems: scopeItems.map((s) => ({
       id: s.id,
       item: s.item,
+      costCodeId: s.costCodeId,
       costCodeName: s.costCodeName,
       budgeted: scopeLineTotal(s),
     })),
@@ -229,6 +257,7 @@ export async function readBidPackage(
         scopeItemId: r.scopeItemId,
         amount: Number(r.amount),
       })),
+    rateAgreements,
   };
 }
 

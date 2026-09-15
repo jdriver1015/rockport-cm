@@ -35,6 +35,14 @@ export const PRICING_METHOD_LABELS: Record<PricingMethod, string> = {
   formula: "Custom formula",
 };
 
+/** Only the two bases the inline editors offer (RenovationTypePricing, and
+ *  VendorRateAgreementPricing which mirrors it) — a line on any other method
+ *  is shown read-only there and never round-trips through a batch save. Lives
+ *  here rather than in rate-agreements.ts so client components can import it
+ *  without pulling in that module's server-only db() dependency. */
+export const INLINE_PRICING_METHODS = ["fixed", "sqft"] as const;
+export type InlinePricingMethod = (typeof INLINE_PRICING_METHODS)[number];
+
 /** Unit attributes the engine can price against. Missing values are treated as null. */
 export type UnitMeta = {
   sqft?: number | null;

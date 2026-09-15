@@ -18,6 +18,7 @@ import type { BidPackageOption } from "@/lib/bid-package";
 import type { BidProgress } from "@/lib/bid-events";
 import { BidInviteWizard } from "@/components/bid-invite-wizard";
 import { ManualBidPanel } from "@/components/manual-bid-panel";
+import { AwardFromAgreementPanel } from "@/components/award-from-agreement-panel";
 import { BidAttachments } from "@/components/bid-attachments";
 import { setBidWinner } from "@/lib/actions/bids";
 
@@ -149,7 +150,7 @@ export function SelectBidDialog({
   // bid by hand are the same screen at different moments, and splitting them
   // apart would mean guessing which one somebody wanted when they opened the
   // gate.
-  const [mode, setMode] = useState<"compare" | "invite" | "manual">("compare");
+  const [mode, setMode] = useState<"compare" | "invite" | "manual" | "agreement">("compare");
   // Set when "Edit" is pressed on an existing bid; undefined means the manual
   // panel is recording a new one.
   const [editingBidId, setEditingBidId] = useState<number | undefined>(undefined);
@@ -200,9 +201,23 @@ export function SelectBidDialog({
             editingBidId={editingBidId}
             onClose={() => setMode("compare")}
           />
+        ) : mode === "agreement" ? (
+          <AwardFromAgreementPanel
+            propertyId={propertyId}
+            projectId={projectId}
+            agreements={data.rateAgreements}
+            onClose={() => setMode("compare")}
+          />
         ) : (
         <div className="space-y-5">
           <div className="flex justify-end gap-2">
+            {/* Only when this unit's tier has a standing vendor rate sheet —
+                the fast path past a fresh RFP or a hand-typed direct award. */}
+            {data.rateAgreements.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setMode("agreement")}>
+                Award under agreement
+              </Button>
+            )}
             {/* For a bid that came in by phone or email instead of the portal —
                 the only door into the bids table other than the invite wizard. */}
             <Button size="sm" variant="outline" onClick={() => openManual()}>

@@ -1041,6 +1041,71 @@ export const budgetGroupLines = pgTable(
   ],
 );
 
+/**
+ * A vendor's standing per-cost-code price sheet against one renovation tier —
+ * "$X/SF flooring, $Y/bedroom paint" that holds for every unit turned to this
+ * tier, not a quote for one unit. Lets a unit-turn project be awarded with one
+ * confirmation instead of a fresh competitive bid each time (see
+ * src/lib/rate-agreements.ts). Different vendors can each hold an active
+ * agreement for the same tier at once (a property may rotate between two
+ * GCs) — the partial unique index below only blocks the same vendor holding
+ * two overlapping active agreements.
+ */
+export const vendorRateAgreements = pgTable(
+  "vendor_rate_agreements",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    budgetGroupId: integer("budget_group_id")
+      .notNull()
+      .references(() => budgetGroups.id, { onDelete: "cascade" }),
+    vendorId: integer("vendor_id")
+      .notNull()
+      .references(() => vendors.id),
+    name: text("name"),
+    /** draft (being entered) → active (awardable) → ended (superseded or closed out). */
+    status: text("status").notNull().default("draft"),
+    effectiveFrom: date("effective_from"),
+    effectiveTo: date("effective_to"),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete: hidden but restorable. Null = active row (independent of `status`). */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("vendor_rate_agreements_group_idx").on(t.budgetGroupId),
+    index("vendor_rate_agreements_vendor_idx").on(t.vendorId),
+    uniqueIndex("vendor_rate_agreements_active_uq")
+      .on(t.budgetGroupId, t.vendorId)
+      .where(sql`status = 'active'`),
+  ],
+);
+
+export const vendorRateAgreementLines = pgTable(
+  "vendor_rate_agreement_lines",
+  {
+    id: serial("id").primaryKey(),
+    agreementId: integer("agreement_id")
+      .notNull()
+      .references(() => vendorRateAgreements.id, { onDelete: "cascade" }),
+    costCodeId: integer("cost_code_id")
+      .notNull()
+      .references(() => costCodes.id),
+    pricingMethod: pricingMethod("pricing_method").notNull().default("fixed"),
+    unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
+    defaultQuantity: numeric("default_quantity", { precision: 12, scale: 2 }),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    index("vendor_rate_agreement_lines_agreement_idx").on(t.agreementId),
+    uniqueIndex("vendor_rate_agreement_lines_agreement_code_uq").on(t.agreementId, t.costCodeId),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Interior budget plan — the two-dimensional renovation budget.
 //
