@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
+import { requireUser } from "@/lib/auth";
+import { canWriteProperty } from "@/lib/auth-rules";
 import { propertyPath, propertyProjectPath } from "@/lib/property-path";
 import { INLINE_PRICING_METHODS } from "@/lib/pricing";
 import {
@@ -34,6 +36,11 @@ const createSchema = z.object({
 export async function createRateAgreement(
   input: z.input<typeof createSchema>,
 ): Promise<ActionResult<{ agreementId: number }>> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const res = await createAgreementRow(parsed.data);
@@ -48,27 +55,42 @@ const idSchema = z.object({
 });
 
 export async function activateRateAgreement(input: z.input<typeof idSchema>): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = idSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
-  const res = await activateAgreementRow(parsed.data.id);
+  const res = await activateAgreementRow(parsed.data.id, parsed.data.propertyId);
   if (!res.ok) return res;
   await revalidateGroup(parsed.data.propertyId);
   return { ok: true };
 }
 
 export async function endRateAgreement(input: z.input<typeof idSchema>): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = idSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
-  const res = await endAgreementRow(parsed.data.id);
+  const res = await endAgreementRow(parsed.data.id, parsed.data.propertyId);
   if (!res.ok) return res;
   await revalidateGroup(parsed.data.propertyId);
   return { ok: true };
 }
 
 export async function archiveRateAgreement(input: z.input<typeof idSchema>): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = idSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
-  const res = await archiveAgreementRow(parsed.data.id);
+  const res = await archiveAgreementRow(parsed.data.id, parsed.data.propertyId);
   if (!res.ok) return res;
   await revalidateGroup(parsed.data.propertyId);
   return { ok: true };
@@ -83,6 +105,11 @@ const addLineSchema = z.object({
 export async function addRateAgreementLine(
   input: z.input<typeof addLineSchema>,
 ): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = addLineSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const res = await addAgreementLineRow(parsed.data);
@@ -99,6 +126,11 @@ const deleteLineSchema = z.object({
 export async function deleteRateAgreementLine(
   input: z.input<typeof deleteLineSchema>,
 ): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = deleteLineSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
   const res = await deleteAgreementLineRow(parsed.data);
@@ -124,6 +156,11 @@ const updateLinesSchema = z.object({
 export async function updateRateAgreementLines(
   input: z.input<typeof updateLinesSchema>,
 ): Promise<ActionResult<{ updated: number }>> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
   const parsed = updateLinesSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const res = await updateAgreementLinesRow(parsed.data);
@@ -142,6 +179,11 @@ const awardSchema = z.object({
 export async function awardFromRateAgreement(
   input: z.input<typeof awardSchema>,
 ): Promise<ActionResult<{ bidId: number }>> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to award this project" };
+  }
   const parsed = awardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;

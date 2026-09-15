@@ -11,6 +11,7 @@ import {
   invalidateInteriorBudget,
   loadFloorplanFacts,
 } from "@/lib/interior-budget";
+import { INLINE_PRICING_METHODS } from "@/lib/pricing";
 import { propertyPath } from "@/lib/property-path";
 
 // ---------------------------------------------------------------------------
@@ -412,7 +413,7 @@ const overrideSchema = z.object({
   budgetGroupId: z.coerce.number().int().positive(),
   costCodeId: z.coerce.number().int().positive(),
   unitGroupId: z.coerce.number().int().positive(),
-  pricingMethod: z.enum(["fixed", "sqft"]).default("fixed"),
+  pricingMethod: z.enum(INLINE_PRICING_METHODS).default("fixed"),
   /** Unit price / rate. For "fixed" this IS the total; for "sqft" it's $/sqft. */
   amount: z.coerce.number().nonnegative("Amount can't be negative"),
   note: z.string().trim().optional().nullable(),

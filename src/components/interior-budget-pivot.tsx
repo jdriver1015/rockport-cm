@@ -23,7 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money, moneyExact } from "@/lib/format";
-import { PRICING_METHOD_LABELS, type PricingMethod } from "@/lib/pricing";
+import { INLINE_PRICING_METHODS, PRICING_METHOD_LABELS, type InlinePricingMethod, type PricingMethod } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import {
   clearOverride,
@@ -877,7 +877,10 @@ function CellDialog({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState<"tier" | "cell">("tier");
-  const [method, setMethod] = useState<"fixed" | "sqft">("fixed");
+  const [method, setMethod] = useState<InlinePricingMethod>("fixed");
+
+  const isInlineMethod = (m: PricingMethod): m is InlinePricingMethod =>
+    (INLINE_PRICING_METHODS as readonly string[]).includes(m);
 
   const key = target ? `${target.cell.tierId}:${target.cell.costCodeId}:${target.cell.unitGroupId}` : "";
   const [lastKey, setLastKey] = useState("");
@@ -886,7 +889,7 @@ function CellDialog({
     const isOverridden = target.cell.overridden;
     setScope(isOverridden ? "cell" : "tier");
     const m = isOverridden ? (target.cell.overridePricingMethod ?? "fixed") : target.cell.pricingMethod;
-    setMethod(m === "fixed" || m === "sqft" ? m : "fixed");
+    setMethod(isInlineMethod(m) ? m : "fixed");
   }
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
@@ -964,7 +967,7 @@ function CellDialog({
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-1.5">
                 <Label htmlFor="cell-basis">Basis</Label>
-                <select id="cell-basis" value={method} onChange={(e) => setMethod(e.target.value as "fixed" | "sqft")}
+                <select id="cell-basis" value={method} onChange={(e) => setMethod(e.target.value as InlinePricingMethod)}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                   <option value="fixed">Whole dollars</option>
                   <option value="sqft">Per square foot</option>

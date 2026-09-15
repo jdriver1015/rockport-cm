@@ -125,6 +125,12 @@ export function AwardFromAgreementPanel({
             </div>
           </div>
         )}
+        {preview.perLine.length > 0 && preview.total <= 0 && (
+          <p className="text-[11.5px] text-muted-foreground">
+            This prices to $0 for this unit — nothing to award. Fix the agreement&apos;s rates, or award this unit
+            separately.
+          </p>
+        )}
       </div>
 
       {preview.uncoveredScopeItems.length > 0 && (
@@ -157,7 +163,7 @@ export function AwardFromAgreementPanel({
         </Button>
         <Button
           type="button"
-          disabled={busy || preview.perLine.length === 0}
+          disabled={busy || preview.perLine.length === 0 || preview.total <= 0}
           onClick={confirm}
         >
           {busy ? "Awarding…" : `Confirm award — ${moneyExact(preview.total)}`}

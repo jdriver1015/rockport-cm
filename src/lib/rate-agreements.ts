@@ -3,7 +3,22 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { uncoveredLineIds } from "@/lib/award-coverage";
 import { directAwardRows, type DirectAwardResult } from "@/lib/scope-confirm";
-import type { InlinePricingMethod, PricingMethod } from "@/lib/pricing";
+import { INLINE_PRICING_METHODS, roundMoney, type InlinePricingMethod, type PricingMethod } from "@/lib/pricing";
+
+/**
+ * Postgres 23505. Walks the cause chain rather than reading `err.code`: Drizzle
+ * wraps driver errors in a DrizzleQueryError and hangs the real one off `cause`,
+ * so the top-level code is undefined and a check on it silently never matches.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (typeof e === "object" && "code" in e && (e as { code?: unknown }).code === "23505") {
+      return true;
+    }
+    e = typeof e === "object" && "cause" in e ? (e as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Vendor rate agreements — a vendor's standing per-cost-code price sheet
@@ -124,6 +139,7 @@ export async function listActiveAgreementsForProject(
         eq(schema.vendorRateAgreements.budgetGroupId, project.budgetGroupId),
         eq(schema.vendorRateAgreements.status, "active"),
         isNull(schema.vendorRateAgreements.archivedAt),
+        sql`(${schema.vendorRateAgreements.effectiveFrom} is null or ${schema.vendorRateAgreements.effectiveFrom} <= ${today})`,
         sql`(${schema.vendorRateAgreements.effectiveTo} is null or ${schema.vendorRateAgreements.effectiveTo} >= ${today})`,
       ),
     );
@@ -149,38 +165,42 @@ export type AgreementPreview = {
   total: number;
 };
 
-/**
- * Price an agreement against one project's already-confirmed scope.
- *
- * Reuses the scope line's own stored quantity rather than re-deriving one
- * from unit metadata — that quantity was fixed at Confirm Scope, and an
- * agreement is repricing the same confirmed work at a different vendor's
- * rate, not re-scoping the unit from scratch. Only `fixed`/`sqft`/per-*
- * counted methods are supported this way; `percent` needs the tier's own
- * subtotal as a base and isn't priced here (see INLINE_PRICING_METHODS in pricing.ts).
- */
-export async function priceAgreementForProject(
-  agreementId: number,
-  projectId: number,
-): Promise<AgreementPreview | null> {
-  const agreement = await db().query.vendorRateAgreements.findFirst({
-    where: eq(schema.vendorRateAgreements.id, agreementId),
-  });
-  if (!agreement) return null;
+type ProjectPricingContext = {
+  budgetGroupId: number;
+  tierName: string;
+  scopeItems: { id: number; item: string; costCodeId: number | null; quantity: string | null }[];
+  uncoveredIds: Set<number>;
+  /** The tier's own pricing method per cost code — see priceAgreementAgainstContext. */
+  tierMethodByCode: Map<number, PricingMethod>;
+};
 
-  const [vendor, group, lines, scopeItems, uncovered] = await Promise.all([
-    db().query.vendors.findFirst({
-      where: eq(schema.vendors.id, agreement.vendorId),
-      columns: { name: true },
-    }),
+/**
+ * Everything needed to price any agreement against one project, fetched once.
+ * Pricing several agreements for the same project (the Select Bid dialog,
+ * when a tier has more than one active agreement) shares this instead of
+ * repeating the project/scope/tier lookups per agreement.
+ *
+ * Null for anything that isn't a unit turn — common-area projects carry no tier.
+ */
+async function loadProjectPricingContext(projectId: number): Promise<ProjectPricingContext | null> {
+  const project = await db().query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+    columns: { kind: true, budgetGroupId: true },
+  });
+  if (!project || project.kind !== "unit" || project.budgetGroupId == null) return null;
+
+  const [group, tierLines, scopeItems, uncovered] = await Promise.all([
     db().query.budgetGroups.findFirst({
-      where: eq(schema.budgetGroups.id, agreement.budgetGroupId),
+      where: eq(schema.budgetGroups.id, project.budgetGroupId),
       columns: { name: true },
     }),
     db()
-      .select()
-      .from(schema.vendorRateAgreementLines)
-      .where(eq(schema.vendorRateAgreementLines.agreementId, agreementId)),
+      .select({
+        costCodeId: schema.budgetGroupLines.costCodeId,
+        pricingMethod: schema.budgetGroupLines.pricingMethod,
+      })
+      .from(schema.budgetGroupLines)
+      .where(eq(schema.budgetGroupLines.budgetGroupId, project.budgetGroupId)),
     db()
       .select({
         id: schema.scopeItems.id,
@@ -193,23 +213,60 @@ export async function priceAgreementForProject(
     uncoveredLineIds(projectId),
   ]);
 
-  const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
-  const uncoveredIds = new Set(uncovered);
+  return {
+    budgetGroupId: project.budgetGroupId,
+    tierName: group?.name ?? "this tier",
+    scopeItems,
+    uncoveredIds: new Set(uncovered),
+    tierMethodByCode: new Map(tierLines.map((l) => [l.costCodeId, l.pricingMethod])),
+  };
+}
 
+/**
+ * Price one agreement's lines against an already-loaded project context.
+ *
+ * Reuses the scope line's own stored quantity rather than re-deriving one
+ * from unit metadata — that quantity was fixed at Confirm Scope, and an
+ * agreement is repricing the same confirmed work at a different vendor's
+ * rate, not re-scoping the unit from scratch. Only `fixed`/`sqft`/per-*
+ * counted methods are supported this way; `percent` needs the tier's own
+ * subtotal as a base and isn't priced here (see INLINE_PRICING_METHODS in
+ * pricing.ts).
+ *
+ * An agreement line priced on a different basis than the tier's own default
+ * for that cost code can't safely reuse the scope item's stored quantity —
+ * that quantity was derived under the tier's method, so pricing it under a
+ * mismatched method would silently produce a wrong dollar amount. Such lines
+ * are left uncovered rather than guessed at.
+ *
+ * Returns null when the agreement's tier doesn't match this project's own —
+ * repricing under an unrelated tier's agreement isn't meaningful.
+ */
+function priceAgreementAgainstContext(
+  agreement: { vendorId: number; budgetGroupId: number },
+  vendorName: string,
+  lines: { costCodeId: number; pricingMethod: PricingMethod; unitPrice: string }[],
+  ctx: ProjectPricingContext,
+): AgreementPreview | null {
+  if (agreement.budgetGroupId !== ctx.budgetGroupId) return null;
+
+  const lineByCode = new Map(lines.map((l) => [l.costCodeId, l]));
   const perLine: AgreementPreviewLine[] = [];
   const uncoveredScopeItems: { id: number; item: string }[] = [];
   const scopeItemIds: number[] = [];
   let total = 0;
 
-  for (const item of scopeItems) {
+  for (const item of ctx.scopeItems) {
     const line = item.costCodeId != null ? lineByCode.get(item.costCodeId) : undefined;
-    if (!line || !uncoveredIds.has(item.id) || !item.quantity) {
+    const tierMethod = item.costCodeId != null ? ctx.tierMethodByCode.get(item.costCodeId) : undefined;
+    const methodMatches = !line || tierMethod === undefined || line.pricingMethod === tierMethod;
+    if (!line || !ctx.uncoveredIds.has(item.id) || !item.quantity || !methodMatches) {
       uncoveredScopeItems.push({ id: item.id, item: item.item });
       continue;
     }
     const quantity = Number(item.quantity);
     const unitPrice = Number(line.unitPrice);
-    const lineTotal = Math.round(quantity * unitPrice * 100) / 100;
+    const lineTotal = roundMoney(quantity * unitPrice);
     perLine.push({ costCodeId: line.costCodeId, item: item.item, unitPrice, quantity, total: lineTotal });
     scopeItemIds.push(item.id);
     total += lineTotal;
@@ -217,13 +274,81 @@ export async function priceAgreementForProject(
 
   return {
     vendorId: agreement.vendorId,
-    vendorName: vendor?.name ?? "Vendor",
-    tierName: group?.name ?? "this tier",
+    vendorName,
+    tierName: ctx.tierName,
     perLine,
     uncoveredScopeItems,
     scopeItemIds,
-    total: Math.round(total * 100) / 100,
+    total: roundMoney(total),
   };
+}
+
+/** Price one agreement against one project's already-confirmed scope. */
+export async function priceAgreementForProject(
+  agreementId: number,
+  projectId: number,
+): Promise<AgreementPreview | null> {
+  const [agreement, ctx] = await Promise.all([
+    db().query.vendorRateAgreements.findFirst({ where: eq(schema.vendorRateAgreements.id, agreementId) }),
+    loadProjectPricingContext(projectId),
+  ]);
+  if (!agreement || !ctx) return null;
+
+  const [vendor, lines] = await Promise.all([
+    db().query.vendors.findFirst({
+      where: eq(schema.vendors.id, agreement.vendorId),
+      columns: { name: true },
+    }),
+    db()
+      .select()
+      .from(schema.vendorRateAgreementLines)
+      .where(eq(schema.vendorRateAgreementLines.agreementId, agreementId)),
+  ]);
+
+  return priceAgreementAgainstContext(agreement, vendor?.name ?? "Vendor", lines, ctx);
+}
+
+/** Price several agreements against the same project in one pass, sharing the
+ *  project/scope/tier lookups instead of repeating them per agreement — for
+ *  the Select Bid dialog, where a tier can have more than one active agreement. */
+export async function priceAgreementsForProject(
+  agreementIds: number[],
+  projectId: number,
+): Promise<Map<number, AgreementPreview>> {
+  const result = new Map<number, AgreementPreview>();
+  if (agreementIds.length === 0) return result;
+
+  const ctx = await loadProjectPricingContext(projectId);
+  if (!ctx) return result;
+
+  const agreements = await db()
+    .select({
+      id: schema.vendorRateAgreements.id,
+      vendorId: schema.vendorRateAgreements.vendorId,
+      vendorName: schema.vendors.name,
+      budgetGroupId: schema.vendorRateAgreements.budgetGroupId,
+    })
+    .from(schema.vendorRateAgreements)
+    .innerJoin(schema.vendors, eq(schema.vendors.id, schema.vendorRateAgreements.vendorId))
+    .where(inArray(schema.vendorRateAgreements.id, agreementIds));
+  if (agreements.length === 0) return result;
+
+  const lines = await db()
+    .select()
+    .from(schema.vendorRateAgreementLines)
+    .where(inArray(schema.vendorRateAgreementLines.agreementId, agreements.map((a) => a.id)));
+  const linesByAgreement = new Map<number, typeof lines>();
+  for (const l of lines) {
+    const list = linesByAgreement.get(l.agreementId) ?? [];
+    list.push(l);
+    linesByAgreement.set(l.agreementId, list);
+  }
+
+  for (const a of agreements) {
+    const preview = priceAgreementAgainstContext(a, a.vendorName, linesByAgreement.get(a.id) ?? [], ctx);
+    if (preview) result.set(a.id, preview);
+  }
+  return result;
 }
 
 /** Award a project under an agreement — computes the covered lines and
@@ -235,9 +360,12 @@ export async function awardProjectFromAgreementRows(
   reason: string,
 ): Promise<DirectAwardResult> {
   const preview = await priceAgreementForProject(agreementId, projectId);
-  if (!preview) return { ok: false, error: "Rate agreement not found" };
+  if (!preview) return { ok: false, error: "Rate agreement not found for this project's tier" };
   if (preview.scopeItemIds.length === 0) {
     return { ok: false, error: "No scope lines on this project match the agreement" };
+  }
+  if (preview.total <= 0) {
+    return { ok: false, error: "This agreement prices to $0 for this unit — nothing to award" };
   }
   return directAwardRows(
     projectId,
@@ -273,26 +401,25 @@ export async function createAgreementRow(input: {
   });
   if (!vendor) return { ok: false, error: "That vendor is not active" };
 
-  const [agreement] = await db()
-    .insert(schema.vendorRateAgreements)
-    .values({
-      propertyId: input.propertyId,
-      budgetGroupId: input.budgetGroupId,
-      vendorId: input.vendorId,
-      name: input.name?.trim() || null,
-    })
-    .returning({ id: schema.vendorRateAgreements.id });
+  const agreementId = await db().transaction(async (tx) => {
+    const [agreement] = await tx
+      .insert(schema.vendorRateAgreements)
+      .values({
+        propertyId: input.propertyId,
+        budgetGroupId: input.budgetGroupId,
+        vendorId: input.vendorId,
+        name: input.name?.trim() || null,
+      })
+      .returning({ id: schema.vendorRateAgreements.id });
 
-  if (input.seedFromTierDefaults) {
-    const tierLines = await db()
-      .select()
-      .from(schema.budgetGroupLines)
-      .where(eq(schema.budgetGroupLines.budgetGroupId, input.budgetGroupId))
-      .orderBy(asc(schema.budgetGroupLines.sortOrder));
-    if (tierLines.length > 0) {
-      await db()
-        .insert(schema.vendorRateAgreementLines)
-        .values(
+    if (input.seedFromTierDefaults) {
+      const tierLines = await tx
+        .select()
+        .from(schema.budgetGroupLines)
+        .where(eq(schema.budgetGroupLines.budgetGroupId, input.budgetGroupId))
+        .orderBy(asc(schema.budgetGroupLines.sortOrder));
+      if (tierLines.length > 0) {
+        await tx.insert(schema.vendorRateAgreementLines).values(
           tierLines.map((ln, i) => ({
             agreementId: agreement.id,
             costCodeId: ln.costCodeId,
@@ -302,41 +429,64 @@ export async function createAgreementRow(input: {
             sortOrder: i,
           })),
         );
+      }
     }
-  }
 
-  return { ok: true, agreementId: agreement.id };
+    return agreement.id;
+  });
+
+  return { ok: true, agreementId };
+}
+
+async function findOwnedAgreement(
+  id: number,
+  propertyId: number,
+): Promise<{ budgetGroupId: number; vendorId: number } | null> {
+  const agreement = await db().query.vendorRateAgreements.findFirst({
+    where: eq(schema.vendorRateAgreements.id, id),
+    columns: { propertyId: true, budgetGroupId: true, vendorId: true },
+  });
+  if (!agreement || agreement.propertyId !== propertyId) return null;
+  return agreement;
 }
 
 /** Activate a draft/ended agreement, ending whatever this vendor already had
- *  active on this tier first — the partial unique index never has to refuse. */
-export async function activateAgreementRow(id: number): Promise<ActionResult> {
-  const agreement = await db().query.vendorRateAgreements.findFirst({
-    where: eq(schema.vendorRateAgreements.id, id),
-    columns: { budgetGroupId: true, vendorId: true },
-  });
-  if (!agreement) return { ok: false, error: "Agreement not found" };
+ *  active on this tier first — the partial unique index never has to refuse.
+ *  A concurrent activation can still race it, so the transaction is also
+ *  guarded against the unique-violation that races into. */
+export async function activateAgreementRow(id: number, propertyId: number): Promise<ActionResult> {
+  const agreement = await findOwnedAgreement(id, propertyId);
+  if (!agreement) return { ok: false, error: "Agreement not found for this property" };
 
-  await db().transaction(async (tx) => {
-    await tx
-      .update(schema.vendorRateAgreements)
-      .set({ status: "ended" })
-      .where(
-        and(
-          eq(schema.vendorRateAgreements.budgetGroupId, agreement.budgetGroupId),
-          eq(schema.vendorRateAgreements.vendorId, agreement.vendorId),
-          eq(schema.vendorRateAgreements.status, "active"),
-        ),
-      );
-    await tx
-      .update(schema.vendorRateAgreements)
-      .set({ status: "active" })
-      .where(eq(schema.vendorRateAgreements.id, id));
-  });
+  try {
+    await db().transaction(async (tx) => {
+      await tx
+        .update(schema.vendorRateAgreements)
+        .set({ status: "ended" })
+        .where(
+          and(
+            eq(schema.vendorRateAgreements.budgetGroupId, agreement.budgetGroupId),
+            eq(schema.vendorRateAgreements.vendorId, agreement.vendorId),
+            eq(schema.vendorRateAgreements.status, "active"),
+          ),
+        );
+      await tx
+        .update(schema.vendorRateAgreements)
+        .set({ status: "active" })
+        .where(eq(schema.vendorRateAgreements.id, id));
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return { ok: false, error: "Another agreement for this vendor was just activated — reload and retry" };
+    }
+    throw err;
+  }
   return { ok: true };
 }
 
-export async function endAgreementRow(id: number): Promise<ActionResult> {
+export async function endAgreementRow(id: number, propertyId: number): Promise<ActionResult> {
+  const agreement = await findOwnedAgreement(id, propertyId);
+  if (!agreement) return { ok: false, error: "Agreement not found for this property" };
   await db()
     .update(schema.vendorRateAgreements)
     .set({ status: "ended" })
@@ -344,7 +494,9 @@ export async function endAgreementRow(id: number): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function archiveAgreementRow(id: number): Promise<ActionResult> {
+export async function archiveAgreementRow(id: number, propertyId: number): Promise<ActionResult> {
+  const agreement = await findOwnedAgreement(id, propertyId);
+  if (!agreement) return { ok: false, error: "Agreement not found for this property" };
   await db()
     .update(schema.vendorRateAgreements)
     .set({ archivedAt: new Date() })
@@ -359,7 +511,7 @@ export async function addAgreementLineRow(input: {
 }): Promise<ActionResult> {
   const agreement = await db().query.vendorRateAgreements.findFirst({
     where: eq(schema.vendorRateAgreements.id, input.agreementId),
-    columns: { propertyId: true },
+    columns: { propertyId: true, budgetGroupId: true },
   });
   if (!agreement || agreement.propertyId !== input.propertyId) {
     return { ok: false, error: "Agreement not found for this property" };
@@ -368,17 +520,37 @@ export async function addAgreementLineRow(input: {
     return { ok: false, error: "That cost code isn't in this property's chart" };
   }
 
-  const [{ maxOrder }] = await db()
-    .select({ maxOrder: sql<number>`coalesce(max(${schema.vendorRateAgreementLines.sortOrder}), 0)::int` })
-    .from(schema.vendorRateAgreementLines)
-    .where(eq(schema.vendorRateAgreementLines.agreementId, input.agreementId));
+  // Default the new line to the tier's own basis for this cost code when
+  // that basis is one the inline grid can actually edit — a mismatched basis
+  // can't reuse the scope item's stored quantity when this agreement is
+  // priced (see priceAgreementAgainstContext), so seeding it correctly up
+  // front avoids handing back a line that silently prices to nothing. A tier
+  // basis outside fixed/sqft is left as the "fixed" default instead, since
+  // the grid can't edit percent/formula lines here anyway.
+  const [{ maxOrder }, tierLine] = await Promise.all([
+    db()
+      .select({ maxOrder: sql<number>`coalesce(max(${schema.vendorRateAgreementLines.sortOrder}), 0)::int` })
+      .from(schema.vendorRateAgreementLines)
+      .where(eq(schema.vendorRateAgreementLines.agreementId, input.agreementId))
+      .then(([row]) => row),
+    db().query.budgetGroupLines.findFirst({
+      where: and(
+        eq(schema.budgetGroupLines.budgetGroupId, agreement.budgetGroupId),
+        eq(schema.budgetGroupLines.costCodeId, input.costCodeId),
+      ),
+      columns: { pricingMethod: true },
+    }),
+  ]);
+  const inlineTierMethod = (INLINE_PRICING_METHODS as readonly string[]).includes(tierLine?.pricingMethod ?? "")
+    ? (tierLine!.pricingMethod as InlinePricingMethod)
+    : "fixed";
 
   await db()
     .insert(schema.vendorRateAgreementLines)
     .values({
       agreementId: input.agreementId,
       costCodeId: input.costCodeId,
-      pricingMethod: "fixed",
+      pricingMethod: inlineTierMethod,
       unitPrice: "0",
       sortOrder: maxOrder + 1,
     });

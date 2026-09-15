@@ -5,7 +5,7 @@ import { readBidEvents, summarise, type BidProgress } from "@/lib/bid-events";
 import { resolveVendorContacts } from "@/lib/vendor-contact";
 import {
   listActiveAgreementsForProject,
-  priceAgreementForProject,
+  priceAgreementsForProject,
   type AgreementPreview,
 } from "@/lib/rate-agreements";
 
@@ -197,16 +197,11 @@ export async function readBidPackage(
     (async () => {
       const active = await listActiveAgreementsForProject(projectId);
       if (active.length === 0) return [];
-      const priced = await Promise.all(
-        active.map(async (a) => ({
-          id: a.id,
-          vendorName: a.vendorName,
-          preview: await priceAgreementForProject(a.id, projectId),
-        })),
-      );
-      return priced.filter(
-        (p): p is { id: number; vendorName: string; preview: AgreementPreview } => p.preview != null,
-      );
+      const previews = await priceAgreementsForProject(active.map((a) => a.id), projectId);
+      return active.flatMap((a) => {
+        const preview = previews.get(a.id);
+        return preview ? [{ id: a.id, vendorName: a.vendorName, preview }] : [];
+      });
     })(),
   ]);
 
