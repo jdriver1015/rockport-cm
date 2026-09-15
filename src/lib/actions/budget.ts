@@ -41,7 +41,7 @@ export async function createBudgetLine(formData: FormData): Promise<ActionResult
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  return createBudgetLineCore(parsed.data);
+  return createBudgetLineCore({ ...parsed.data, userId: auth.profile.id });
 }
 
 const updateBudgetLineSchema = z.object({
@@ -71,7 +71,7 @@ export async function updateBudgetLine(input: {
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  return updateBudgetLineCore(parsed.data);
+  return updateBudgetLineCore({ ...parsed.data, userId: auth.profile.id });
 }
 
 export async function deleteBudgetLine(input: {
@@ -83,7 +83,7 @@ export async function deleteBudgetLine(input: {
   if (!canWriteProperty(auth.profile.role)) {
     return { ok: false, error: "You don't have permission to edit this budget" };
   }
-  return deleteBudgetLineCore(input);
+  return deleteBudgetLineCore({ ...input, userId: auth.profile.id });
 }
 
 /** Reverses deleteBudgetLine — used by the delete toast's Undo action. */
@@ -96,5 +96,5 @@ export async function restoreBudgetLine(input: {
   if (!canWriteProperty(auth.profile.role)) {
     return { ok: false, error: "You don't have permission to edit this budget" };
   }
-  return restoreBudgetLineCore(input);
+  return restoreBudgetLineCore({ ...input, userId: auth.profile.id });
 }

@@ -354,6 +354,38 @@ export const budgetLines = pgTable(
 );
 
 /**
+ * One row per changed field on a budget line — created, amount/note edited,
+ * archived, restored. Mirrors projectActivityLog's shape and reasoning
+ * exactly, scoped to a property's budget instead of a project. `fieldLabel`
+ * carries the line's cost-code name baked in at write time (e.g. "Foundation
+ * — Budgeted amount"), because this log spans every line on the property
+ * rather than one entity already named by the screen that shows it.
+ */
+export const budgetLineActivityLog = pgTable(
+  "budget_line_activity_log",
+  {
+    id: serial("id").primaryKey(),
+    propertyId: integer("property_id")
+      .notNull()
+      .references(() => properties.id),
+    budgetLineId: integer("budget_line_id")
+      .notNull()
+      .references(() => budgetLines.id),
+    userId: uuid("user_id").references(() => profiles.id),
+    field: text("field").notNull(),
+    fieldLabel: text("field_label").notNull(),
+    fromValue: text("from_value"),
+    toValue: text("to_value"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("budget_line_activity_log_property_idx").on(t.propertyId),
+    index("budget_line_activity_log_line_idx").on(t.budgetLineId),
+  ],
+);
+
+/**
  * Audit trail behind properties.budgetLockedAt/By — every lock and unlock of
  * a property's non-interior budget, who did it and when. The property's own
  * columns are only ever the latest state; this is what answers "who locked

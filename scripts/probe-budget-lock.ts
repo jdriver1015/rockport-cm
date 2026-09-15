@@ -117,7 +117,7 @@ async function main() {
     check("assertBudgetUnlockedForUpdate: ok while unlocked", guardForUpdateWhenUnlocked.ok === true);
 
     const created = await runAction(() =>
-      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeA, uwAmount: 10000 }),
+      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeA, uwAmount: 10000, userId: null }),
     );
     check("createBudgetLineCore: succeeds while unlocked", created.ok === true);
 
@@ -166,17 +166,23 @@ async function main() {
     );
 
     const createWhileLocked = await runAction(() =>
-      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeB, uwAmount: 999 }),
+      createBudgetLineCore({ propertyId: throwawayId, costCodeId: fx.codeB, uwAmount: 999, userId: null }),
     );
     check("createBudgetLineCore: refused while locked", createWhileLocked.ok === false);
 
-    const updateWhileLocked = await runAction(() => updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 55555 }));
+    const updateWhileLocked = await runAction(() =>
+      updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 55555, userId: null }),
+    );
     check("updateBudgetLineCore: refused while locked", updateWhileLocked.ok === false);
 
-    const deleteWhileLocked = await runAction(() => deleteBudgetLineCore({ id: lineId, propertyId: throwawayId }));
+    const deleteWhileLocked = await runAction(() =>
+      deleteBudgetLineCore({ id: lineId, propertyId: throwawayId, userId: null }),
+    );
     check("deleteBudgetLineCore: refused while locked", deleteWhileLocked.ok === false);
 
-    const restoreWhileLocked = await runAction(() => restoreBudgetLineCore({ id: lineId, propertyId: throwawayId }));
+    const restoreWhileLocked = await runAction(() =>
+      restoreBudgetLineCore({ id: lineId, propertyId: throwawayId, userId: null }),
+    );
     check("restoreBudgetLineCore: refused while locked", restoreWhileLocked.ok === false);
 
     const untouchedLine = await db().query.budgetLines.findFirst({ where: eq(schema.budgetLines.id, lineId) });
@@ -203,7 +209,9 @@ async function main() {
       eventsAfterUnlock[1].createdAt.getTime() === lockedState.lockedAt!.getTime(),
     );
 
-    const updateAfterUnlock = await runAction(() => updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 12000 }));
+    const updateAfterUnlock = await runAction(() =>
+      updateBudgetLineCore({ id: lineId, propertyId: throwawayId, uwAmount: 12000, userId: null }),
+    );
     check("updateBudgetLineCore: succeeds again once unlocked", updateAfterUnlock.ok === true);
   } finally {
     if (throwawayId) {

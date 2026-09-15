@@ -421,6 +421,20 @@
       "when": 1789440728579,
       "tag": "0059_enable_rls_rate_agreements",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1789498396756,
+      "tag": "0060_nebulous_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1789498417501,
+      "tag": "0061_enable_rls_budget_activity_log",
+      "breakpoints": true
     }
   ]
 }

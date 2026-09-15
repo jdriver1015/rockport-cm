@@ -147,7 +147,7 @@ export async function applyBudgetOverwrite(
     const lockCheck = await assertBudgetUnlockedForUpdate(tx, propertyId);
     if (!lockCheck.ok) return lockCheck;
 
-    await applyBudgetImport(tx, propertyId, matched, toArchive);
+    await applyBudgetImport(tx, propertyId, matched, toArchive, auth.profile.id);
     return { ok: true };
   });
   if (!result.ok) return result;

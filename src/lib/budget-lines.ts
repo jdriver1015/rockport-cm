@@ -3,6 +3,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { assertBudgetUnlockedForUpdate } from "@/lib/property-budget-lock";
 import { propertyPath } from "@/lib/property-path";
+import { logBudgetLineChanges, type BudgetLineFieldChange } from "@/lib/budget-activity-log";
+import { money } from "@/lib/format";
 import type { ActionResult } from "@/lib/action-result";
 
 // ---------------------------------------------------------------------------
@@ -24,8 +26,9 @@ export async function createBudgetLineCore(input: {
   perUnitAmount?: number;
   plannedUnits?: number;
   note?: string;
+  userId: string | null;
 }): Promise<ActionResult> {
-  const { propertyId, costCodeId, perUnitAmount, plannedUnits, note } = input;
+  const { propertyId, costCodeId, perUnitAmount, plannedUnits, note, userId } = input;
 
   const costCode = await db().query.costCodes.findFirst({
     where: eq(schema.costCodes.id, costCodeId),
@@ -50,7 +53,7 @@ export async function createBudgetLineCore(input: {
     return { ok: false, error: "Enter a budgeted amount" };
   }
 
-  const result = await db().transaction(async (tx): Promise<ActionResult> => {
+  const result = await db().transaction(async (tx): Promise<ActionResult<{ id: number }>> => {
     const lockCheck = await assertBudgetUnlockedForUpdate(tx, propertyId);
     if (!lockCheck.ok) return lockCheck;
 
@@ -65,21 +68,38 @@ export async function createBudgetLineCore(input: {
       return { ok: false, error: `${costCode.name} already has a budget line for this property` };
     }
 
-    await tx.insert(schema.budgetLines).values({
-      propertyId,
-      costCodeId,
-      uwAmount: uwAmount.toFixed(2),
-      perUnitAmount: perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : undefined,
-      plannedUnits,
-      note,
-    });
-    return { ok: true };
+    const [inserted] = await tx
+      .insert(schema.budgetLines)
+      .values({
+        propertyId,
+        costCodeId,
+        uwAmount: uwAmount.toFixed(2),
+        perUnitAmount: perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : undefined,
+        plannedUnits,
+        note,
+      })
+      .returning({ id: schema.budgetLines.id });
+    return { ok: true, id: inserted.id };
   });
 
   if (result.ok) {
     const path = await propertyPath(propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
+    await logBudgetLineChanges({
+      propertyId,
+      budgetLineId: result.id,
+      userId,
+      note: "Line created",
+      changes: [
+        {
+          field: "uwAmount",
+          fieldLabel: `${costCode.name} — Budgeted amount`,
+          from: null,
+          to: money(uwAmount),
+        },
+      ],
+    });
   }
   return result;
 }
@@ -91,12 +111,22 @@ export async function updateBudgetLineCore(input: {
   perUnitAmount?: number;
   plannedUnits?: number;
   note?: string;
+  userId: string | null;
 }): Promise<ActionResult> {
-  const { id, propertyId, perUnitAmount, plannedUnits, note } = input;
+  const { id, propertyId, perUnitAmount, plannedUnits, note, userId } = input;
 
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, id),
-  });
+  const [line] = await db()
+    .select({
+      propertyId: schema.budgetLines.propertyId,
+      uwAmount: schema.budgetLines.uwAmount,
+      perUnitAmount: schema.budgetLines.perUnitAmount,
+      plannedUnits: schema.budgetLines.plannedUnits,
+      note: schema.budgetLines.note,
+      costCodeName: schema.costCodes.name,
+    })
+    .from(schema.budgetLines)
+    .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
+    .where(eq(schema.budgetLines.id, id));
   if (!line || line.propertyId !== propertyId) {
     return { ok: false, error: "Budget line not found" };
   }
@@ -131,14 +161,51 @@ export async function updateBudgetLineCore(input: {
     const path = await propertyPath(propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
+
+    // Every potential change is passed through — logBudgetLineChanges drops
+    // whichever ones didn't actually move, so a non-interior line's untouched
+    // perUnitAmount/plannedUnits (always null on both sides) never logs noise.
+    const changes: BudgetLineFieldChange[] = [
+      {
+        field: "uwAmount",
+        fieldLabel: `${line.costCodeName} — Budgeted amount`,
+        from: money(Number(line.uwAmount)),
+        to: money(uwAmount),
+      },
+      {
+        field: "perUnitAmount",
+        fieldLabel: `${line.costCodeName} — Per unit amount`,
+        from: line.perUnitAmount !== null ? money(Number(line.perUnitAmount)) : null,
+        to: perUnitAmount !== undefined ? money(perUnitAmount) : null,
+      },
+      {
+        field: "plannedUnits",
+        fieldLabel: `${line.costCodeName} — Planned units`,
+        from: line.plannedUnits !== null ? String(line.plannedUnits) : null,
+        to: plannedUnits !== undefined ? String(plannedUnits) : null,
+      },
+      {
+        field: "note",
+        fieldLabel: `${line.costCodeName} — Note`,
+        from: line.note,
+        to: note ?? null,
+      },
+    ];
+    await logBudgetLineChanges({ propertyId, budgetLineId: id, userId, changes });
   }
   return result;
 }
 
-export async function deleteBudgetLineCore(input: { id: number; propertyId: number }): Promise<ActionResult> {
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, input.id),
-  });
+export async function deleteBudgetLineCore(input: {
+  id: number;
+  propertyId: number;
+  userId: string | null;
+}): Promise<ActionResult> {
+  const [line] = await db()
+    .select({ propertyId: schema.budgetLines.propertyId, costCodeName: schema.costCodes.name })
+    .from(schema.budgetLines)
+    .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
+    .where(eq(schema.budgetLines.id, input.id));
   if (!line || line.propertyId !== input.propertyId) {
     return { ok: false, error: "Budget line not found" };
   }
@@ -158,15 +225,34 @@ export async function deleteBudgetLineCore(input: { id: number; propertyId: numb
     const path = await propertyPath(input.propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
+    await logBudgetLineChanges({
+      propertyId: input.propertyId,
+      budgetLineId: input.id,
+      userId: input.userId,
+      changes: [
+        {
+          field: "archivedAt",
+          fieldLabel: line.costCodeName,
+          from: "Active",
+          to: "Archived",
+        },
+      ],
+    });
   }
   return result;
 }
 
 /** Reverses deleteBudgetLineCore — used by the delete toast's Undo action. */
-export async function restoreBudgetLineCore(input: { id: number; propertyId: number }): Promise<ActionResult> {
-  const line = await db().query.budgetLines.findFirst({
-    where: eq(schema.budgetLines.id, input.id),
-  });
+export async function restoreBudgetLineCore(input: {
+  id: number;
+  propertyId: number;
+  userId: string | null;
+}): Promise<ActionResult> {
+  const [line] = await db()
+    .select({ propertyId: schema.budgetLines.propertyId, costCodeName: schema.costCodes.name })
+    .from(schema.budgetLines)
+    .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
+    .where(eq(schema.budgetLines.id, input.id));
   if (!line || line.propertyId !== input.propertyId) {
     return { ok: false, error: "Budget line not found" };
   }
@@ -186,6 +272,19 @@ export async function restoreBudgetLineCore(input: { id: number; propertyId: num
     const path = await propertyPath(input.propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
+    await logBudgetLineChanges({
+      propertyId: input.propertyId,
+      budgetLineId: input.id,
+      userId: input.userId,
+      changes: [
+        {
+          field: "archivedAt",
+          fieldLabel: line.costCodeName,
+          from: "Archived",
+          to: "Active",
+        },
+      ],
+    });
   }
   return result;
 }

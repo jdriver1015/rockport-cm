@@ -2,6 +2,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { BudgetImportRow } from "@/lib/budget-import";
 import { computePropertyBudget } from "@/lib/property-budget";
+import { logBudgetLineChanges } from "@/lib/budget-activity-log";
+import { money } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // Reconciling an uploaded budget against what the property already has.
@@ -263,6 +265,7 @@ export async function applyBudgetImport(
   propertyId: number,
   matched: MatchedLine[],
   toArchive: ArchiveLine[] = [],
+  userId: string | null = null,
 ): Promise<void> {
   for (const line of matched) {
     // Read-then-write rather than an upsert: budget_lines' unique index on
@@ -273,22 +276,43 @@ export async function applyBudgetImport(
     const existing = await tx.query.budgetLines.findFirst({
       where: and(eq(schema.budgetLines.propertyId, propertyId), eq(schema.budgetLines.costCodeId, line.costCodeId)),
     });
+    let budgetLineId: number;
     if (existing) {
       await tx
         .update(schema.budgetLines)
         .set({ uwAmount: line.to.toFixed(2), archivedAt: null })
         .where(eq(schema.budgetLines.id, existing.id));
+      budgetLineId = existing.id;
     } else {
-      await tx.insert(schema.budgetLines).values({
-        propertyId,
-        costCodeId: line.costCodeId,
-        uwAmount: line.to.toFixed(2),
-      });
+      const [inserted] = await tx
+        .insert(schema.budgetLines)
+        .values({
+          propertyId,
+          costCodeId: line.costCodeId,
+          uwAmount: line.to.toFixed(2),
+        })
+        .returning({ id: schema.budgetLines.id });
+      budgetLineId = inserted.id;
     }
+
+    await logBudgetLineChanges({
+      propertyId,
+      budgetLineId,
+      userId,
+      note: "Budget workbook uploaded",
+      changes: [
+        {
+          field: "uwAmount",
+          fieldLabel: `${line.name} — Budgeted amount`,
+          from: line.from != null ? money(line.from) : null,
+          to: money(line.to),
+        },
+      ],
+    });
   }
 
   for (const line of toArchive) {
-    await tx
+    const [archived] = await tx
       .update(schema.budgetLines)
       .set({ archivedAt: new Date() })
       .where(
@@ -297,6 +321,17 @@ export async function applyBudgetImport(
           eq(schema.budgetLines.costCodeId, line.costCodeId),
           isNull(schema.budgetLines.archivedAt),
         ),
-      );
+      )
+      .returning({ id: schema.budgetLines.id });
+
+    if (archived) {
+      await logBudgetLineChanges({
+        propertyId,
+        budgetLineId: archived.id,
+        userId,
+        note: "Budget workbook uploaded",
+        changes: [{ field: "archivedAt", fieldLabel: line.name, from: "Active", to: "Archived" }],
+      });
+    }
   }
 }

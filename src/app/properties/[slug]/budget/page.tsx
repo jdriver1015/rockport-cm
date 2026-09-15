@@ -17,7 +17,9 @@ import { num } from "@/lib/format";
 import { computePropertyBudget } from "@/lib/property-budget";
 import { BudgetImportDialog } from "@/components/budget-import-dialog";
 import { BudgetLockControl } from "@/components/budget-lock-control";
-import { fetchBudgetLockState, fetchBudgetLockEvents } from "@/lib/property-budget-lock";
+import { fetchBudgetLockState } from "@/lib/property-budget-lock";
+import { fetchBudgetActivityLog } from "@/lib/budget-activity-log";
+import { ActivityLogDialogButton } from "@/components/project-log-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +44,8 @@ export default async function BudgetPage({
   // them — there is deliberately no way to change it here.
 
   // Kicked off alongside the budget computation below rather than after it —
-  // neither lock query depends on anything computePropertyBudget returns.
-  const lockPromise = Promise.all([fetchBudgetLockState(propertyId), fetchBudgetLockEvents(propertyId)]);
+  // neither depends on anything computePropertyBudget returns.
+  const lockPromise = Promise.all([fetchBudgetLockState(propertyId), fetchBudgetActivityLog(propertyId)]);
 
   const {
     budgetDivisions,
@@ -60,7 +62,7 @@ export default async function BudgetPage({
     availableTiers,
   } = await computePropertyBudget(propertyId, property.chartOfAccountsId);
 
-  const [lockState, lockEvents] = await lockPromise;
+  const [lockState, activityLog] = await lockPromise;
 
   // Exterior view = everything that isn't unit interiors. Their exterior workbook
   // includes clubhouse, pool, amenities, soft costs and contingency, so this is
@@ -92,7 +94,12 @@ export default async function BudgetPage({
                 locked={lockState.locked}
                 lockedByName={lockState.lockedByName}
                 lockedAt={lockState.lockedAt ? lockState.lockedAt.toISOString() : null}
-                events={lockEvents}
+              />
+            )}
+            {view !== "interior" && (
+              <ActivityLogDialogButton
+                entries={activityLog}
+                description="Every change recorded against this property's budget."
               />
             )}
             {/* A link, not a button with an onClick: the route streams a

@@ -15,10 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import { lockBudget, unlockBudget } from "@/lib/actions/budget-lock";
-import type { BudgetLockEventRow } from "@/lib/property-budget-lock";
 
 /** Date + time, local to the viewer — an audit trail needs more than the day. */
 function fmtDateTime(value: string | Date | null): string {
@@ -39,13 +36,11 @@ export function BudgetLockControl({
   locked,
   lockedByName,
   lockedAt,
-  events,
 }: {
   propertyId: number;
   locked: boolean;
   lockedByName: string | null;
   lockedAt: string | null;
-  events: BudgetLockEventRow[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -107,38 +102,6 @@ export function BudgetLockControl({
           <Button variant={locked ? "outline" : "default"} disabled={busy} onClick={handleToggle}>
             {busy ? "Working…" : locked ? "Unlock budget" : "Lock budget"}
           </Button>
-        </div>
-
-        <div className="border-t border-border pt-3">
-          <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">History</h4>
-          {events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No lock activity yet.</p>
-          ) : (
-            <div className="max-h-[30vh] overflow-y-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Who</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Note</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {events.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell className="text-muted-foreground">{fmtDateTime(e.createdAt)}</TableCell>
-                      <TableCell>{e.userName ?? "—"}</TableCell>
-                      <TableCell className={cn("capitalize", e.action === "locked" ? "text-alert" : "text-navy")}>
-                        {e.action}
-                      </TableCell>
-                      <TableCell className="whitespace-normal text-muted-foreground">{e.note ?? ""}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -30,8 +30,9 @@ function fmtDateTime(value: string | Date | null): string {
 /** Phase history lives behind a header button rather than on the page. */
 export function ActivityLogDialogButton({
   entries,
+  description = "Every field change recorded against this project.",
   ...dialog
-}: { entries: ActivityLogRow[] } & ControllableDialog) {
+}: { entries: ActivityLogRow[]; description?: string } & ControllableDialog) {
   const { open, setOpen, hasTrigger } = useDialogOpen(dialog);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -41,7 +42,7 @@ export function ActivityLogDialogButton({
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Activity log</DialogTitle>
-          <DialogDescription>Every field change recorded against this project.</DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         {entries.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">No activity yet.</p>
