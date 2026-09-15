@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CameraIcon, ImagePlusIcon, RotateCwIcon, XIcon } from "lucide-react";
+import { CameraIcon, ImagePlusIcon, RotateCwIcon, UploadIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { downscaleImage } from "@/lib/photo-downscale";
@@ -72,6 +72,7 @@ export function WalkPhotoCapture({
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [dragging, setDragging] = useState(false);
   const draining = useRef(false);
 
   /**
@@ -229,12 +230,16 @@ export function WalkPhotoCapture({
               e.target.value = "";
             }}
           />
-          <div className="flex gap-2">
+          {/* Mobile: a phone has a real camera and this is the control the
+              whole screen exists for — tall, pressed with a thumb, often in a
+              glove. Desktop gets a different block below rather than this one
+              resized: capture="environment" is a no-op on desktop browsers,
+              so "Take photo" there would just be a second, misleadingly
+              labeled way to open the same plain file picker. */}
+          <div className="flex gap-2 sm:hidden">
             <Button
               type="button"
               onClick={() => cameraRef.current?.click()}
-              // Tall: this is the control the whole screen exists for, and it
-              // is pressed with a thumb, often in a glove.
               className="h-12 flex-1 text-[15px]"
             >
               <CameraIcon className="size-5" />
@@ -249,6 +254,33 @@ export function WalkPhotoCapture({
             >
               <ImagePlusIcon className="size-5" />
             </Button>
+          </div>
+
+          {/* Desktop: whoever's here is almost always uploading photos taken
+              earlier, not shooting one fresh — one normal-sized upload
+              button, plus the drop target this app already uses for files
+              elsewhere (see project-documents-panel.tsx). */}
+          <div
+            className={cn(
+              "hidden items-center justify-center rounded-card border border-dashed border-border p-4 transition-colors sm:flex",
+              dragging && "border-navy bg-hover",
+            )}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              enqueue(e.dataTransfer.files);
+            }}
+          >
+            <Button type="button" variant="outline" onClick={() => libraryRef.current?.click()}>
+              <UploadIcon className="size-4" />
+              Add photos
+            </Button>
+            <span className="ml-3 text-[13px] text-muted-foreground">or drop them here</span>
           </div>
         </>
       )}
@@ -327,10 +359,15 @@ export function WalkPhotoCapture({
       )}
 
       {photos.length === 0 && queue.length === 0 && (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No photos yet. Walk the site and shoot what you see — you can turn any of them into an
-          issue afterwards.
-        </p>
+        <>
+          <p className="py-6 text-center text-sm text-muted-foreground sm:hidden">
+            No photos yet. Walk the site and shoot what you see — you can turn any of them into an
+            issue afterwards.
+          </p>
+          <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
+            No photos yet — drag some in, or add them from your computer.
+          </p>
+        </>
       )}
     </div>
   );
