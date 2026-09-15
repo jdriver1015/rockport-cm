@@ -220,7 +220,7 @@ export async function previewBudgetImportForProperty(
     for (const category of division.categories) {
       for (const line of category.lines) {
         spendByCode.set(line.costCodeId, {
-          committed: line.planned + line.inProcess,
+          committed: line.scoped,
           completed: line.completed,
         });
       }

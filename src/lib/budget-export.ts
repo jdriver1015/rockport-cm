@@ -80,7 +80,7 @@ function addCapitalBudgetSheet(wb: ExcelJS.Workbook, budget: PropertyBudget) {
           item: line.name,
           code: line.code,
           approved: line.budget,
-          committed: line.inProcess + line.planned,
+          committed: line.scoped,
           actual,
           variance,
           notes: line.note ?? "",

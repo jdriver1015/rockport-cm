@@ -15,6 +15,7 @@ import {
 import { AmountCell } from "@/components/ui/amount-cell";
 import { TableCard } from "@/components/ui/table-card";
 import { BudgetLineDetailDialog } from "@/components/budget-line-detail-dialog";
+import { cn } from "@/lib/utils";
 
 export type AttachedProject = {
   id: number;
@@ -31,8 +32,7 @@ export type BudgetLineRow = {
   code: string;
   name: string;
   budget: number;
-  planned: number;
-  inProcess: number;
+  scoped: number;
   completed: number;
   perUnitAmount: number | null;
   plannedUnits: number | null;
@@ -52,8 +52,7 @@ export type BudgetCategory = {
   name: string;
   division: string | null;
   budget: number;
-  planned: number;
-  inProcess: number;
+  scoped: number;
   completed: number;
   lines: BudgetLineRow[];
 };
@@ -62,14 +61,23 @@ export type BudgetDivision = {
   key: string;
   label: string;
   budget: number;
-  planned: number;
-  inProcess: number;
+  scoped: number;
   completed: number;
   categories: BudgetCategory[];
 };
 
 /** Description + the four money columns. */
 const COLS = 5;
+
+/** Budgeted minus what's actually landed — positive means under budget. */
+function variance(row: { budget: number; completed: number }) {
+  return row.budget - row.completed;
+}
+
+/** Red for a line running over, matching the rule the Excel export already uses. */
+function varianceClassName(v: number, base: string) {
+  return cn(base, v < 0 && "text-destructive");
+}
 
 export function BudgetView({
   propertyId,
@@ -99,9 +107,9 @@ export function BudgetView({
             <TableRow className="hover:bg-transparent">
               <TableHead>Description</TableHead>
               <TableHead className="w-[15%] text-right">Budgeted</TableHead>
-              <TableHead className="w-[15%] text-right">Planned</TableHead>
-              <TableHead className="w-[15%] text-right">In Process</TableHead>
+              <TableHead className="w-[15%] text-right">Scoped</TableHead>
               <TableHead className="w-[15%] text-right">Completed</TableHead>
+              <TableHead className="w-[15%] text-right">Variance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -117,13 +125,17 @@ export function BudgetView({
                   <AmountCell value={div.budget} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
                 </TableCell>
                 <TableCell>
-                  <AmountCell value={div.planned} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
-                </TableCell>
-                <TableCell>
-                  <AmountCell value={div.inProcess} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
+                  <AmountCell value={div.scoped} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
                 </TableCell>
                 <TableCell>
                   <AmountCell value={div.completed} className="font-bold" positive emptyClassName="text-ink-200" />
+                </TableCell>
+                <TableCell>
+                  <AmountCell
+                    value={variance(div)}
+                    className={varianceClassName(variance(div), "font-bold text-ink-900")}
+                    emptyClassName="text-ink-200"
+                  />
                 </TableCell>
               </TableRow>,
               ...div.categories.flatMap((cat) => [
@@ -133,13 +145,17 @@ export function BudgetView({
                     <AmountCell value={cat.budget} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
                   </TableCell>
                   <TableCell>
-                    <AmountCell value={cat.planned} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
-                  </TableCell>
-                  <TableCell>
-                    <AmountCell value={cat.inProcess} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
+                    <AmountCell value={cat.scoped} className="font-semibold text-ink-700" emptyClassName="text-ink-200" />
                   </TableCell>
                   <TableCell>
                     <AmountCell value={cat.completed} className="font-semibold" positive emptyClassName="text-ink-200" />
+                  </TableCell>
+                  <TableCell>
+                    <AmountCell
+                      value={variance(cat)}
+                      className={varianceClassName(variance(cat), "font-semibold text-ink-700")}
+                      emptyClassName="text-ink-200"
+                    />
                   </TableCell>
                 </TableRow>,
                 ...cat.lines.map((line) => (
@@ -165,13 +181,16 @@ export function BudgetView({
                       <AmountCell value={line.budget} className="font-normal text-ink-500" />
                     </TableCell>
                     <TableCell>
-                      <AmountCell value={line.planned} className="font-normal text-ink-500" />
-                    </TableCell>
-                    <TableCell>
-                      <AmountCell value={line.inProcess} className="font-normal text-ink-500" />
+                      <AmountCell value={line.scoped} className="font-normal text-ink-500" />
                     </TableCell>
                     <TableCell>
                       <AmountCell value={line.completed} className="font-normal" positive />
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell
+                        value={variance(line)}
+                        className={varianceClassName(variance(line), "font-normal text-ink-500")}
+                      />
                     </TableCell>
                   </TableRow>
                 )),
@@ -185,13 +204,17 @@ export function BudgetView({
                 <AmountCell value={totals.budget} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
               </TableCell>
               <TableCell>
-                <AmountCell value={totals.planned} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
-              </TableCell>
-              <TableCell>
-                <AmountCell value={totals.inProcess} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
+                <AmountCell value={totals.scoped} className="font-bold text-ink-900" emptyClassName="text-ink-200" />
               </TableCell>
               <TableCell>
                 <AmountCell value={totals.completed} className="font-bold" positive emptyClassName="text-ink-200" />
+              </TableCell>
+              <TableCell>
+                <AmountCell
+                  value={variance(totals)}
+                  className={varianceClassName(variance(totals), "font-bold text-ink-900")}
+                  emptyClassName="text-ink-200"
+                />
               </TableCell>
             </TableRow>
           </TableFooter>
@@ -212,10 +235,9 @@ function sumTotals(divisions: BudgetDivision[]) {
   return divisions.reduce(
     (acc, div) => ({
       budget: acc.budget + div.budget,
-      planned: acc.planned + div.planned,
-      inProcess: acc.inProcess + div.inProcess,
+      scoped: acc.scoped + div.scoped,
       completed: acc.completed + div.completed,
     }),
-    { budget: 0, planned: 0, inProcess: 0, completed: 0 },
+    { budget: 0, scoped: 0, completed: 0 },
   );
 }
