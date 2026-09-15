@@ -49,8 +49,11 @@ export function AddAuditDialog({
       }
       toast.success("Audit created");
       setOpen(false);
+      // No router.refresh() here — see the same fix in walk-dialog.tsx's go():
+      // the audit page is force-dynamic, so push() alone always fetches it
+      // fresh, and refresh() immediately after push() reproducibly stuck the
+      // transition on the old page instead of landing on the new audit.
       router.push(`/properties/${propertySlug}/audits/${result.auditId}`);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create audit");
     } finally {

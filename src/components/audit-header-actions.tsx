@@ -78,10 +78,16 @@ export function AuditHeaderActions({
             // superintendent sitting on a finished walk with no exit but the
             // browser's back button. Reopening stays put — the point of
             // reopening is to carry on working here.
+            //
+            // The audits list is force-dynamic, so push() alone always fetches
+            // it fresh — calling refresh() right after push() raced the two
+            // router actions and could strand the transition on this page
+            // instead of landing on the list (see walk-dialog.tsx's go()).
             if (next === "complete") {
               router.push(`/properties/${propertySlug}/audits`);
+            } else {
+              router.refresh();
             }
-            router.refresh();
           })
         }
       >
@@ -132,8 +138,8 @@ export function AuditHeaderActions({
                       }),
                   },
                 });
+                // No refresh() after push() here either — see above.
                 router.push(`/properties/${propertySlug}/audits`);
-                router.refresh();
               })
             }
           >

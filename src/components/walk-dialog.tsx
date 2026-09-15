@@ -89,8 +89,12 @@ export function WalkDialog({
         return;
       }
       onOpenChange(false);
+      // No router.refresh() here: the audit page is force-dynamic, so push()
+      // alone always fetches it fresh. Calling refresh() right after push()
+      // raced the two router actions and reproducibly stuck this transition
+      // on the old page forever — the destination's RSC payload was already
+      // in the network log, but React never committed it.
       router.push(`/properties/${propertySlug}/audits/${res.auditId}`);
-      router.refresh();
     });
   }
 
