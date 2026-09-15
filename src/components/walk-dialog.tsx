@@ -67,6 +67,17 @@ export function WalkDialog({
   );
   // Stored as HH:MM:SS by Postgres; the input wants HH:MM.
   const [time, setTime] = useState(() => (walkTime ?? "").slice(0, 5) || "10:00");
+  // Whether the inputs hold something worth persisting that isn't saved yet —
+  // controls the Save button. True from the moment a never-booked walk's
+  // pre-filled suggestion appears, same as before this file's fix history.
+  const dirty = date !== (walkDate ?? "") || time !== (walkTime ?? "").slice(0, 5);
+  // Narrower, and only for go() below: true only when a walk that WAS
+  // already booked has since been edited. A brand-new walk's pre-filled
+  // suggestion must not count here — starting one has never required saving
+  // a date first (see this component's own doc comment), and auto-saving
+  // the suggestion on Start would make startWalk's own "no date yet, use
+  // today" fallback (src/lib/actions/walks.ts) stamp the wrong day.
+  const unsavedReschedule = walkDate != null && dirty;
 
   function save() {
     startSaveTransition(async () => {
@@ -83,6 +94,21 @@ export function WalkDialog({
 
   function go() {
     startGoTransition(async () => {
+      // Save a dirty date/time as part of the same click rather than
+      // leaving Continue blocked on it (which would just reintroduce the
+      // original stuck-dialog bug — a slow save disabling the one button
+      // that gets someone back into an in-progress walk) or letting it race
+      // a concurrent Save: startWalk stamps the new audit from whatever is
+      // CURRENTLY PERSISTED, read fresh at that moment, so an unsaved edit
+      // sitting in these inputs would otherwise be silently dropped in favor
+      // of the value it was about to replace.
+      if (unsavedReschedule) {
+        const saveRes = await scheduleWalk({ projectId, kind, date, time });
+        if (!saveRes.ok) {
+          toast.error(saveRes.error);
+          return;
+        }
+      }
       const res = await startWalk({ projectId, kind });
       if (!res.ok) {
         toast.error(res.error);
@@ -142,11 +168,7 @@ export function WalkDialog({
             <Button variant="ghost" disabled={pending} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              variant="outline"
-              disabled={pending || (date === (walkDate ?? "") && time === (walkTime ?? "").slice(0, 5))}
-              onClick={save}
-            >
+            <Button variant="outline" disabled={pending || !dirty} onClick={save}>
               {savePending ? "Saving…" : "Save schedule"}
             </Button>
           </div>
@@ -175,9 +197,11 @@ export function WalkDialog({
                       ? `Booked for ${fmtDate(walkDate)}${time ? ` at ${time}` : ""}. Start it when you are in the unit.`
                       : "You can start a walk without booking one first."}
                 </p>
-                {/* Its own pending flag, not the combined one: a slow or stuck
-                    schedule save must never lock out the one button that gets
-                    someone back into a walk already in progress. */}
+                {/* Its own pending flag, not the combined one: a slow or
+                    stuck schedule save must never lock out the one button
+                    that gets someone back into a walk already in progress —
+                    go() saves a dirty edit itself, as part of the same
+                    click, rather than needing this button blocked on it. */}
                 <Button disabled={goPending} onClick={go}>
                   {goPending ? "Opening…" : started ? "Continue walk" : `Start ${WALK_KIND[kind].label}`}
                 </Button>

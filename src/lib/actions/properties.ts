@@ -57,6 +57,12 @@ export async function createProperty(
     notes: string[];
   }>
 > {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canAdminProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to create a property" };
+  }
+
   const parsed = createPropertySchema.safeParse({
     name: formData.get("name"),
     chartOfAccountsId: formData.get("chartOfAccountsId"),
@@ -154,11 +160,11 @@ export async function createProperty(
     // dialog resolved these against the chart the person had selected at the
     // time, which is cheap to re-confirm and expensive to get wrong silently.
     const validCodes = await db()
-      .select({ id: schema.costCodes.id })
+      .select({ id: schema.costCodes.id, code: schema.costCodes.code, name: schema.costCodes.name })
       .from(schema.costCodes)
       .where(and(eq(schema.costCodes.chartId, fields.chartOfAccountsId), eq(schema.costCodes.active, true)));
-    const validIds = new Set(validCodes.map((c) => c.id));
-    const usable = budgetImportRows.filter((r) => validIds.has(r.costCodeId));
+    const codeById = new Map(validCodes.map((c) => [c.id, c]));
+    const usable = budgetImportRows.filter((r) => codeById.has(r.costCodeId));
     if (usable.length > 0) {
       // Not fatal, like the seeding above: the property is real either way,
       // and a DB error partway through (e.g. an out-of-range amount) should
@@ -168,14 +174,19 @@ export async function createProperty(
         await applyBudgetImport(
           db(),
           property.id,
-          usable.map((r) => ({
-            costCodeId: r.costCodeId,
-            code: "",
-            name: "",
-            categoryName: null,
-            from: null,
-            to: r.uwAmount,
-          })),
+          usable.map((r) => {
+            const code = codeById.get(r.costCodeId)!;
+            return {
+              costCodeId: r.costCodeId,
+              code: code.code,
+              name: code.name,
+              categoryName: null,
+              from: null,
+              to: r.uwAmount,
+            };
+          }),
+          undefined,
+          auth.profile.id,
         );
         budgetLinesSeeded = usable.length;
       } catch (err) {

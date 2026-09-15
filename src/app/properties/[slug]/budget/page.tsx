@@ -96,12 +96,15 @@ export default async function BudgetPage({
                 lockedAt={lockState.lockedAt ? lockState.lockedAt.toISOString() : null}
               />
             )}
-            {view !== "interior" && (
-              <ActivityLogDialogButton
-                entries={activityLog}
-                description="Every change recorded against this property's budget."
-              />
-            )}
+            {/* Not gated on view like the lock control above: interior cost
+                codes can still get ordinary, loggable budget_lines rows
+                (until the property's interior plan is fully computed), so
+                this log's history isn't scoped to the non-interior view the
+                lock is. */}
+            <ActivityLogDialogButton
+              entries={activityLog}
+              description="Every change recorded against this property's budget."
+            />
             {/* A link, not a button with an onClick: the route streams a
                 workbook, so letting the browser download it is the whole
                 behaviour. Always the full budget — both sheets — regardless

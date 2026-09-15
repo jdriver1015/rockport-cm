@@ -173,7 +173,24 @@ export function WalkPhotoCapture({
 
   function enqueue(files: FileList | null) {
     if (!files || files.length === 0) return;
-    const items: QueueItem[] = Array.from(files).map((file) => ({
+    // Both file inputs already constrain the OS picker to images
+    // (accept="image/*"), but the desktop drop zone takes whatever the OS
+    // drag carries — reject non-images here so a dropped PDF or doc doesn't
+    // sit in the queue retrying against an endpoint that was always going to
+    // refuse it.
+    // MIME type first, but some browsers leave it blank for HEIC/HEIF drags —
+    // fall back to the same extension check the upload endpoint itself uses
+    // (see src/app/api/properties/[id]/audits/[auditId]/photos/route.ts)
+    // rather than trusting type alone and risking a false rejection.
+    const isImage = (f: File) => f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif)$/i.test(f.name);
+    const all = Array.from(files);
+    const images = all.filter(isImage);
+    if (images.length < all.length) {
+      const rejected = all.length - images.length;
+      toast.error(`${rejected} file${rejected === 1 ? " isn't an image" : "s aren't images"} — skipped`);
+    }
+    if (images.length === 0) return;
+    const items: QueueItem[] = images.map((file) => ({
       key: crypto.randomUUID(),
       previewUrl: URL.createObjectURL(file),
       status: "waiting",

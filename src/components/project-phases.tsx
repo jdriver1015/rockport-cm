@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
-import { AlertCircleIcon, CheckCircle2Icon, ChevronRightIcon, CircleIcon, EllipsisIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  CalendarIcon,
+  CheckCircle2Icon,
+  ChevronRightIcon,
+  CircleIcon,
+  EllipsisIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -751,15 +758,32 @@ function GateRow({
             {clickable && check.target === "audits" && check.auditId != null ? (
               // The walk already exists — send this straight to it instead of
               // opening the dialog just to click Continue walk a second time.
-              <Button
-                size="sm"
-                variant={check.next ? "default" : "ghost"}
-                render={<Link href={`/properties/${context!.propertySlug}/audits/${check.auditId}`} />}
-                nativeButton={false}
-              >
-                Open
-                <ChevronRightIcon className="size-3.5" />
-              </Button>
+              <span className="flex shrink-0 items-center gap-1">
+                {(check.key === "pre_walk" || check.key === "punch_walk") && (
+                  // Going straight to the audit means the schedule dialog —
+                  // the only place that edits the booked date — is otherwise
+                  // unreachable once a walk has started. A wrong booked date
+                  // still needs fixing after the walk begins.
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Change the booked date"
+                    title="Change the booked date"
+                    onClick={() => setOpenGate(check.key!)}
+                  >
+                    <CalendarIcon className="size-3.5" />
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant={check.next ? "default" : "ghost"}
+                  render={<Link href={`/properties/${context!.propertySlug}/audits/${check.auditId}`} />}
+                  nativeButton={false}
+                >
+                  Open
+                  <ChevronRightIcon className="size-3.5" />
+                </Button>
+              </span>
             ) : clickable ? (
               <Button
                 size="sm"

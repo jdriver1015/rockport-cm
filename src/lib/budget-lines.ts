@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { assertBudgetUnlockedForUpdate } from "@/lib/property-budget-lock";
 import { propertyPath } from "@/lib/property-path";
@@ -115,22 +115,6 @@ export async function updateBudgetLineCore(input: {
 }): Promise<ActionResult> {
   const { id, propertyId, perUnitAmount, plannedUnits, note, userId } = input;
 
-  const [line] = await db()
-    .select({
-      propertyId: schema.budgetLines.propertyId,
-      uwAmount: schema.budgetLines.uwAmount,
-      perUnitAmount: schema.budgetLines.perUnitAmount,
-      plannedUnits: schema.budgetLines.plannedUnits,
-      note: schema.budgetLines.note,
-      costCodeName: schema.costCodes.name,
-    })
-    .from(schema.budgetLines)
-    .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
-    .where(eq(schema.budgetLines.id, id));
-  if (!line || line.propertyId !== propertyId) {
-    return { ok: false, error: "Budget line not found" };
-  }
-
   // Interior lines budget per unit; others take a direct amount.
   const uwAmount =
     perUnitAmount !== undefined && plannedUnits !== undefined
@@ -140,9 +124,32 @@ export async function updateBudgetLineCore(input: {
     return { ok: false, error: "Enter a budgeted amount" };
   }
 
-  const result = await db().transaction(async (tx): Promise<ActionResult> => {
+  const result = await db().transaction(async (tx): Promise<ActionResult<{ changes: BudgetLineFieldChange[] }>> => {
     const lockCheck = await assertBudgetUnlockedForUpdate(tx, propertyId);
     if (!lockCheck.ok) return lockCheck;
+
+    // Read the "before" state inside the transaction, after the property's
+    // row lock is held — not beforehand. A plain pre-fetch outside the lock
+    // could read a value that a concurrent update (blocked on the same lock)
+    // is about to overwrite, then log this edit's "from" as whatever it saw
+    // before that other write ever committed: a false entry in the audit
+    // trail, and not merely a display glitch, since it's the log's job to
+    // say what actually changed.
+    const [line] = await tx
+      .select({
+        propertyId: schema.budgetLines.propertyId,
+        uwAmount: schema.budgetLines.uwAmount,
+        perUnitAmount: schema.budgetLines.perUnitAmount,
+        plannedUnits: schema.budgetLines.plannedUnits,
+        note: schema.budgetLines.note,
+        costCodeName: schema.costCodes.name,
+      })
+      .from(schema.budgetLines)
+      .innerJoin(schema.costCodes, eq(schema.costCodes.id, schema.budgetLines.costCodeId))
+      .where(eq(schema.budgetLines.id, id));
+    if (!line || line.propertyId !== propertyId) {
+      return { ok: false, error: "Budget line not found" };
+    }
 
     await tx
       .update(schema.budgetLines)
@@ -154,29 +161,30 @@ export async function updateBudgetLineCore(input: {
         updatedAt: new Date(),
       })
       .where(eq(schema.budgetLines.id, id));
-    return { ok: true };
-  });
 
-  if (result.ok) {
-    const path = await propertyPath(propertyId, "/budget");
-    if (path) revalidatePath(path);
-    revalidatePath("/");
-
+    const newPerUnitAmount = perUnitAmount !== undefined ? perUnitAmount.toFixed(2) : null;
     // Every potential change is passed through — logBudgetLineChanges drops
     // whichever ones didn't actually move, so a non-interior line's untouched
-    // perUnitAmount/plannedUnits (always null on both sides) never logs noise.
+    // perUnitAmount/plannedUnits (always null on both sides) never logs
+    // noise. `changed` compares the exact fixed-point strings, not the
+    // money()-formatted display text below: money() rounds to whole
+    // dollars, so a real cent-level edit (both amount inputs allow $0.01
+    // steps) can format identically on both sides and would otherwise be
+    // silently dropped as a false no-op.
     const changes: BudgetLineFieldChange[] = [
       {
         field: "uwAmount",
         fieldLabel: `${line.costCodeName} — Budgeted amount`,
         from: money(Number(line.uwAmount)),
         to: money(uwAmount),
+        changed: line.uwAmount !== uwAmount.toFixed(2),
       },
       {
         field: "perUnitAmount",
         fieldLabel: `${line.costCodeName} — Per unit amount`,
         from: line.perUnitAmount !== null ? money(Number(line.perUnitAmount)) : null,
-        to: perUnitAmount !== undefined ? money(perUnitAmount) : null,
+        to: newPerUnitAmount !== null ? money(perUnitAmount!) : null,
+        changed: line.perUnitAmount !== newPerUnitAmount,
       },
       {
         field: "plannedUnits",
@@ -191,7 +199,14 @@ export async function updateBudgetLineCore(input: {
         to: note ?? null,
       },
     ];
-    await logBudgetLineChanges({ propertyId, budgetLineId: id, userId, changes });
+    return { ok: true, changes };
+  });
+
+  if (result.ok) {
+    const path = await propertyPath(propertyId, "/budget");
+    if (path) revalidatePath(path);
+    revalidatePath("/");
+    await logBudgetLineChanges({ propertyId, budgetLineId: id, userId, changes: result.changes });
   }
   return result;
 }
@@ -210,34 +225,42 @@ export async function deleteBudgetLineCore(input: {
     return { ok: false, error: "Budget line not found" };
   }
 
-  const result = await db().transaction(async (tx): Promise<ActionResult> => {
+  const result = await db().transaction(async (tx): Promise<ActionResult<{ archived: boolean }>> => {
     const lockCheck = await assertBudgetUnlockedForUpdate(tx, input.propertyId);
     if (!lockCheck.ok) return lockCheck;
 
-    await tx
+    // Guarded on the current state, not a blind write: a second delete for
+    // the same line (a double-click before the button disables, or the
+    // Undo toast's own button, which has no busy guard) then updates zero
+    // rows instead of quietly re-archiving something already archived — and
+    // the log below only fires for a transition that actually happened.
+    const [archived] = await tx
       .update(schema.budgetLines)
       .set({ archivedAt: new Date() })
-      .where(eq(schema.budgetLines.id, input.id));
-    return { ok: true };
+      .where(and(eq(schema.budgetLines.id, input.id), isNull(schema.budgetLines.archivedAt)))
+      .returning({ id: schema.budgetLines.id });
+    return { ok: true, archived: !!archived };
   });
 
   if (result.ok) {
     const path = await propertyPath(input.propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
-    await logBudgetLineChanges({
-      propertyId: input.propertyId,
-      budgetLineId: input.id,
-      userId: input.userId,
-      changes: [
-        {
-          field: "archivedAt",
-          fieldLabel: line.costCodeName,
-          from: "Active",
-          to: "Archived",
-        },
-      ],
-    });
+    if (result.archived) {
+      await logBudgetLineChanges({
+        propertyId: input.propertyId,
+        budgetLineId: input.id,
+        userId: input.userId,
+        changes: [
+          {
+            field: "archivedAt",
+            fieldLabel: line.costCodeName,
+            from: "Active",
+            to: "Archived",
+          },
+        ],
+      });
+    }
   }
   return result;
 }
@@ -257,34 +280,38 @@ export async function restoreBudgetLineCore(input: {
     return { ok: false, error: "Budget line not found" };
   }
 
-  const result = await db().transaction(async (tx): Promise<ActionResult> => {
+  const result = await db().transaction(async (tx): Promise<ActionResult<{ restored: boolean }>> => {
     const lockCheck = await assertBudgetUnlockedForUpdate(tx, input.propertyId);
     if (!lockCheck.ok) return lockCheck;
 
-    await tx
+    // Mirrors deleteBudgetLineCore's guard — see its comment.
+    const [restored] = await tx
       .update(schema.budgetLines)
       .set({ archivedAt: null })
-      .where(eq(schema.budgetLines.id, input.id));
-    return { ok: true };
+      .where(and(eq(schema.budgetLines.id, input.id), isNotNull(schema.budgetLines.archivedAt)))
+      .returning({ id: schema.budgetLines.id });
+    return { ok: true, restored: !!restored };
   });
 
   if (result.ok) {
     const path = await propertyPath(input.propertyId, "/budget");
     if (path) revalidatePath(path);
     revalidatePath("/");
-    await logBudgetLineChanges({
-      propertyId: input.propertyId,
-      budgetLineId: input.id,
-      userId: input.userId,
-      changes: [
-        {
-          field: "archivedAt",
-          fieldLabel: line.costCodeName,
-          from: "Archived",
-          to: "Active",
-        },
-      ],
-    });
+    if (result.restored) {
+      await logBudgetLineChanges({
+        propertyId: input.propertyId,
+        budgetLineId: input.id,
+        userId: input.userId,
+        changes: [
+          {
+            field: "archivedAt",
+            fieldLabel: line.costCodeName,
+            from: "Archived",
+            to: "Active",
+          },
+        ],
+      });
+    }
   }
   return result;
 }

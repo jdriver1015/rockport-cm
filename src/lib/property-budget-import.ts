@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { BudgetImportRow } from "@/lib/budget-import";
 import { computePropertyBudget } from "@/lib/property-budget";
-import { logBudgetLineChanges } from "@/lib/budget-activity-log";
+import { logBudgetLineChangesForLines, type BudgetLineFieldChange } from "@/lib/budget-activity-log";
 import { money } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
@@ -267,6 +267,11 @@ export async function applyBudgetImport(
   toArchive: ArchiveLine[] = [],
   userId: string | null = null,
 ): Promise<void> {
+  // Collected across both loops and written in one insert at the end — a
+  // large re-upload can touch dozens of lines, and logging each one
+  // separately as it's written would add a full extra round trip per line.
+  const logEntries: { budgetLineId: number; changes: BudgetLineFieldChange[] }[] = [];
+
   for (const line of matched) {
     // Read-then-write rather than an upsert: budget_lines' unique index on
     // (propertyId, costCodeId) is partial (WHERE archived_at IS NULL), so a
@@ -295,17 +300,21 @@ export async function applyBudgetImport(
       budgetLineId = inserted.id;
     }
 
-    await logBudgetLineChanges({
-      propertyId,
+    logEntries.push({
       budgetLineId,
-      userId,
-      note: "Budget workbook uploaded",
       changes: [
         {
           field: "uwAmount",
           fieldLabel: `${line.name} — Budgeted amount`,
           from: line.from != null ? money(line.from) : null,
           to: money(line.to),
+          // reconcileBudgetImport already excludes anything within half a
+          // cent of its prior value (see "unchanged" below), so every
+          // matched line is a real change by construction — forced rather
+          // than re-derived from the money()-rounded from/to above, which
+          // can format identically for two amounts that differ by as little
+          // as a cent and would otherwise be dropped as a false no-op.
+          changed: true,
         },
       ],
     });
@@ -325,13 +334,17 @@ export async function applyBudgetImport(
       .returning({ id: schema.budgetLines.id });
 
     if (archived) {
-      await logBudgetLineChanges({
-        propertyId,
+      logEntries.push({
         budgetLineId: archived.id,
-        userId,
-        note: "Budget workbook uploaded",
         changes: [{ field: "archivedAt", fieldLabel: line.name, from: "Active", to: "Archived" }],
       });
     }
   }
+
+  await logBudgetLineChangesForLines({
+    propertyId,
+    userId,
+    note: "Budget workbook uploaded",
+    entries: logEntries,
+  });
 }

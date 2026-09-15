@@ -18,7 +18,35 @@ export type BudgetLineFieldChange = {
   fieldLabel: string;
   from: string | null;
   to: string | null;
+  /**
+   * Set explicitly whenever `from`/`to` are a lossy display string rather
+   * than the exact underlying value — money() rounds to whole dollars, so
+   * two different cent-level amounts can format identically and would
+   * otherwise be dropped as a false no-op. When omitted, falls back to a
+   * plain `from !== to` string comparison, which is exact for fields that
+   * are already untransformed (note, "Active"/"Archived", etc).
+   */
+  changed?: boolean;
 };
+
+function toRows(
+  budgetLineId: number,
+  changes: BudgetLineFieldChange[],
+  common: { propertyId: number; userId: string | null; note?: string | null },
+) {
+  return changes
+    .filter((c) => c.changed ?? c.from !== c.to)
+    .map((c) => ({
+      propertyId: common.propertyId,
+      budgetLineId,
+      userId: common.userId,
+      field: c.field,
+      fieldLabel: c.fieldLabel,
+      fromValue: c.from,
+      toValue: c.to,
+      note: common.note ?? null,
+    }));
+}
 
 /** Insert one row per changed field. Call sites pre-format from/to (money(), etc). */
 export async function logBudgetLineChanges(params: {
@@ -28,18 +56,24 @@ export async function logBudgetLineChanges(params: {
   changes: BudgetLineFieldChange[];
   note?: string | null;
 }) {
-  const rows = params.changes
-    .filter((c) => c.from !== c.to)
-    .map((c) => ({
-      propertyId: params.propertyId,
-      budgetLineId: params.budgetLineId,
-      userId: params.userId,
-      field: c.field,
-      fieldLabel: c.fieldLabel,
-      fromValue: c.from,
-      toValue: c.to,
-      note: params.note ?? null,
-    }));
+  const rows = toRows(params.budgetLineId, params.changes, params);
+  if (rows.length === 0) return;
+  await db().insert(schema.budgetLineActivityLog).values(rows);
+}
+
+/**
+ * Same as logBudgetLineChanges, batched across multiple lines into a single
+ * insert — for a workbook re-upload that can touch dozens of lines at once,
+ * so the number of round trips doesn't grow with the number of changed
+ * lines.
+ */
+export async function logBudgetLineChangesForLines(params: {
+  propertyId: number;
+  userId: string | null;
+  note?: string | null;
+  entries: { budgetLineId: number; changes: BudgetLineFieldChange[] }[];
+}) {
+  const rows = params.entries.flatMap((e) => toRows(e.budgetLineId, e.changes, params));
   if (rows.length === 0) return;
   await db().insert(schema.budgetLineActivityLog).values(rows);
 }
