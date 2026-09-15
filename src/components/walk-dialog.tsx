@@ -51,7 +51,13 @@ export function WalkDialog({
   auditStatus: "draft" | "complete" | null;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  // Separate transitions: saving the schedule and starting/continuing the walk
+  // are independent actions. Sharing one pending flag meant a slow schedule
+  // save left "Continue walk" disabled too, with no way to get back into an
+  // already-in-progress walk until the save finished.
+  const [savePending, startSaveTransition] = useTransition();
+  const [goPending, startGoTransition] = useTransition();
+  const pending = savePending || goPending;
   // Nothing booked yet: pre-fill a reasonable default instead of leaving both
   // fields blank — the nearest weekday a couple of days out (never a weekend;
   // nobody walks a unit on a Saturday) at a normal business hour, so opening
@@ -63,7 +69,7 @@ export function WalkDialog({
   const [time, setTime] = useState(() => (walkTime ?? "").slice(0, 5) || "10:00");
 
   function save() {
-    startTransition(async () => {
+    startSaveTransition(async () => {
       const res = await scheduleWalk({ projectId, kind, date, time });
       if (!res.ok) {
         toast.error(res.error);
@@ -76,7 +82,7 @@ export function WalkDialog({
   }
 
   function go() {
-    startTransition(async () => {
+    startGoTransition(async () => {
       const res = await startWalk({ projectId, kind });
       if (!res.ok) {
         toast.error(res.error);
@@ -137,7 +143,7 @@ export function WalkDialog({
               disabled={pending || (date === (walkDate ?? "") && time === (walkTime ?? "").slice(0, 5))}
               onClick={save}
             >
-              {pending ? "Saving…" : "Save schedule"}
+              {savePending ? "Saving…" : "Save schedule"}
             </Button>
           </div>
 
@@ -165,8 +171,11 @@ export function WalkDialog({
                       ? `Booked for ${fmtDate(walkDate)}${time ? ` at ${time}` : ""}. Start it when you are in the unit.`
                       : "You can start a walk without booking one first."}
                 </p>
-                <Button disabled={pending} onClick={go}>
-                  {started ? "Continue walk" : `Start ${WALK_KIND[kind].label}`}
+                {/* Its own pending flag, not the combined one: a slow or stuck
+                    schedule save must never lock out the one button that gets
+                    someone back into a walk already in progress. */}
+                <Button disabled={goPending} onClick={go}>
+                  {goPending ? "Opening…" : started ? "Continue walk" : `Start ${WALK_KIND[kind].label}`}
                 </Button>
               </>
             )}
