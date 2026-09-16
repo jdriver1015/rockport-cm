@@ -5,6 +5,7 @@ import { CommonProjectWizard } from "@/components/common-project-wizard";
 import { readBudgetLinesForPicker } from "@/lib/budget-picker";
 import { readScheduleDefaults } from "@/lib/interior-defaults";
 import { suggestSchedule, todayInBusinessZone } from "@/lib/schedule-defaults";
+import { readManagerRoster } from "@/lib/manager-roster";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,10 @@ export default async function NewCommonAreaProjectPage({ params }: { params: Pro
   });
   if (!property) notFound();
 
-  const [budgetLines, schedule] = await Promise.all([
+  const [budgetLines, schedule, roster] = await Promise.all([
     readBudgetLinesForPicker(property.id),
     readScheduleDefaults(),
+    readManagerRoster(),
   ]);
 
   // Computed here, in one fixed timezone, so the server-rendered dates and the
@@ -33,6 +35,7 @@ export default async function NewCommonAreaProjectPage({ params }: { params: Pro
         budgetLines={budgetLines.sort((a, b) => a.code.localeCompare(b.code))}
         schedule={schedule}
         suggestedDates={suggestedDates}
+        roster={roster}
       />
     </div>
   );

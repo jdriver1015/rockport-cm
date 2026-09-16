@@ -20,6 +20,7 @@ import {
   type WizardUnitGroup,
 } from "@/components/interior-wizard";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
+import { readManagerRoster } from "@/lib/manager-roster";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +139,7 @@ export default async function NewInteriorProjectPage({
     console.error("interior wizard: trigger rule failed to load", err);
     return [];
   });
+  const roster = await readManagerRoster();
 
   // Units that already have an interior project. A unit cannot be turned twice
   // in one cycle, and the budget would double-count it — so these are offered
@@ -238,8 +240,8 @@ export default async function NewInteriorProjectPage({
         schedule={schedule}
         suggestedDates={suggestedDates}
         takenUnits={takenUnits}
-
         triggerSteps={triggerSteps}
+        roster={roster}
       />
     </div>
   );

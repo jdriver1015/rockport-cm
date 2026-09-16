@@ -13,6 +13,8 @@ import { money, moneyOrZero } from "@/lib/format";
 import { createCommonProject } from "@/lib/actions/common-projects";
 import { TargetPhasingStep } from "@/components/target-phasing-step";
 import { BudgetCategoryPicker } from "@/components/budget-category-picker";
+import { ManagerPickerField } from "@/components/manager-picker-field";
+import type { ManagerOption } from "@/lib/project-managers";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
 import {
   DEFAULT_SCHEDULE,
@@ -60,6 +62,7 @@ export function CommonProjectWizard({
   budgetLines,
   schedule,
   suggestedDates,
+  roster = [],
 }: {
   propertyId: number;
   propertySlug: string;
@@ -72,12 +75,15 @@ export function CommonProjectWizard({
    * different answers.
    */
   suggestedDates?: Record<ScheduleKey, string>;
+  /** Who can be named project manager — admins and CMs. */
+  roster?: ManagerOption[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const [name, setName] = useState("");
+  const [managerId, setManagerId] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [categories, setCategories] = useState<Set<number>>(new Set());
 
@@ -213,6 +219,7 @@ export function CommonProjectWizard({
       const result = await createCommonProject({
         propertyId,
         name: name.trim(),
+        managerId: managerId ?? undefined,
         milestones: DEFAULT_MILESTONES.map((m) => ({
           phase: m.phase,
           plannedDate: dates[m.phase] || undefined,
@@ -432,20 +439,23 @@ export function CommonProjectWizard({
 
         {/* Step 4 — confirm */}
         {step === 3 && (
-          <div className="space-y-2 text-sm">
-            <Summary label="Name" value={name.trim() || "—"} />
-            <Summary
-              label="Budget categories"
-              value={byCategory.length > 0 ? byCategory.map((c) => c.name).join(", ") : "—"}
-            />
-            <Summary label="Scope lines" value={String(namedLines.length)} />
-            <Summary label="Pre-Construction begins" value={dates.precon || "—"} />
-            <Summary label="In Process begins" value={dates.in_process || "—"} />
-            <Summary label="Punch begins" value={dates.punch || "—"} />
-            <Summary label="Target finish" value={dates.complete || "—"} />
-            <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
-              <span>Budget from scope</span>
-              <span className="tabular-nums">{namedLines.length > 0 ? money(total) : "Not priced yet"}</span>
+          <div className="space-y-4 text-sm">
+            <ManagerPickerField value={managerId} onChange={setManagerId} roster={roster} />
+            <div className="space-y-2">
+              <Summary label="Name" value={name.trim() || "—"} />
+              <Summary
+                label="Budget categories"
+                value={byCategory.length > 0 ? byCategory.map((c) => c.name).join(", ") : "—"}
+              />
+              <Summary label="Scope lines" value={String(namedLines.length)} />
+              <Summary label="Pre-Construction begins" value={dates.precon || "—"} />
+              <Summary label="In Process begins" value={dates.in_process || "—"} />
+              <Summary label="Punch begins" value={dates.punch || "—"} />
+              <Summary label="Target finish" value={dates.complete || "—"} />
+              <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
+                <span>Budget from scope</span>
+                <span className="tabular-nums">{namedLines.length > 0 ? money(total) : "Not priced yet"}</span>
+              </div>
             </div>
           </div>
         )}

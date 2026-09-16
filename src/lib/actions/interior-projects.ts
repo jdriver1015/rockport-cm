@@ -12,6 +12,7 @@ import { defaultMilestoneRows } from "@/lib/milestones";
 import { projectSlug } from "@/lib/slug";
 import { PRE_WALK_KEY, scheduleWarnings, type ScheduleKey } from "@/lib/schedule-defaults";
 import { invalidateInteriorBudget } from "@/lib/interior-budget";
+import { isAssignableManager } from "@/lib/manager-roster";
 
 // ---------------------------------------------------------------------------
 // Interior project creation — the wizard's final step. Snapshots the reviewed,
@@ -86,6 +87,8 @@ const createSchema = z.object({
    */
   checkedConditionIds: z.array(z.coerce.number().int().positive()).max(200).optional(),
   lines: z.array(lineSchema).min(1, "Add at least one budget line"),
+  /** Optional at creation, same as the board's picker — Unassigned is a real state. */
+  managerId: z.string().uuid("That isn't a person on the roster").optional(),
 });
 
 export async function createInteriorProject(
@@ -119,6 +122,13 @@ export async function createInteriorProject(
   });
   if (!group || group.propertyId !== d.propertyId) {
     return { ok: false, error: "Budget group not found for this property" };
+  }
+
+  // The wizard only ever offers the roster, so a value that fails this came
+  // from somewhere else — re-checked here rather than trusting the id, same
+  // guard setProjectManager uses for a post-creation reassignment.
+  if (d.managerId && !(await isAssignableManager(d.managerId))) {
+    return { ok: false, error: "That person can't be assigned as a project manager" };
   }
 
   const codeIds = [...new Set(d.lines.map((l) => l.costCodeId))];
@@ -262,6 +272,7 @@ export async function createInteriorProject(
           // it — see syncProjectVendor — so setting one at creation asserts an
           // award that does not exist, and the bidding flow would overwrite it.
           budgetGroupId: d.budgetGroupId,
+          managerId: d.managerId ?? null,
           // No budgetAmount here: it is derived from the scope lines seeded
           // below, so writing it as well would be a second answer that only
           // agrees until somebody edits a line.

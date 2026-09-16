@@ -41,6 +41,8 @@ import type { ProjectPhaseKey } from "@/lib/stages";
 import { fmtDate } from "@/lib/format";
 import { TargetPhasingStep } from "@/components/target-phasing-step";
 import { TriggerChecklist } from "@/components/trigger-checklist";
+import { ManagerPickerField } from "@/components/manager-picker-field";
+import type { ManagerOption } from "@/lib/project-managers";
 import type { TriggerStep } from "@/lib/renovation-triggers";
 
 export type WizardUnit = {
@@ -166,6 +168,7 @@ export function InteriorWizard({
   suggestedDates,
   takenUnits = [],
   triggerSteps = [],
+  roster = [],
 }: {
   propertyId: number;
   propertySlug: string;
@@ -186,6 +189,8 @@ export function InteriorWizard({
   takenUnits?: WizardTakenUnit[];
   /** The property's pre-walk rule, shown as a checklist beside the type choice. */
   triggerSteps?: TriggerStep[];
+  /** Who can be named project manager — admins and CMs. */
+  roster?: ManagerOption[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -196,6 +201,7 @@ export function InteriorWizard({
   const [unit, setUnit] = useState<WizardUnit | null>(null);
   const [groupId, setGroupId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [managerId, setManagerId] = useState<string | null>(null);
 
   // One map keyed by schedule key rather than three loose date fields. The old
   // shape let target completion sit before the pre-walk with nothing noticing,
@@ -340,6 +346,7 @@ export function InteriorWizard({
           sourceBudgetLineId: l.sourceBudgetLineId,
           notes: l.notes,
         })),
+        managerId: managerId ?? undefined,
       });
       if (!result.ok) return toast.error(result.error);
       toast.success("Unit upgrade created");
@@ -579,29 +586,32 @@ export function InteriorWizard({
 
         {/* Step 5 — create */}
         {step === 4 && (
-          <div className="space-y-2 text-sm">
-            <Summary label="Unit" value={unit ? `Unit ${unit.unitNumber}` : "—"} />
-            <Summary label="Renovation type" value={group?.name ?? "—"} />
-            <Summary label="Budget lines" value={String(lines.length)} />
-            {SCHEDULE_KEYS.map((key) => {
-              const run = key === PRE_WALK_KEY ? null : phaseRun(dates, key as ProjectPhaseKey);
-              return (
-                <Summary
-                  key={key}
-                  label={SCHEDULE_LABELS[key]}
-                  value={
-                    dates[key]
-                      ? `${fmtDate(dates[key])}${
-                          run && run.days > 0 ? ` · ${describeDays(run.days)}` : ""
-                        }`
-                      : "—"
-                  }
-                />
-              );
-            })}
-            <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
-              <span>Estimated budget</span>
-              <span className="tabular-nums">{money(total)}</span>
+          <div className="space-y-4 text-sm">
+            <ManagerPickerField value={managerId} onChange={setManagerId} roster={roster} />
+            <div className="space-y-2">
+              <Summary label="Unit" value={unit ? `Unit ${unit.unitNumber}` : "—"} />
+              <Summary label="Renovation type" value={group?.name ?? "—"} />
+              <Summary label="Budget lines" value={String(lines.length)} />
+              {SCHEDULE_KEYS.map((key) => {
+                const run = key === PRE_WALK_KEY ? null : phaseRun(dates, key as ProjectPhaseKey);
+                return (
+                  <Summary
+                    key={key}
+                    label={SCHEDULE_LABELS[key]}
+                    value={
+                      dates[key]
+                        ? `${fmtDate(dates[key])}${
+                            run && run.days > 0 ? ` · ${describeDays(run.days)}` : ""
+                          }`
+                        : "—"
+                    }
+                  />
+                );
+              })}
+              <div className="flex items-center justify-between border-t pt-2 font-semibold text-navy">
+                <span>Estimated budget</span>
+                <span className="tabular-nums">{money(total)}</span>
+              </div>
             </div>
           </div>
         )}
