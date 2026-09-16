@@ -84,6 +84,16 @@ function BidLink({
             size="sm"
             variant="ghost"
             disabled={disabled || pending}
+            title="Open the vendor's link as they see it — read-only"
+            render={<a href={`/bid/${bid.token}?preview=1`} target="_blank" rel="noreferrer" />}
+            nativeButton={false}
+          >
+            View as vendor
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled || pending}
             title="Issue a new link and stop the old one working"
             onClick={() => mint(true)}
           >

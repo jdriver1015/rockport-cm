@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { BidPortalForm } from "@/components/bid-portal-form";
 import { lookupPortalBid } from "@/lib/bid-portal";
 import { recordOncePerHour } from "@/lib/bid-events";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +28,22 @@ export const metadata: Metadata = {
  */
 export default async function BidPortalPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ preview?: string }>;
 }) {
   const { token } = await params;
   const found = await lookupPortalBid(token);
+
+  // `?preview=1` only does anything for a signed-in staff member — a vendor
+  // pasting it onto their own link changes nothing. It never grants access the
+  // token didn't already give (anyone holding this URL can already see this
+  // bid); it only flags "don't count this as the vendor looking, and don't let
+  // this render mutate anything" for the one internal case of staff checking
+  // what a vendor's link looks like.
+  const wantsPreview = (await searchParams).preview === "1";
+  const staffPreview = wantsPreview && (await requireUser()).ok;
 
   if (!found.ok) {
     // Every failure looks the same to a guesser except expiry, which a vendor
@@ -58,10 +70,20 @@ export default async function BidPortalPage({
   // walks away still shows as having looked — but at most once an hour, because
   // this page also re-renders on the router refresh that follows a submission,
   // and a vendor's own answer should not read as three more visits.
-  await recordOncePerHour(bid.bidId, "link_opened");
+  //
+  // Skipped entirely for a staff preview: this render is nobody looking at
+  // their own bid, and counting it would read as vendor engagement that never
+  // happened.
+  if (!staffPreview) await recordOncePerHour(bid.bidId, "link_opened");
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
+      {staffPreview && (
+        <p className="mb-5 rounded-control bg-alert-bg px-3 py-2 text-[12.5px] font-medium text-alert">
+          Previewing as {bid.vendorName ?? "this vendor"} — read-only. Nothing here is saved or sent,
+          and this visit is not counted as the vendor opening the link.
+        </p>
+      )}
       <header className="border-b-2 border-navy pb-4">
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-300">
           Request for pricing · Bid #{bid.bidNumber}
@@ -79,7 +101,7 @@ export default async function BidPortalPage({
       </p>
 
       <div className="mt-5">
-        <BidPortalForm token={token} bid={bid} />
+        <BidPortalForm token={token} bid={bid} readOnly={staffPreview} />
       </div>
 
       <footer className="mt-8 border-t border-border pt-3 text-[11px] text-muted-foreground">

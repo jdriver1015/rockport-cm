@@ -18,7 +18,16 @@ const usd = (n: number) =>
  * a list of work and a box per line, with a running total they can sanity-check
  * before submitting. No app chrome, no navigation, nothing to get lost in.
  */
-export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid }) {
+export function BidPortalForm({
+  token,
+  bid,
+  readOnly = false,
+}: {
+  token: string;
+  bid: PortalBid;
+  /** Staff previewing this link — render exactly what the vendor sees, but inert. */
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [amounts, setAmounts] = useState<Record<number, string>>(() =>
@@ -142,7 +151,7 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
                 placeholder="0.00"
                 className="h-9 w-28 text-right tabular-nums"
                 value={amounts[l.id] ?? ""}
-                disabled={pending}
+                disabled={pending || readOnly}
                 onChange={(e) => setAmount(l.id, e.target.value)}
               />
             </div>
@@ -158,7 +167,7 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
           id="bid-note"
           rows={3}
           value={note}
-          disabled={pending}
+          disabled={pending || readOnly}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Exclusions, lead times, assumptions…"
           className="w-full rounded-control border border-input bg-card px-3 py-2 text-[14px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -199,7 +208,10 @@ export function BidPortalForm({ token, bid }: { token: string; bid: PortalBid })
               </Button>
             </>
           ) : (
-            <Button disabled={pending || invalid || total <= 0} onClick={() => setConfirming(true)}>
+            <Button
+              disabled={pending || invalid || total <= 0 || readOnly}
+              onClick={() => setConfirming(true)}
+            >
               Submit bid
             </Button>
           )}
