@@ -186,7 +186,7 @@ export default async function PortfolioPage() {
                       )}
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Turns</span>
+                      <span className="text-muted-foreground">Unit upgrades</span>
                       <span className="font-medium tabular-nums">
                         {target > 0 ? `${turns.done} of ${target}` : "—"}
                       </span>
@@ -202,7 +202,7 @@ export default async function PortfolioPage() {
                       />
                     </div>
                     <p className="text-right text-xs text-muted-foreground">
-                      {turnPct}% of units turned
+                      {turnPct}% of unit upgrades complete
                     </p>
                   </CardContent>
                 </Card>
