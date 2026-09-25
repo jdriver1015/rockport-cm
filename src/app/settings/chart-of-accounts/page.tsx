@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { asc, isNull, sql } from "drizzle-orm";
+import { asc, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,11 +9,14 @@ import { AddChartDialog, ChartRowActions } from "@/components/chart-list";
 export const dynamic = "force-dynamic";
 
 export default async function ChartsListPage() {
-  const charts = await db()
-    .select()
-    .from(schema.chartsOfAccounts)
-    .where(isNull(schema.chartsOfAccounts.archivedAt))
-    .orderBy(asc(schema.chartsOfAccounts.name));
+  const [charts, archivedCount] = await Promise.all([
+    db()
+      .select()
+      .from(schema.chartsOfAccounts)
+      .where(isNull(schema.chartsOfAccounts.archivedAt))
+      .orderBy(asc(schema.chartsOfAccounts.name)),
+    db().$count(schema.chartsOfAccounts, isNotNull(schema.chartsOfAccounts.archivedAt)),
+  ]);
 
   const codeCounts = await db()
     .select({
@@ -41,7 +44,14 @@ export default async function ChartsListPage() {
         <p className="text-sm text-muted-foreground">
           {charts.length} chart{charts.length === 1 ? "" : "s"} of accounts · each property binds to one
         </p>
-        <AddChartDialog charts={chartOptions} />
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <Link href="/settings/chart-of-accounts/archived" className="text-sm text-link hover:underline">
+              Archived ({archivedCount})
+            </Link>
+          )}
+          <AddChartDialog charts={chartOptions} />
+        </div>
       </div>
 
       <Card>

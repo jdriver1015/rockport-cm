@@ -126,7 +126,7 @@ export default async function ProjectDetailPage({
     otherProjects,
     glRows,
     findings,
-    milestones,
+    milestoneRows,
     budgetGroups,
     vendorOptions,
   ] = await Promise.all([
@@ -216,6 +216,10 @@ export default async function ProjectDetailPage({
         ),
       "audit findings",
     ),
+    // Live and removed milestones in one read, split by archivedAt below —
+    // removed custom milestones are kept findable behind ProjectPhases' own
+    // "Show archived" toggle rather than vanishing once the delete toast's
+    // Undo window passes.
     db()
       .select({
         id: schema.projectMilestones.id,
@@ -227,12 +231,11 @@ export default async function ProjectDetailPage({
         actualDate: schema.projectMilestones.actualDate,
         note: schema.projectMilestones.note,
         isDefault: schema.projectMilestones.isDefault,
+        archivedAt: schema.projectMilestones.archivedAt,
+        sortOrder: schema.projectMilestones.sortOrder,
       })
       .from(schema.projectMilestones)
-      .where(
-        and(eq(schema.projectMilestones.projectId, projectId), isNull(schema.projectMilestones.archivedAt)),
-      )
-      .orderBy(asc(schema.projectMilestones.sortOrder), asc(schema.projectMilestones.id)),
+      .where(eq(schema.projectMilestones.projectId, projectId)),
     // Unit projects only — for the tier badge, colored the same way as the budget pivot.
     db()
       .select({ id: schema.budgetGroups.id, name: schema.budgetGroups.name })
@@ -244,6 +247,13 @@ export default async function ProjectDetailPage({
       .from(schema.vendors)
       .orderBy(asc(schema.vendors.name)),
   ]);
+
+  const milestones = milestoneRows
+    .filter((m) => m.archivedAt == null)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  const archivedMilestones = milestoneRows
+    .filter((m) => m.archivedAt != null)
+    .sort((a, b) => b.archivedAt!.getTime() - a.archivedAt!.getTime());
 
   const findingsByAudit = findings.reduce((m, f) => {
     m.set(f.auditId, (m.get(f.auditId) ?? 0) + 1);
@@ -611,6 +621,11 @@ export default async function ProjectDetailPage({
               <ProjectPhases
                 projectId={projectId}
                 phases={phaseRows}
+                archivedMilestones={archivedMilestones.map((m) => ({
+                  id: m.id,
+                  label: m.label,
+                  archivedAt: m.archivedAt!.toISOString(),
+                }))}
                 currentPhase={project.phase}
                 gateContext={{
                   propertyId,

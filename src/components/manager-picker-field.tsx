@@ -4,11 +4,12 @@ import { Label } from "@/components/ui/label";
 import type { ManagerOption } from "@/lib/project-managers";
 
 /**
- * "Who is running this" — offered once at creation, shared by every wizard
- * that creates a project, the same way TargetPhasingStep is. Optional: leaving
- * it on Unassigned is a real choice, matching projects.managerId's own
- * nullability, and ProjectManagerCell on the board can always name someone
- * later.
+ * "Who is running this" — required once at creation, shared by every wizard
+ * that creates a project, the same way TargetPhasingStep is. A project with
+ * nobody named is a project nobody chases, so unlike the board's own picker
+ * (ProjectManagerCell, which allows Unassigned for a project that already
+ * exists), this one has to land on a real person before the wizard will
+ * create anything.
  */
 export function ManagerPickerField({
   value,
@@ -29,7 +30,9 @@ export function ManagerPickerField({
         disabled={roster.length === 0}
         className="h-9 w-full rounded-md border border-input bg-transparent px-2.5 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <option value="">Unassigned</option>
+        <option value="" disabled>
+          {roster.length === 0 ? "Nobody on the roster yet" : "Select a manager…"}
+        </option>
         {roster.map((person) => (
           <option key={person.id} value={person.id}>
             {person.name}
@@ -39,7 +42,7 @@ export function ManagerPickerField({
       <p className="text-[11.5px] text-muted-foreground">
         {roster.length === 0
           ? "Nobody on the roster yet."
-          : "Optional — assign or change this anytime from the property board."}
+          : "Required — you can reassign it anytime from the property board."}
       </p>
     </div>
   );

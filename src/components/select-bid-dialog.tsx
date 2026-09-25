@@ -272,6 +272,7 @@ export function SelectBidDialog({
                       projectId={projectId}
                       bidId={b.id}
                       attachments={b.attachments}
+                      archivedAttachments={b.archivedAttachments}
                     />
                   </div>
                 ))}

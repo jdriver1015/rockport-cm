@@ -22,11 +22,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   archiveBudgetTemplate,
   createBudgetTemplate,
   duplicateBudgetTemplate,
+  restoreBudgetTemplate,
   updateBudgetTemplate,
 } from "@/lib/actions/budget-templates";
 
@@ -189,5 +191,12 @@ export function TemplateRowActions({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** The counterpart, for the Archived templates list. */
+export function RestoreTemplateButton({ id }: { id: number }) {
+  return (
+    <RestoreButton onRestore={() => restoreBudgetTemplate(id)} successMessage="Template restored" />
   );
 }

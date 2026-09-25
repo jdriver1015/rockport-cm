@@ -53,3 +53,31 @@ export async function isAssignableManager(profileId: string): Promise<boolean> {
   });
   return !!row;
 }
+
+/**
+ * The one check every project-creation path shares: a project needs a real
+ * manager, unless there is genuinely nobody on the roster to name.
+ *
+ * A missing id is only accepted when the roster is empty — otherwise a
+ * property whose whole admin/cm roster gets archived (or a fresh environment
+ * with none provisioned yet) would make every wizard permanently
+ * un-submittable, with no way back in through the UI at all. That gap is
+ * worse than the rule it would be protecting, so this is the one deliberate
+ * exception to "a project always has a manager": once a roster exists, every
+ * wizard requires a real pick from it again.
+ */
+export async function requireManagerId(
+  managerId: string | null | undefined,
+): Promise<{ ok: true; managerId: string | null } | { ok: false; error: string }> {
+  if (managerId) {
+    if (!(await isAssignableManager(managerId))) {
+      return { ok: false, error: "That person can't be assigned as a project manager" };
+    }
+    return { ok: true, managerId };
+  }
+  const roster = await readManagerRoster();
+  if (roster.length > 0) {
+    return { ok: false, error: "Assign a project manager" };
+  }
+  return { ok: true, managerId: null };
+}

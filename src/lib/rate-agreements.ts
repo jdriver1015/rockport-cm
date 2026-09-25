@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { uncoveredLineIds } from "@/lib/award-coverage";
@@ -502,6 +502,46 @@ export async function archiveAgreementRow(id: number, propertyId: number): Promi
     .set({ archivedAt: new Date() })
     .where(eq(schema.vendorRateAgreements.id, id));
   return { ok: true };
+}
+
+export async function restoreAgreementRow(id: number, propertyId: number): Promise<ActionResult> {
+  const agreement = await findOwnedAgreement(id, propertyId);
+  if (!agreement) return { ok: false, error: "Agreement not found for this property" };
+  await db()
+    .update(schema.vendorRateAgreements)
+    .set({ archivedAt: null })
+    .where(eq(schema.vendorRateAgreements.id, id));
+  return { ok: true };
+}
+
+export type ArchivedAgreementSummary = {
+  id: number;
+  vendorName: string;
+  name: string | null;
+  archivedAt: Date;
+};
+
+/** Removed agreements on a tier, for the "Show archived" disclosure. */
+export async function listArchivedAgreementsForGroup(
+  budgetGroupId: number,
+): Promise<ArchivedAgreementSummary[]> {
+  const rows = await db()
+    .select({
+      id: schema.vendorRateAgreements.id,
+      vendorName: schema.vendors.name,
+      name: schema.vendorRateAgreements.name,
+      archivedAt: schema.vendorRateAgreements.archivedAt,
+    })
+    .from(schema.vendorRateAgreements)
+    .innerJoin(schema.vendors, eq(schema.vendors.id, schema.vendorRateAgreements.vendorId))
+    .where(
+      and(
+        eq(schema.vendorRateAgreements.budgetGroupId, budgetGroupId),
+        isNotNull(schema.vendorRateAgreements.archivedAt),
+      ),
+    )
+    .orderBy(desc(schema.vendorRateAgreements.archivedAt));
+  return rows.map((r) => ({ ...r, archivedAt: r.archivedAt! }));
 }
 
 export async function addAgreementLineRow(input: {

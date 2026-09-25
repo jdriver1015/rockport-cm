@@ -315,6 +315,11 @@ export function InteriorWizard({
 
   async function handleCreate() {
     if (!unit || !group) return;
+    // Guarded by the Create button's own disabled state; kept here too since
+    // this function is directly callable. A missing id is only acceptable
+    // when the roster itself is empty — requireManagerId enforces the same
+    // rule server-side, so this is a UX short-circuit, not the real guard.
+    if (!managerId && roster.length > 0) return;
     setBusy(true);
     try {
       const result = await createInteriorProject({
@@ -636,7 +641,10 @@ export function InteriorWizard({
               Next
             </Button>
           ) : (
-            <Button onClick={handleCreate} disabled={busy || lines.length === 0}>
+            <Button
+              onClick={handleCreate}
+              disabled={busy || lines.length === 0 || (!managerId && roster.length > 0)}
+            >
               {busy ? "Creating…" : "Create project"}
             </Button>
           )}

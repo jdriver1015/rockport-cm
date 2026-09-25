@@ -275,3 +275,33 @@ export async function archiveMilestone(input: { id: number }): Promise<ActionRes
   await revalidateProject(project.propertyId, project);
   return { ok: true };
 }
+
+export async function restoreMilestone(input: { id: number }): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+
+  const milestone = await db().query.projectMilestones.findFirst({
+    where: eq(schema.projectMilestones.id, input.id),
+  });
+  if (!milestone) return { ok: false, error: "Milestone not found" };
+
+  const project = await db().query.projects.findFirst({ where: eq(schema.projects.id, milestone.projectId) });
+  if (!project) return { ok: false, error: "Project not found" };
+
+  await db()
+    .update(schema.projectMilestones)
+    .set({ archivedAt: null })
+    .where(eq(schema.projectMilestones.id, input.id));
+
+  await logFieldChange({
+    projectId: milestone.projectId,
+    userId: auth.profile.id,
+    field: "milestone",
+    fieldLabel: `Milestone: ${milestone.label}`,
+    from: "Archived",
+    to: "Active",
+  });
+
+  await revalidateProject(project.propertyId, project);
+  return { ok: true };
+}

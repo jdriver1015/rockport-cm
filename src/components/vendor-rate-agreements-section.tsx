@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { fmtDate, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -21,6 +22,7 @@ import {
   archiveRateAgreement,
   createRateAgreement,
   endRateAgreement,
+  restoreRateAgreement,
 } from "@/lib/actions/rate-agreements";
 
 export type AgreementListItem = {
@@ -32,6 +34,13 @@ export type AgreementListItem = {
   effectiveFrom: string | null;
   effectiveTo: string | null;
   lines: { id: number; costCodeId: number; pricingMethod: AgreementPricingLine["pricingMethod"]; unitPrice: number }[];
+};
+
+export type ArchivedAgreementListItem = {
+  id: number;
+  vendorName: string;
+  name: string | null;
+  archivedAt: string;
 };
 
 const STATUS_VARIANT: Record<string, "positive" | "secondary" | "outline"> = {
@@ -51,12 +60,15 @@ export function VendorRateAgreementsSection({
   propertyId,
   budgetGroupId,
   agreements,
+  archivedAgreements = [],
   vendors,
   interiorCodes,
 }: {
   propertyId: number;
   budgetGroupId: number;
   agreements: AgreementListItem[];
+  /** Removed agreements — shown behind a "Show archived" toggle. */
+  archivedAgreements?: ArchivedAgreementListItem[];
   vendors: { id: number; name: string; trade: string | null }[];
   interiorCodes: InteriorCodeChoice[];
 }) {
@@ -67,6 +79,7 @@ export function VendorRateAgreementsSection({
   const [vendorId, setVendorId] = useState("");
   const [name, setName] = useState("");
   const [seed, setSeed] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
 
   const codeById = new Map(interiorCodes.map((c) => [c.id, c]));
   const availableVendors = vendors.filter(
@@ -297,7 +310,18 @@ export function VendorRateAgreementsSection({
             </div>
           </div>
         ) : (
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            {archivedAgreements.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowArchived((s) => !s)}
+                className="text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
+              >
+                {showArchived ? "Hide" : "Show"} archived ({archivedAgreements.length})
+              </button>
+            ) : (
+              <span />
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -306,6 +330,26 @@ export function VendorRateAgreementsSection({
             >
               New agreement
             </Button>
+          </div>
+        )}
+
+        {showArchived && archivedAgreements.length > 0 && (
+          <div className="divide-y divide-hairline rounded-card border border-border">
+            {archivedAgreements.map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
+                <span className="min-w-0 flex-1 truncate text-ink-300 line-through">
+                  {a.vendorName}
+                  {a.name && ` — ${a.name}`}
+                </span>
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="text-[11px] text-muted-foreground">{fmtDate(a.archivedAt)}</span>
+                  <RestoreButton
+                    onRestore={() => restoreRateAgreement({ id: a.id, propertyId })}
+                    successMessage="Agreement restored"
+                  />
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

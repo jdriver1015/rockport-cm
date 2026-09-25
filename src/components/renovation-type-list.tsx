@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableCard } from "@/components/ui/table-card";
 import { ClickableTableRow } from "@/components/ui/clickable-table-row";
@@ -30,6 +31,7 @@ import {
   createBlankGroup,
   createGroupFromTemplate,
   duplicateGroup,
+  restoreGroup,
   updateGroup,
 } from "@/lib/actions/budget-groups";
 
@@ -404,5 +406,15 @@ function AddTypeDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The counterpart, for the Archived renovation types list. */
+export function RestoreGroupButton({ id, propertyId }: { id: number; propertyId: number }) {
+  return (
+    <RestoreButton
+      onRestore={() => restoreGroup({ id, propertyId })}
+      successMessage="Renovation type restored"
+    />
   );
 }

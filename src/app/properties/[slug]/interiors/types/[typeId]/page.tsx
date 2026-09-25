@@ -14,7 +14,7 @@ import {
   type PricingLine,
 } from "@/components/renovation-type-pricing";
 import { VendorRateAgreementsSection } from "@/components/vendor-rate-agreements-section";
-import { listAgreementsForGroup } from "@/lib/rate-agreements";
+import { listAgreementsForGroup, listArchivedAgreementsForGroup } from "@/lib/rate-agreements";
 import { computeInteriorBudgetFor } from "@/lib/interior-budget";
 import { TradeScopeSection, type CopySource } from "@/components/trade-scope-section";
 import { mergeTradeScopes, writtenCount } from "@/lib/trade-scope";
@@ -57,8 +57,19 @@ export default async function RenovationTypePage({
   });
   if (!group || group.propertyId !== propertyId) notFound();
 
-  const [lines, interiorCodes, siblings, template, budget, scopeRows, specTables, scopeCounts, agreements, activeVendors] =
-    await Promise.all([
+  const [
+    lines,
+    interiorCodes,
+    siblings,
+    template,
+    budget,
+    scopeRows,
+    specTables,
+    scopeCounts,
+    agreements,
+    archivedAgreements,
+    activeVendors,
+  ] = await Promise.all([
     db()
       .select()
       .from(schema.budgetGroupLines)
@@ -103,6 +114,7 @@ export default async function RenovationTypePage({
       .from(schema.tradeScopes)
       .groupBy(schema.tradeScopes.budgetGroupId, schema.tradeScopes.templateId),
     listAgreementsForGroup(groupId),
+    listArchivedAgreementsForGroup(groupId),
     db()
       .select({ id: schema.vendors.id, name: schema.vendors.name, trade: schema.vendors.trade })
       .from(schema.vendors)
@@ -309,6 +321,10 @@ export default async function RenovationTypePage({
         propertyId={propertyId}
         budgetGroupId={groupId}
         agreements={agreements}
+        archivedAgreements={archivedAgreements.map((a) => ({
+          ...a,
+          archivedAt: a.archivedAt.toISOString(),
+        }))}
         vendors={activeVendors}
         interiorCodes={codeChoices}
       />

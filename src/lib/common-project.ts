@@ -5,7 +5,7 @@ import { defaultMilestoneRows } from "@/lib/milestones";
 import { recomputeProjectBudget } from "@/lib/project-budget-derive";
 import { projectSlug } from "@/lib/slug";
 import { scheduleWarnings, type ScheduleKey } from "@/lib/schedule-defaults";
-import { isAssignableManager } from "@/lib/manager-roster";
+import { requireManagerId } from "@/lib/manager-roster";
 import type { ActionResult } from "@/lib/action-result";
 
 // ---------------------------------------------------------------------------
@@ -41,8 +41,13 @@ const lineSchema = z.object({
 const createSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, "Give the project a name"),
-  /** Optional at creation, same as the board's picker — Unassigned is a real state. */
-  managerId: z.string().uuid("That isn't a person on the roster").optional(),
+  /**
+   * A project is not allowed to be born with nobody chasing it — enforced by
+   * requireManagerId below, not by making this field required. An empty
+   * roster (nobody with the admin/cm role, or everyone archived) has to stay
+   * a way IN, not a wall: see the comment on requireManagerId.
+   */
+  managerId: z.string().uuid().optional().nullable(),
 
   notes: z
     .string()
@@ -95,8 +100,9 @@ export async function createCommonProjectRows(
   // The wizard only ever offers the roster, so a value that fails this came
   // from somewhere else — re-checked here rather than trusting the id, same
   // guard setProjectManager uses for a post-creation reassignment.
-  if (d.managerId && !(await isAssignableManager(d.managerId))) {
-    return { ok: false, error: "That person can't be assigned as a project manager" };
+  const managerCheck = await requireManagerId(d.managerId);
+  if (!managerCheck.ok) {
+    return { ok: false, error: managerCheck.error };
   }
 
   // Every code — the project's own and each line's — has to belong to this
@@ -124,7 +130,7 @@ export async function createCommonProjectRows(
         kind: "common",
         name: d.name,
         notes: d.notes,
-        managerId: d.managerId ?? null,
+        managerId: managerCheck.managerId,
         // No costCodeId, no budgetAmount, no startDate.
         //
         // The cost code belongs to the scope line, not the project. Exterior

@@ -330,10 +330,21 @@ export function describePhaseLengths(offsets: Record<ScheduleKey, number>): stri
   return parts.join(" · ");
 }
 
-/** Dates out of order — the thing three free-floating fields could not catch. */
-export function scheduleWarnings(dates: Partial<Record<ScheduleKey, string>>): string[] {
+/**
+ * Dates out of order — the thing three free-floating fields could not catch.
+ *
+ * `keys` scopes which of SCHEDULE_KEYS to check, defaulting to all of them. A
+ * common-area project never shows a pre-walk date (`showPreWalk={false}` on
+ * TargetPhasingStep), so checking PRE_WALK_KEY there would report a warning
+ * the wizard has no field to fix — an unfixable dead end blocking every later
+ * step. Callers that never collect a pre-walk pass the keys they actually show.
+ */
+export function scheduleWarnings(
+  dates: Partial<Record<ScheduleKey, string>>,
+  keys: ScheduleKey[] = SCHEDULE_KEYS,
+): string[] {
   const warnings: string[] = [];
-  const filled = SCHEDULE_KEYS.filter((k) => !!dates[k]);
+  const filled = keys.filter((k) => !!dates[k]);
   for (let i = 1; i < filled.length; i++) {
     const prev = filled[i - 1];
     const curr = filled[i];

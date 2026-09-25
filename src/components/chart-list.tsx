@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -30,6 +31,7 @@ import {
   createChart,
   createChartFromRows,
   parseChartWorkbook,
+  restoreChart,
   setDefaultChart,
   updateChart,
   type ChartParsePreview,
@@ -274,6 +276,13 @@ export function AddChartDialog({ charts }: { charts: ChartOption[] }) {
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The counterpart, for the Archived charts list. */
+export function RestoreChartButton({ id }: { id: number }) {
+  return (
+    <RestoreButton onRestore={() => restoreChart(id)} successMessage="Chart restored" />
   );
 }
 

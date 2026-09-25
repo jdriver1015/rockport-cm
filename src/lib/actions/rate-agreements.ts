@@ -15,6 +15,7 @@ import {
   createAgreementRow,
   deleteAgreementLineRow,
   endAgreementRow,
+  restoreAgreementRow,
   updateAgreementLinesRow,
 } from "@/lib/rate-agreements";
 
@@ -91,6 +92,20 @@ export async function archiveRateAgreement(input: z.input<typeof idSchema>): Pro
   const parsed = idSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
   const res = await archiveAgreementRow(parsed.data.id, parsed.data.propertyId);
+  if (!res.ok) return res;
+  await revalidateGroup(parsed.data.propertyId);
+  return { ok: true };
+}
+
+export async function restoreRateAgreement(input: z.input<typeof idSchema>): Promise<ActionResult> {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canWriteProperty(auth.profile.role)) {
+    return { ok: false, error: "You don't have permission to manage vendor agreements" };
+  }
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid input" };
+  const res = await restoreAgreementRow(parsed.data.id, parsed.data.propertyId);
   if (!res.ok) return res;
   await revalidateGroup(parsed.data.propertyId);
   return { ok: true };

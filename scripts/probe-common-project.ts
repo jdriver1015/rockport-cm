@@ -58,6 +58,7 @@ async function main() {
     const created = await createCommonProjectRows({
       propertyId: fx.propertyId,
       name: NAME,
+      managerId: fx.managerId,
       milestones: [
         { phase: "precon", plannedDate: "2026-09-07" },
         { phase: "in_process", plannedDate: "2026-09-10" },
@@ -134,6 +135,7 @@ async function main() {
     const bare = await createCommonProjectRows({
       propertyId: fx.propertyId,
       name: `${NAME} (no scope)`,
+      managerId: fx.managerId,
       lines: [],
     });
     check("a project with no scope at all still creates", bare.ok,
@@ -150,6 +152,7 @@ async function main() {
     const bad = await createCommonProjectRows({
       propertyId: fx.propertyId,
       name: `${NAME} (bad code)`,
+      managerId: fx.managerId,
       lines: [{ item: "Bad", costCodeId: 999_999, quantity: 1, unitPrice: 1 }],
     }).catch((e) => ({ ok: false as const, error: String(e) }));
     check("a scope line coded outside the property's chart is refused", bad.ok === false,

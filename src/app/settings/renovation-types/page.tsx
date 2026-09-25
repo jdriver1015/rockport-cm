@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { asc, isNull, sql } from "drizzle-orm";
+import { asc, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,11 +14,14 @@ import { toIsoDate, todayInBusinessZone } from "@/lib/schedule-defaults";
 export const dynamic = "force-dynamic";
 
 export default async function BudgetTemplatesPage() {
-  const templates = await db()
-    .select()
-    .from(schema.budgetTemplates)
-    .where(isNull(schema.budgetTemplates.archivedAt))
-    .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name));
+  const [templates, archivedCount] = await Promise.all([
+    db()
+      .select()
+      .from(schema.budgetTemplates)
+      .where(isNull(schema.budgetTemplates.archivedAt))
+      .orderBy(asc(schema.budgetTemplates.sortOrder), asc(schema.budgetTemplates.name)),
+    db().$count(schema.budgetTemplates, isNotNull(schema.budgetTemplates.archivedAt)),
+  ]);
 
   const [defaults, schedule] = await Promise.all([
     readInteriorDefaults(),
@@ -42,7 +45,14 @@ export default async function BudgetTemplatesPage() {
           <span className="font-medium text-navy">Default</span> arrive pre-checked when a property
           is created
         </p>
-        <AddTemplateDialog />
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <Link href="/settings/renovation-types/archived" className="text-sm text-link hover:underline">
+              Archived ({archivedCount})
+            </Link>
+          )}
+          <AddTemplateDialog />
+        </div>
       </div>
 
       <Card>

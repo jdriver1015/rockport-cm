@@ -18,6 +18,8 @@ import type { ManagerOption } from "@/lib/project-managers";
 import { DEFAULT_MILESTONES } from "@/lib/milestones";
 import {
   DEFAULT_SCHEDULE,
+  PRE_WALK_KEY,
+  SCHEDULE_KEYS,
   blankSchedule,
   scheduleWarnings,
   type ScheduleKey,
@@ -55,6 +57,11 @@ const blankLine = (costCodeId: number): Line => ({
 });
 
 const lineTotal = (l: Line) => (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
+
+// This wizard never shows a pre-walk date (a common-area project isn't scoped
+// by walking a unit), so ordering is only checked across the keys it actually
+// collects — see the note on scheduleWarnings.
+const PHASING_KEYS = SCHEDULE_KEYS.filter((k) => k !== PRE_WALK_KEY);
 
 export function CommonProjectWizard({
   propertyId,
@@ -211,9 +218,14 @@ export function CommonProjectWizard({
     step === 1 ||
     // Step 2 is target phasing — out-of-order dates block here rather than
     // just being noted, matching the interior wizard.
-    (step === 2 && scheduleWarnings(dates).length === 0);
+    (step === 2 && scheduleWarnings(dates, PHASING_KEYS).length === 0);
 
   async function handleCreate() {
+    // Guarded by the Create button's own disabled state; kept here too since
+    // this function is directly callable. A missing id is only acceptable
+    // when the roster itself is empty — requireManagerId enforces the same
+    // rule server-side, so this is a UX short-circuit, not the real guard.
+    if (!managerId && roster.length > 0) return;
     setBusy(true);
     try {
       const result = await createCommonProject({
@@ -482,7 +494,10 @@ export function CommonProjectWizard({
               Next
             </Button>
           ) : (
-            <Button onClick={handleCreate} disabled={busy || !name.trim()}>
+            <Button
+              onClick={handleCreate}
+              disabled={busy || !name.trim() || (!managerId && roster.length > 0)}
+            >
               {busy ? "Creating…" : "Create project"}
             </Button>
           )}

@@ -83,6 +83,38 @@ export async function createContractTemplate(
   return { ok: true, id: row.id };
 }
 
+/**
+ * Archive a template. Blocked if it's the default — set another one first, so
+ * there is never a moment with no default for a new contract to fall back on.
+ * Harmless to a contract already generated from it either way: those carry
+ * their own snapshot of the terms, not a live reference.
+ */
+export async function archiveContractTemplate(id: number): Promise<ActionResult> {
+  const template = await db().query.contractTemplates.findFirst({
+    where: eq(schema.contractTemplates.id, id),
+  });
+  if (!template) return { ok: false, error: "Template not found" };
+  if (template.isDefault) {
+    return { ok: false, error: "Can't archive the default template — set another as default first" };
+  }
+
+  await db()
+    .update(schema.contractTemplates)
+    .set({ archivedAt: new Date() })
+    .where(eq(schema.contractTemplates.id, id));
+  revalidatePath("/settings/contract-template");
+  return { ok: true };
+}
+
+export async function restoreContractTemplate(id: number): Promise<ActionResult> {
+  await db()
+    .update(schema.contractTemplates)
+    .set({ archivedAt: null })
+    .where(eq(schema.contractTemplates.id, id));
+  revalidatePath("/settings/contract-template");
+  return { ok: true };
+}
+
 const defaultSchema = z.object({ id: z.coerce.number().int().positive() });
 
 /** Make one template the default. Exactly one, in a transaction. */

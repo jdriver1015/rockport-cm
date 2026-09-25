@@ -63,6 +63,8 @@ export type BidPackageOption = {
     progress: BidProgress;
     /** Files filed against this bid — the vendor's own quote PDF, most often. */
     attachments: { id: number; name: string; createdAt: Date }[];
+    /** Removed but recoverable — see BidAttachments' "Show archived" toggle. */
+    archivedAttachments: { id: number; name: string; createdAt: Date }[];
   }[];
   /**
    * What each vendor put against each scope line.
@@ -84,7 +86,8 @@ export async function readBidPackage(
   propertyId: number,
   projectId: number,
 ): Promise<BidPackageOption> {
-  const [scopeItems, vendors, bids, tokens, lineRows, attachmentRows, rateAgreements] = await Promise.all([
+  const [scopeItems, vendors, bids, tokens, lineRows, attachmentRows, rateAgreements] =
+    await Promise.all([
     db()
       .select({
         id: schema.scopeItems.id,
@@ -174,23 +177,22 @@ export async function readBidPackage(
       .innerJoin(schema.bids, eq(schema.bids.id, schema.bidLineItems.bidId))
       .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt))),
     // Files filed against a bid — the vendor's own quote, most often, for
-    // whichever bid never went through the portal.
+    // whichever bid never went through the portal. Both live and archived
+    // rows in one read, so a removed file can still be found and restored
+    // rather than just vanishing — the delete toast's Undo only lasts a few
+    // seconds, and this is what backs it after that. Split by archivedAt
+    // below rather than run as two near-identical queries.
     db()
       .select({
         id: schema.attachments.id,
         bidId: schema.attachments.bidId,
         name: schema.attachments.caption,
         createdAt: schema.attachments.createdAt,
+        archivedAt: schema.attachments.archivedAt,
       })
       .from(schema.attachments)
       .innerJoin(schema.bids, eq(schema.bids.id, schema.attachments.bidId))
-      .where(
-        and(
-          eq(schema.bids.projectId, projectId),
-          isNull(schema.bids.archivedAt),
-          isNull(schema.attachments.archivedAt),
-        ),
-      )
+      .where(and(eq(schema.bids.projectId, projectId), isNull(schema.bids.archivedAt)))
       .orderBy(asc(schema.attachments.createdAt)),
     // Empty for a common-area project, or a unit turn whose tier has no active
     // agreement — the common, unremarkable case.
@@ -207,10 +209,12 @@ export async function readBidPackage(
 
   const tokenByBid = new Map(tokens.map((t) => [t.bidId, t]));
   const attachmentsByBid = new Map<number, { id: number; name: string; createdAt: Date }[]>();
+  const archivedAttachmentsByBid = new Map<number, { id: number; name: string; createdAt: Date }[]>();
   for (const a of attachmentRows) {
     if (a.bidId == null) continue;
-    const bucket = attachmentsByBid.get(a.bidId) ?? [];
-    attachmentsByBid.set(a.bidId, bucket);
+    const byBid = a.archivedAt == null ? attachmentsByBid : archivedAttachmentsByBid;
+    const bucket = byBid.get(a.bidId) ?? [];
+    byBid.set(a.bidId, bucket);
     bucket.push({ id: a.id, name: a.name ?? "Attachment", createdAt: a.createdAt });
   }
 
@@ -244,6 +248,7 @@ export async function readBidPackage(
       tokenExpiresAt: tokenByBid.get(b.id)?.expiresAt ?? null,
       progress: summarise(eventsByBid.get(b.id) ?? []),
       attachments: attachmentsByBid.get(b.id) ?? [],
+      archivedAttachments: archivedAttachmentsByBid.get(b.id) ?? [],
     })),
     lineAmounts: lineRows
       .filter((r): r is typeof r & { scopeItemId: number } => r.scopeItemId != null)

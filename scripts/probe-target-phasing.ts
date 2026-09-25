@@ -37,8 +37,15 @@ const PLAN = {
 } as const;
 
 /**
- * createInteriorProject, minus the revalidatePath that needs a request around it.
- * Returns the new project's id either way.
+ * createInteriorProject, minus the revalidatePath/cache-tag calls that need a
+ * request around them. Returns the new project's id either way.
+ *
+ * Two different error strings recover the same way, from two different Next
+ * cache APIs the action calls after its own work is done — revalidatePath's
+ * "static generation store" and, since invalidateInteriorBudget moved to
+ * cache tags, updateTag's own "can only be called from within a Server
+ * Action". Either one means the project was already created; only the
+ * cache-invalidation afterward had nowhere to run.
  */
 async function createOutsideNext(
   input: Parameters<typeof createInteriorProject>[0],
@@ -48,7 +55,10 @@ async function createOutsideNext(
     if (!res.ok) throw new Error(res.error);
     return res.projectId;
   } catch (err) {
-    if (!String(err).includes("static generation store")) throw err;
+    const message = String(err);
+    if (!message.includes("static generation store") && !message.includes("Server Action")) {
+      throw err;
+    }
     const unit = await db().query.units.findFirst({
       where: and(
         eq(schema.units.propertyId, PROPERTY_ID),
@@ -119,6 +129,7 @@ async function main() {
           costCodeId: code.id,
         },
       ],
+      managerId: fx.managerId,
     });
     const project = await db().query.projects.findFirst({
       where: eq(schema.projects.id, created),

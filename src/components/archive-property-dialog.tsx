@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { useDialogOpen, type ControllableDialog } from "@/lib/use-dialog-open";
 import {
   Dialog,
@@ -90,36 +91,23 @@ export function ArchivePropertyDialog({
 /**
  * The counterpart, for an archived property's own pages.
  *
- * No confirm step: restoring destroys nothing and is itself undone by archiving
- * again. A dialog here would be ceremony for a reversible act.
+ * A dialog here would be ceremony for a reversible act — same reasoning as
+ * every other restore in the app, see RestoreButton.
  */
 export function RestorePropertyButton({
   propertyId,
 }: {
   propertyId: number;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-
   return (
-    <Button
-      size="sm"
-      disabled={pending}
-      onClick={() => {
+    <RestoreButton
+      onRestore={() => {
         const fd = new FormData();
         fd.set("id", String(propertyId));
-        startTransition(async () => {
-          const res = await restoreProperty(fd);
-          if (!res.ok) {
-            toast.error(res.error);
-            return;
-          }
-          toast.success("Property restored");
-          router.refresh();
-        });
+        return restoreProperty(fd);
       }}
-    >
-      {pending ? "Restoring…" : "Restore property"}
-    </Button>
+      successMessage="Property restored"
+      label="Restore property"
+    />
   );
 }

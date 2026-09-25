@@ -31,7 +31,7 @@ import {
   type ScheduleKey,
 } from "@/lib/schedule-defaults";
 import type { ProjectPhaseKey } from "@/lib/stages";
-import { updateMilestone, archiveMilestone } from "@/lib/actions/milestones";
+import { updateMilestone, archiveMilestone, restoreMilestone } from "@/lib/actions/milestones";
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
@@ -138,6 +138,7 @@ export function ProjectPhases({
   gateContext,
   initialGate,
   nextPhaseLabel,
+  archivedMilestones = [],
 }: {
   projectId: number;
   phases: PhaseRow[];
@@ -156,6 +157,8 @@ export function ProjectPhases({
    */
   gate: GateResult | null;
   nextPhaseLabel: string | null;
+  /** Removed custom milestones — shown behind a "Show archived" toggle below. */
+  archivedMilestones?: { id: number; label: string; archivedAt: string }[];
 }) {
   const defaults = phases.filter((p) => p.isDefault);
 
@@ -317,6 +320,66 @@ export function ProjectPhases({
           );
         })}
       </div>
+
+      {archivedMilestones.length > 0 && <ArchivedMilestones milestones={archivedMilestones} />}
+    </div>
+  );
+}
+
+/**
+ * Removed custom milestones, collapsed behind a toggle — the default four
+ * phases can never be archived, so this only ever holds custom rows.
+ */
+function ArchivedMilestones({
+  milestones,
+}: {
+  milestones: { id: number; label: string; archivedAt: string }[];
+}) {
+  const router = useRouter();
+  const [show, setShow] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  function restore(id: number, label: string) {
+    startTransition(async () => {
+      const res = await restoreMilestone({ id });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${label} restored`);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="ml-8 space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        className="text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
+      >
+        {show ? "Hide" : "Show"} archived milestones ({milestones.length})
+      </button>
+      {show && (
+        <div className="divide-y divide-hairline rounded-card border border-border">
+          {milestones.map((m) => (
+            <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
+              <span className="min-w-0 truncate text-ink-300 line-through">{m.label}</span>
+              <span className="flex shrink-0 items-center gap-3">
+                <span className="text-[11px] text-muted-foreground">{fmtDate(m.archivedAt)}</span>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => restore(m.id, m.label)}
+                  className="text-link hover:underline"
+                >
+                  Restore
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

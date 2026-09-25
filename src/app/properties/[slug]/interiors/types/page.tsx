@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { GitBranchIcon } from "lucide-react";
 import { db, schema } from "@/db";
 import { PropertyHeader } from "@/components/property-header";
@@ -31,7 +31,7 @@ export default async function RenovationTypesPage({
   if (!property) notFound();
   const propertyId = property.id;
 
-  const [groups, lineCounts, templates, budget] = await Promise.all([
+  const [groups, archivedCount, lineCounts, templates, budget] = await Promise.all([
     db()
       .select()
       .from(schema.budgetGroups)
@@ -39,6 +39,10 @@ export default async function RenovationTypesPage({
         and(eq(schema.budgetGroups.propertyId, propertyId), isNull(schema.budgetGroups.archivedAt)),
       )
       .orderBy(asc(schema.budgetGroups.sortOrder), asc(schema.budgetGroups.name)),
+    db().$count(
+      schema.budgetGroups,
+      and(eq(schema.budgetGroups.propertyId, propertyId), isNotNull(schema.budgetGroups.archivedAt)),
+    ),
     db()
       .select({
         budgetGroupId: schema.budgetGroupLines.budgetGroupId,
@@ -95,16 +99,26 @@ export default async function RenovationTypesPage({
       <BackLink href={`/properties/${slug}/budget?view=interior`} label="Interior budget" />
       <div className="flex items-center justify-between gap-3">
         <h1 className="font-serif text-2xl font-semibold text-navy">Renovation types</h1>
-        {/* Triggers used to hang off the Turn Plan tab's Manage menu. They are
-            the rules that decide which type a unit gets, so they belong beside
-            the types themselves rather than on the budget. */}
-        <Link
-          href={`/properties/${slug}/interiors/triggers`}
-          className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
-        >
-          <GitBranchIcon className="size-3.5" />
-          Triggers
-        </Link>
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <Link
+              href={`/properties/${slug}/interiors/types/archived`}
+              className="text-sm text-link hover:underline"
+            >
+              Archived ({archivedCount})
+            </Link>
+          )}
+          {/* Triggers used to hang off the Turn Plan tab's Manage menu. They are
+              the rules that decide which type a unit gets, so they belong beside
+              the types themselves rather than on the budget. */}
+          <Link
+            href={`/properties/${slug}/interiors/triggers`}
+            className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
+          >
+            <GitBranchIcon className="size-3.5" />
+            Triggers
+          </Link>
+        </div>
       </div>
       <RenovationTypeList
         propertyId={propertyId}

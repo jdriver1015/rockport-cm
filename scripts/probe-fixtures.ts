@@ -9,6 +9,7 @@
  */
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "../src/db";
+import { readManagerRoster } from "../src/lib/manager-roster";
 
 export type Fixtures = {
   propertyId: number;
@@ -19,11 +20,16 @@ export type Fixtures = {
   /** Two distinct active vendors. */
   vendorA: number;
   vendorB: number;
+  /** An admin/cm profile — every project now requires one at creation. */
+  managerId: string;
 };
 
 export async function loadFixtures(): Promise<Fixtures> {
   const property = await db().query.properties.findFirst({ orderBy: asc(schema.properties.id) });
   if (!property) throw new Error("no properties in the database to probe against");
+
+  const roster = await readManagerRoster();
+  if (roster.length === 0) throw new Error("no admin/cm profile exists to assign as project manager");
 
   const codes = await db()
     .select({ id: schema.costCodes.id })
@@ -50,6 +56,7 @@ export async function loadFixtures(): Promise<Fixtures> {
     codeB: codes[1].id,
     vendorA: vendors[0].id,
     vendorB: vendors[1].id,
+    managerId: roster[0].id,
   };
 }
 

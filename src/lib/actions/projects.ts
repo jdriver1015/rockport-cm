@@ -14,7 +14,7 @@ import { projectSlug } from "@/lib/slug";
 import { defaultMilestoneRows } from "@/lib/milestones";
 import { slipOverdueTargets } from "@/lib/target-slip";
 import { logFieldChange, logFieldChanges } from "@/lib/actions/activity-log";
-import { isAssignableManager } from "@/lib/manager-roster";
+import { isAssignableManager, requireManagerId } from "@/lib/manager-roster";
 import { managerName } from "@/lib/project-managers";
 import { money, fmtDate } from "@/lib/format";
 import { invalidateInteriorBudget } from "@/lib/interior-budget";
@@ -32,6 +32,12 @@ const createProjectSchema = z.object({
   kind: z.enum(["unit", "common"]),
   name: z.string().trim().min(1, "Give the project a name"),
   unitNumber: z.string().trim().min(1).optional(),
+  /**
+   * A project is not allowed to be born with nobody chasing it — enforced by
+   * requireManagerId below, not by making this field required. See the
+   * comment on requireManagerId for why an empty roster has to stay a way in.
+   */
+  managerId: z.string().uuid().optional().nullable(),
 });
 
 export async function createProject(
@@ -45,6 +51,7 @@ export async function createProject(
     kind: formData.get("kind"),
     name: formData.get("name"),
     unitNumber: formData.get("unitNumber") || undefined,
+    managerId: formData.get("managerId"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const d = parsed.data;
@@ -54,6 +61,14 @@ export async function createProject(
     columns: { id: true },
   });
   if (!property) return { ok: false, error: "Property not found" };
+
+  // The picker only ever offers the roster, so a value that fails this came
+  // from somewhere else — re-checked here rather than trusting the id, same
+  // guard setProjectManager uses for a post-creation reassignment.
+  const managerCheck = await requireManagerId(d.managerId);
+  if (!managerCheck.ok) {
+    return { ok: false, error: managerCheck.error };
+  }
 
   let unitId: number | undefined;
 
@@ -83,6 +98,7 @@ export async function createProject(
       kind: d.kind,
       name: d.name,
       unitId,
+      managerId: managerCheck.managerId,
     })
     .returning();
 

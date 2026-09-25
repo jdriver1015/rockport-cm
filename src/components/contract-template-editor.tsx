@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RestoreButton } from "@/components/ui/restore-button";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { TEMPLATE_PLACEHOLDERS } from "@/lib/contract-template-starter";
 import {
+  archiveContractTemplate,
   createContractTemplate,
+  restoreContractTemplate,
   saveContractTemplate,
   setDefaultContractTemplate,
 } from "@/lib/actions/contract-templates";
@@ -31,12 +35,24 @@ export type TemplateRow = {
  * the generator, so formatting typed here would be thrown away. Blank lines
  * separate paragraphs, and that is the whole format.
  */
-export function ContractTemplateEditor({ templates }: { templates: TemplateRow[] }) {
+export function ContractTemplateEditor({
+  templates,
+  archivedCount = 0,
+}: {
+  templates: TemplateRow[];
+  archivedCount?: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [selectedId, setSelectedId] = useState<number | null>(templates[0]?.id ?? null);
 
-  const selected = templates.find((t) => t.id === selectedId) ?? null;
+  // Falls back to the first remaining template rather than staying null when
+  // the selected one just got archived out of this list. selectedId itself
+  // stays pointed at the now-archived id when that happens — the tab strip
+  // below highlights against `selected.id`, not `selectedId`, so the fallback
+  // is reflected without a setState-in-effect to resync state that render
+  // already knows how to derive.
+  const selected = templates.find((t) => t.id === selectedId) ?? templates[0] ?? null;
   // Keyed on id and version so picking another template — or a save landing —
   // reloads the fields instead of stranding the old draft in them.
   const editorKey = selected ? `${selected.id}:${selected.version}` : "none";
@@ -66,9 +82,19 @@ export function ContractTemplateEditor({ templates }: { templates: TemplateRow[]
             already generated — each one keeps a copy of the terms it was made with.
           </p>
         </div>
-        <Button variant="outline" size="sm" disabled={pending} onClick={addTemplate}>
-          New template
-        </Button>
+        <div className="flex items-center gap-3">
+          {archivedCount > 0 && (
+            <Link
+              href="/settings/contract-template/archived"
+              className="text-sm text-link hover:underline"
+            >
+              Archived ({archivedCount})
+            </Link>
+          )}
+          <Button variant="outline" size="sm" disabled={pending} onClick={addTemplate}>
+            New template
+          </Button>
+        </div>
       </div>
 
       {templates.length > 1 && (
@@ -80,7 +106,7 @@ export function ContractTemplateEditor({ templates }: { templates: TemplateRow[]
               onClick={() => setSelectedId(t.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-control border px-2.5 py-1.5 text-[12.5px]",
-                t.id === selectedId
+                t.id === selected?.id
                   ? "border-navy/40 bg-navy/[0.04] font-medium text-navy"
                   : "border-border text-ink-500 hover:bg-track",
               )}
@@ -207,6 +233,18 @@ function TemplateForm({ template }: { template: TemplateRow }) {
     });
   }
 
+  function archive() {
+    startTransition(async () => {
+      const res = await archiveContractTemplate(template.id);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Template archived");
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -227,6 +265,15 @@ function TemplateForm({ template }: { template: TemplateRow }) {
             Make default
           </Button>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pending || template.isDefault}
+          title={template.isDefault ? "Set another template as default first" : undefined}
+          onClick={archive}
+        >
+          Archive
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -303,5 +350,12 @@ function TemplateForm({ template }: { template: TemplateRow }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The counterpart, for the Archived contract templates list. */
+export function RestoreContractTemplateButton({ id }: { id: number }) {
+  return (
+    <RestoreButton onRestore={() => restoreContractTemplate(id)} successMessage="Template restored" />
   );
 }
