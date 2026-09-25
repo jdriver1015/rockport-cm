@@ -7,18 +7,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExecCapitalCharts } from "@/components/exec-capital-charts";
 import { readExecCapital } from "@/lib/exec-capital-data";
 import { todayInBusinessZone, toIsoDate } from "@/lib/schedule-defaults";
-import type { ScheduleStatus } from "@/lib/target-slip";
+import { describeScheduleVariance, type ScheduleVarianceTone } from "@/lib/target-slip";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 const money = (v: number) => `$${Math.round(v).toLocaleString()}`;
 
-const SCHEDULE: Record<ScheduleStatus, { label: string; tone: string }> = {
-  on_time: { label: "On track", tone: "text-positive" },
-  slipping: { label: "Slipping", tone: "text-pending" },
-  late: { label: "Late", tone: "text-alert" },
-  unknown: { label: "No dates", tone: "text-muted-foreground" },
+/** Every card that shows a describeScheduleVariance result maps its tone this way. */
+const TONE_CLASS: Record<ScheduleVarianceTone, string> = {
+  positive: "text-positive",
+  caution: "text-amber-700",
+  alert: "text-alert",
+  muted: "text-muted-foreground",
 };
 
 export default async function ExecutivePage({ params }: { params: Promise<{ slug: string }> }) {
@@ -30,7 +31,7 @@ export default async function ExecutivePage({ params }: { params: Promise<{ slug
   const cap = await readExecCapital(property.id, today);
 
   const scopedPct = cap.budgetTotal > 0 ? Math.round((cap.projectTotal / cap.budgetTotal) * 100) : 0;
-  const sched = SCHEDULE[cap.schedule.status];
+  const sched = describeScheduleVariance(cap.schedule.avgDays);
 
   // Four figures, all read from real data. Deliberately no spend or trade-out
   // tile: this property has no posted GL, and a $0 spend tile reads as "under
@@ -55,8 +56,8 @@ export default async function ExecutivePage({ params }: { params: Promise<{ slug
     {
       label: "Schedule",
       value: sched.label,
-      sub: cap.schedule.late > 0 ? `${cap.schedule.late} project(s) late` : "against planned dates",
-      tone: sched.tone,
+      sub: `averaged across ${cap.projectCount} project${cap.projectCount === 1 ? "" : "s"}`,
+      tone: TONE_CLASS[sched.tone],
     },
   ];
 

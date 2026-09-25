@@ -5,7 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { money } from "@/lib/format";
 import { computeInteriorBudgets } from "@/lib/interior-budget";
-import { readScheduleHealth, type ScheduleStatus } from "@/lib/target-slip";
+import {
+  averageScheduleVariance,
+  describeScheduleVariance,
+  readScheduleHealth,
+  type ScheduleVarianceTone,
+} from "@/lib/target-slip";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -99,20 +104,19 @@ export default async function PortfolioPage() {
     turnsBy.set(p.propertyId, e);
   }
 
-  // Schedule health, rolled up worst-first: one late project makes the property
-  // late. An average would let a single badly-slipped job hide behind a dozen
-  // healthy ones, which is the opposite of what a portfolio scan is for.
+  // Schedule variance, averaged across every non-archived project — see the
+  // note on averageScheduleVariance for why this and the worst-case status
+  // check are two different questions.
   const health = await readScheduleHealth(projectRows.map((p) => p.id));
-  const RANK: Record<ScheduleStatus, number> = { late: 3, slipping: 2, on_time: 1, unknown: 0 };
-  const scheduleBy = new Map<number, { status: ScheduleStatus; late: number }>();
+  const projectIdsByProperty = new Map<number, number[]>();
   for (const p of projectRows) {
-    const h = health.get(p.id);
-    if (!h) continue;
-    const e = scheduleBy.get(p.propertyId) ?? { status: "unknown" as ScheduleStatus, late: 0 };
-    if (RANK[h.status] > RANK[e.status]) e.status = h.status;
-    if (h.status === "late") e.late++;
-    scheduleBy.set(p.propertyId, e);
+    const ids = projectIdsByProperty.get(p.propertyId) ?? [];
+    ids.push(p.id);
+    projectIdsByProperty.set(p.propertyId, ids);
   }
+  const scheduleBy = new Map<number, number | null>(
+    properties.map((p) => [p.id, averageScheduleVariance(health, projectIdsByProperty.get(p.id) ?? [])]),
+  );
 
   return (
     <div className="space-y-6">
@@ -151,7 +155,7 @@ export default async function PortfolioPage() {
             const turns = turnsBy.get(p.id) ?? { done: 0, created: 0 };
             const target = plannedBy.get(p.id) || turns.created;
             const turnPct = target > 0 ? Math.round((turns.done / target) * 100) : 0;
-            const sched = scheduleBy.get(p.id);
+            const sched = describeScheduleVariance(scheduleBy.get(p.id) ?? null);
             return (
               <Link key={p.id} href={`/properties/${p.slug}/executive`} className="group">
                 <Card className="h-full transition-shadow group-hover:shadow-md">
@@ -189,7 +193,7 @@ export default async function PortfolioPage() {
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Schedule</span>
-                      <ScheduleChip status={sched?.status} late={sched?.late ?? 0} />
+                      <span className={cn("text-sm font-medium", TONE_CLASS[sched.tone])}>{sched.label}</span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-track">
                       <div
@@ -211,20 +215,10 @@ export default async function PortfolioPage() {
   );
 }
 
-const CHIP: Record<ScheduleStatus, { label: string; className: string }> = {
-  on_time: { label: "On track", className: "text-positive" },
-  slipping: { label: "Slipping", className: "text-pending" },
-  late: { label: "Late", className: "text-alert" },
-  unknown: { label: "No dates", className: "text-muted-foreground" },
+/** Every card that shows a describeScheduleVariance result maps its tone this way. */
+const TONE_CLASS: Record<ScheduleVarianceTone, string> = {
+  positive: "text-positive",
+  caution: "text-amber-700",
+  alert: "text-alert",
+  muted: "text-muted-foreground",
 };
-
-/** Worst status across the property's projects, with the count when it is bad. */
-function ScheduleChip({ status, late }: { status?: ScheduleStatus; late: number }) {
-  const s = CHIP[status ?? "unknown"];
-  return (
-    <span className={cn("text-sm font-medium", s.className)}>
-      {s.label}
-      {late > 0 && <span className="font-normal"> · {late} late</span>}
-    </span>
-  );
-}

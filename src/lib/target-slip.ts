@@ -410,3 +410,52 @@ export async function readScheduleHealth(
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Schedule variance, averaged.
+//
+// statusOf/RANK answers "is there a problem" from the single worst project, on
+// purpose — an average would let one badly-slipped job hide behind a dozen
+// healthy ones. This answers a different question a portfolio or executive
+// scan also wants: by how much, on the whole, taking every non-archived
+// project's slip together. The two are meant to be shown side by side, not to
+// replace each other.
+// ---------------------------------------------------------------------------
+
+/** Behind by more than this many working days is red; within it is a wobble. */
+export const SCHEDULE_VARIANCE_CAUTION_DAYS = 3;
+
+export type ScheduleVarianceTone = "positive" | "caution" | "alert" | "muted";
+
+/**
+ * Average working days ahead of first-planned across the given projects, with
+ * the sign flipped so positive reads as ahead and negative as behind — the
+ * opposite of slipDays' own sign, which is positive when a project runs late.
+ * Null means none of the projects has a schedule to average at all.
+ */
+export function averageScheduleVariance(
+  health: Map<number, ScheduleHealth>,
+  projectIds: number[],
+): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const id of projectIds) {
+    const h = health.get(id);
+    if (!h) continue;
+    sum += h.slipDays;
+    count++;
+  }
+  return count > 0 ? -sum / count : null;
+}
+
+/** The label and color for an averaged variance, shared by every card that shows one. */
+export function describeScheduleVariance(avgDays: number | null): { label: string; tone: ScheduleVarianceTone } {
+  if (avgDays === null) return { label: "No dates", tone: "muted" };
+  const rounded = Math.round(avgDays * 10) / 10;
+  if (rounded === 0) return { label: "On Time", tone: "positive" };
+  if (rounded > 0) return { label: `Ahead ${rounded} days`, tone: "positive" };
+  if (rounded >= -SCHEDULE_VARIANCE_CAUTION_DAYS) {
+    return { label: `Behind ${Math.abs(rounded)} days`, tone: "caution" };
+  }
+  return { label: `Behind ${Math.abs(rounded)} days`, tone: "alert" };
+}

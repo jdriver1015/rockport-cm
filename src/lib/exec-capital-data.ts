@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { computeInteriorBudgets } from "@/lib/interior-budget";
-import { readScheduleHealth, type ScheduleStatus } from "@/lib/target-slip";
+import { averageScheduleVariance, readScheduleHealth } from "@/lib/target-slip";
 import {
   capitalByPhase,
   deploymentCurve,
@@ -18,7 +18,8 @@ export type ExecCapital = {
   inProcessTotal: number;
   projectCount: number;
   inProcessCount: number;
-  schedule: { status: ScheduleStatus; late: number };
+  /** Average working days ahead (+) or behind (-) of first-planned. */
+  schedule: { avgDays: number | null };
 };
 
 /**
@@ -99,16 +100,9 @@ export async function readExecCapital(propertyId: number, today: string): Promis
     };
   });
 
-  // Worst-first, matching the portfolio cards: one late project makes the
-  // property late, rather than an average hiding it.
-  const health = await readScheduleHealth(projects.map((p) => p.id));
-  const RANK: Record<ScheduleStatus, number> = { late: 3, slipping: 2, on_time: 1, unknown: 0 };
-  let status: ScheduleStatus = "unknown";
-  let late = 0;
-  for (const h of health.values()) {
-    if (RANK[h.status] > RANK[status]) status = h.status;
-    if (h.status === "late") late++;
-  }
+  const projectIds = projects.map((p) => p.id);
+  const health = await readScheduleHealth(projectIds);
+  const avgDays = averageScheduleVariance(health, projectIds);
 
   const inProcess = projects.filter((p) => p.phase === "in_process");
   return {
@@ -119,6 +113,6 @@ export async function readExecCapital(propertyId: number, today: string): Promis
     inProcessTotal: inProcess.reduce((s, p) => s + p.budget, 0),
     projectCount: projects.length,
     inProcessCount: inProcess.length,
-    schedule: { status, late },
+    schedule: { avgDays },
   };
 }
