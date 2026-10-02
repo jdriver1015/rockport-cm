@@ -17,8 +17,6 @@
  * place to tighten that. The matrix is intentionally written so a future
  * per-property membership table can swap in without touching action call sites.
  */
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/db";
 import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/ensure-profile";
 import type { AuthRole } from "@/lib/auth-rules";
@@ -43,9 +41,11 @@ export class AuthError extends Error {
  *
  * Two failure modes:
  *  1. No active session (visitor hit a server action directly) — `no_session`
- *  2. Session resolved but no `profiles` row — `no_profile` (rare; the
- *     fallback is the `ensureProfile()` helper which materializes a default
- *     viewer row for a brand-new user).
+ *  2. Session resolved but no ACTIVE `profiles` row — `no_profile`. Access is by
+ *     invitation, so an auth user nobody invited, or one whose roster row was
+ *     removed, has a valid session and still no access. An archived row used
+ *     to be returned here like any other, so "Remove" did not take anything
+ *     away from a person who could still sign in.
  */
 export async function loadActiveProfile(): Promise<
   { ok: true; profile: LoadedProfile } | { ok: false; error: string; code: AuthError["code"] }
@@ -56,31 +56,15 @@ export async function loadActiveProfile(): Promise<
   } = await supabase.auth.getUser();
   if (!user || !user.email) return { ok: false, code: "no_session", error: "Not signed in" };
 
-  const existing = await db().query.profiles.findFirst({
-    where: eq(schema.profiles.id, user.id),
-  });
-  if (existing) {
-    return {
-      ok: true,
-      profile: {
-        id: existing.id,
-        email: existing.email,
-        role: existing.role as AuthRole,
-      },
-    };
-  }
-
-  // First-time login without a roster pre-provision. Materialize a default
-  // viewer profile so the rest of the app has something to render. The
-  // `ensureProfile` helper is responsible for adopting a pre-existing roster
-  // entry by email.
-  await ensureProfile(user.id, user.email, user.user_metadata?.full_name ?? null);
-
-  const afterEnsure = await db().query.profiles.findFirst({
-    where: eq(schema.profiles.id, user.id),
-  });
+  // One read in the normal case; adopts a roster row added before invitations
+  // existed, and creates nothing.
+  const afterEnsure = await ensureProfile(user.id, user.email, user.user_metadata?.full_name ?? null);
   if (!afterEnsure) {
-    return { ok: false, code: "no_profile", error: "Profile not set up" };
+    return {
+      ok: false,
+      code: "no_profile",
+      error: "This account doesn't have access to Rockport. Ask an admin for an invite.",
+    };
   }
   return {
     ok: true,

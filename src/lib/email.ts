@@ -23,11 +23,20 @@ export type OutgoingEmail = {
   /** Shown in clients that refuse HTML, and it keeps spam filters calmer. */
   text: string;
   replyTo?: string;
+  /** Defaults to FROM_ADDRESS, the bid invitations' sender. */
+  from?: string;
 };
 
 /** The address invitations come from. */
 export const FROM_ADDRESS =
   process.env.BID_FROM_ADDRESS ?? "bids@multifamily-construction.io";
+
+/**
+ * The address account mail — invitations to the app, password links — comes
+ * from. Its own variable because a welcome email from "bids@" reads as a bid
+ * request; falls back to the bid sender so one verified domain is enough.
+ */
+export const ACCOUNT_FROM_ADDRESS = process.env.ACCOUNT_FROM_ADDRESS ?? FROM_ADDRESS;
 
 export function mailConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY);
@@ -60,7 +69,7 @@ export async function sendEmail(mail: OutgoingEmail): Promise<SendOutcome> {
   if (!originIsPublic()) {
     return {
       ok: false,
-      error: `Links would point at ${appOrigin()}, which a vendor cannot reach. Set NEXT_PUBLIC_SITE_URL.`,
+      error: `Links would point at ${appOrigin()}, which the recipient cannot reach. Set NEXT_PUBLIC_SITE_URL.`,
       configured: true,
     };
   }
@@ -76,7 +85,7 @@ export async function sendEmail(mail: OutgoingEmail): Promise<SendOutcome> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: FROM_ADDRESS,
+        from: mail.from ?? FROM_ADDRESS,
         to: [mail.to],
         subject: mail.subject,
         html: mail.html,

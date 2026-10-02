@@ -119,7 +119,9 @@ export default async function RootLayout({
                 construction manager
               </span>
             </Link>
-            {user ? (
+            {user && !profile ? (
+              <nav className="ml-auto flex items-center">{signOutButton}</nav>
+            ) : user ? (
               <>
                 {/* Four links, a name and a sign-out button do not fit in one
                     64px row until well past tablet width — an iPad in
@@ -155,7 +157,22 @@ export default async function RootLayout({
         {/* Print drops the app chrome and the reading gutter: a printed page is
             the document, not a screenshot of the app. */}
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8 print:max-w-none print:p-0">
-          {children}
+          {/* A session is not access. Pages read the database directly, so a
+              signed-in account with no active roster row — never invited, or
+              removed — would otherwise see the whole portfolio. The profile is
+              already loaded above for the header, so this costs nothing. */}
+          {user && !profile ? (
+            <div className="mx-auto flex min-h-[60vh] max-w-sm flex-col justify-center gap-4 text-center">
+              <h1 className="font-serif text-xl font-semibold text-navy">No access</h1>
+              <p className="text-sm text-muted-foreground">
+                {user.email} doesn&apos;t have access to Rockport. Ask an admin to send you an
+                invite.
+              </p>
+              <div className="flex justify-center">{signOutButton}</div>
+            </div>
+          ) : (
+            children
+          )}
         </main>
         <Toaster />
       </body>

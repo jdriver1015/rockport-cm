@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updatePassword } from "@/lib/actions/auth";
 
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ submitLabel = "Update password" }: { submitLabel?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -26,7 +26,7 @@ export function ResetPasswordForm() {
         toast.error(result.error);
         return;
       }
-      toast.success("Password updated");
+      toast.success("Password set");
       // No refresh() after push() — see walk-dialog.tsx's go(). "/" is
       // force-dynamic and the request carries the freshly-set session cookie,
       // so push() alone lands there signed in; refresh() right after races
@@ -64,7 +64,7 @@ export function ResetPasswordForm() {
         />
       </div>
       <Button type="submit" className="w-full" disabled={busy}>
-        {busy ? "Updating…" : "Update password"}
+        {busy ? "Saving…" : submitLabel}
       </Button>
     </form>
   );

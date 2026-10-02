@@ -27,6 +27,14 @@
 export const AUTH_ROLES = ["admin", "cm", "site", "viewer"] as const;
 export type AuthRole = (typeof AUTH_ROLES)[number];
 
+/** How each role is named to people — in the roster, the header, the invite email. */
+export const ROLE_LABELS: Record<AuthRole, string> = {
+  admin: "Admin",
+  cm: "Construction Manager",
+  site: "Site staff",
+  viewer: "Viewer",
+};
+
 export const AUTH_ACTIONS = ["read", "write", "admin"] as const;
 export type AuthAction = (typeof AUTH_ACTIONS)[number];
 
@@ -86,10 +94,8 @@ export function canWriteProperty(role: AuthRole): boolean {
 
 /**
  * Convenience: "can this role do admin-only work?" User management,
- * permanent deletion, chart-of-accounts destruction. Currently every
- * writer (`admin`, `cm`) qualifies; kept separate so the next time we
- * split "delete project" from "edit project" there's a single place to
- * flip the gate.
+ * permanent deletion, chart-of-accounts destruction. Admin only, per the
+ * matrix above.
  */
 export function canAdminProperty(role: AuthRole): boolean {
   return roleAllowsAction(role, "admin");

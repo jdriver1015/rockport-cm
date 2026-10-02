@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignInForm } from "@/components/auth/sign-in-form";
 
@@ -15,11 +14,9 @@ export default function SignInPage() {
           <Suspense>
             <SignInForm />
           </Suspense>
+          {/* Accounts are created by invitation from Settings → Users. */}
           <p className="text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href="/sign-up" className="text-link hover:underline">
-              Sign up
-            </Link>
+            New to Rockport? Ask an admin to send you an invite.
           </p>
         </CardContent>
       </Card>

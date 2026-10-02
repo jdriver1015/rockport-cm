@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/ensure-profile";
 
 /**
- * Handles the redirect from a sign-up email-confirmation link.
+ * Handles the redirect from a "Forgot password?" email (PKCE code flow).
+ * Invite and admin-sent password links land on /auth/confirm instead.
  *
  * On failure (expired/used/denied token), Supabase's verify endpoint puts the
  * error in a URL *hash fragment*, not a query param — hash fragments never
@@ -20,7 +21,14 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && data.user) {
-      await ensureProfile(data.user.id, data.user.email ?? "", data.user.user_metadata?.full_name);
+      // Access is by invitation — see ensureProfile.
+      const profile = await ensureProfile(data.user.id, data.user.email ?? "", data.user.user_metadata?.full_name);
+      if (!profile) {
+        await supabase.auth.signOut();
+        return NextResponse.redirect(
+          `${origin}/sign-in?error=${encodeURIComponent("This account doesn't have access to Rockport.")}`,
+        );
+      }
       return NextResponse.redirect(`${origin}${next}`);
     }
     return NextResponse.redirect(`${origin}/sign-in?error=${encodeURIComponent(error?.message ?? "auth")}`);

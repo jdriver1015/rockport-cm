@@ -7,6 +7,16 @@ import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
 import { DIVISION_KEYS } from "@/lib/divisions";
 import { invalidateInteriorBudgetForChart } from "@/lib/interior-budget";
+import { requireUser } from "@/lib/auth";
+import { AUTH_ROLES, ROLE_LABELS, canAdminProperty, type AuthRole } from "@/lib/auth-rules";
+import { ACCOUNT_FROM_ADDRESS, sendEmail } from "@/lib/email";
+import {
+  accountEmailHtml,
+  accountEmailSubject,
+  accountEmailText,
+  type AccountEmailKind,
+} from "@/lib/account-email";
+import { issueSignInLink, setSignInBlocked, syncSignInEmail } from "@/lib/user-access";
 
 // ---------------------------------------------------------------------------
 // Chart of accounts
@@ -149,14 +159,69 @@ export async function updateCostCode(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Users (profiles). Auth isn't wired yet, so these are roster entries; the id
-// will line up with a Supabase auth user once sign-in is added.
+// Users (profiles) and their sign-in accounts.
+//
+// Access is by invitation: adding a person creates their roster row and a
+// sign-in account with the same id, and emails them a one-time link to set
+// their own password (see user-access.ts). Admin only — these decide who can
+// see the portfolio at all.
 // ---------------------------------------------------------------------------
 
-const ROLES = ["admin", "cm", "site", "viewer"] as const;
+const ROLES = AUTH_ROLES;
 
 function revalidateUsers() {
   revalidatePath("/settings/users");
+}
+
+/** The signed-in admin, or the refusal to hand back. */
+async function requireAdmin() {
+  const auth = await requireUser();
+  if (!auth.ok) return auth;
+  if (!canAdminProperty(auth.profile.role)) {
+    return { ok: false as const, error: "Only an admin can manage users" };
+  }
+  return auth;
+}
+
+/**
+ * What happened to the email. When it could not be delivered — mail not set
+ * up, or a local run whose links nobody else could open — the admin gets the
+ * link to pass on themselves instead, so an invite never just fails silently.
+ */
+export type InviteDelivery =
+  | { delivered: true; kind: AccountEmailKind }
+  | { delivered: false; kind: AccountEmailKind | null; reason: string; link: string | null };
+
+async function sendSignInEmail(
+  person: { id: string; email: string; fullName: string | null; role: AuthRole },
+  sender: { id: string; email: string },
+): Promise<InviteDelivery> {
+  const issued = await issueSignInLink(person);
+  if (!issued.ok) return { delivered: false, kind: null, reason: issued.error, link: null };
+
+  const senderRow = await db().query.profiles.findFirst({
+    where: eq(schema.profiles.id, sender.id),
+    columns: { fullName: true },
+  });
+  const mail = {
+    kind: issued.kind,
+    fullName: person.fullName,
+    email: person.email,
+    roleLabel: ROLE_LABELS[person.role],
+    link: issued.link,
+    senderName: senderRow?.fullName ?? null,
+  };
+  const sent = await sendEmail({
+    from: ACCOUNT_FROM_ADDRESS,
+    to: person.email,
+    // Questions about an invite go to the person who sent it.
+    replyTo: sender.email,
+    subject: accountEmailSubject(mail),
+    html: accountEmailHtml(mail),
+    text: accountEmailText(mail),
+  });
+  if (sent.ok) return { delivered: true, kind: issued.kind };
+  return { delivered: false, kind: issued.kind, reason: sent.error, link: issued.link };
 }
 
 const userSchema = z.object({
@@ -165,30 +230,72 @@ const userSchema = z.object({
   role: z.enum(ROLES),
 });
 
-export async function createProfile(formData: FormData): Promise<ActionResult> {
+/**
+ * Add a person and invite them.
+ *
+ * The roster row is kept even when the invite cannot be created or sent — the
+ * person exists and has a role either way — and the result says what to do
+ * next, so a missing mail key never loses the person that was just typed in.
+ */
+export async function inviteUser(
+  formData: FormData,
+): Promise<ActionResult<{ delivery: InviteDelivery }>> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth;
+
   const parsed = userSchema.safeParse({
     email: formData.get("email"),
     fullName: formData.get("fullName") || undefined,
     role: formData.get("role"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const email = parsed.data.email.toLowerCase();
 
   const existing = await db().query.profiles.findFirst({
-    where: and(
-      eq(schema.profiles.email, parsed.data.email.toLowerCase()),
-      isNull(schema.profiles.archivedAt),
-    ),
+    where: eq(schema.profiles.email, email),
+    // Postgres sorts nulls first on DESC, so an active row wins over an archived one.
+    orderBy: (p, { desc }) => [desc(p.archivedAt)],
   });
-  if (existing) return { ok: false, error: `${parsed.data.email} is already a user` };
+  if (existing && !existing.archivedAt) return { ok: false, error: `${email} is already a user` };
+  // Their sign-in account still exists, blocked; a second roster row would
+  // leave the two pointing at different ids.
+  if (existing) {
+    return { ok: false, error: `${email} was removed earlier — restore them from Archived instead` };
+  }
 
-  await db().insert(schema.profiles).values({
-    id: crypto.randomUUID(),
-    email: parsed.data.email.toLowerCase(),
-    fullName: parsed.data.fullName,
-    role: parsed.data.role,
-  });
+  const [person] = await db()
+    .insert(schema.profiles)
+    .values({ id: crypto.randomUUID(), email, fullName: parsed.data.fullName, role: parsed.data.role })
+    .returning();
   revalidateUsers();
-  return { ok: true };
+
+  const delivery = await sendSignInEmail(
+    { id: person.id, email, fullName: person.fullName, role: parsed.data.role },
+    auth.profile,
+  );
+  return { ok: true, delivery };
+}
+
+/**
+ * Send someone a fresh link: the welcome again if they have never signed in,
+ * a password reset if they have. The same link either way — it signs them in
+ * and opens "set your password".
+ */
+export async function sendSignInLink(id: string): Promise<ActionResult<{ delivery: InviteDelivery }>> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth;
+
+  const person = await db().query.profiles.findFirst({
+    where: and(eq(schema.profiles.id, id), isNull(schema.profiles.archivedAt)),
+  });
+  if (!person) return { ok: false, error: "User not found" };
+
+  const delivery = await sendSignInEmail(
+    { id: person.id, email: person.email, fullName: person.fullName, role: person.role as AuthRole },
+    auth.profile,
+  );
+  revalidateUsers();
+  return { ok: true, delivery };
 }
 
 const updateProfileSchema = z.object({
@@ -199,6 +306,9 @@ const updateProfileSchema = z.object({
 });
 
 export async function updateProfile(formData: FormData): Promise<ActionResult> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth;
+
   const parsed = updateProfileSchema.safeParse({
     id: formData.get("id"),
     email: formData.get("email"),
@@ -214,6 +324,22 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
   if (existing && existing.id !== parsed.data.id) {
     return { ok: false, error: `${normalizedEmail} is already a user` };
   }
+  // The last way to lock everyone out of user management is an admin taking
+  // their own admin role away.
+  if (parsed.data.id === auth.profile.id && parsed.data.role !== "admin") {
+    return { ok: false, error: "You can't remove your own admin role" };
+  }
+
+  // The sign-in email follows the roster's, or the person would be invited at
+  // one address and have to sign in with another.
+  const before = await db().query.profiles.findFirst({
+    where: eq(schema.profiles.id, parsed.data.id),
+    columns: { email: true },
+  });
+  if (before && before.email !== normalizedEmail) {
+    const err = await syncSignInEmail(parsed.data.id, normalizedEmail);
+    if (err) return { ok: false, error: `Couldn't change their sign-in email: ${err}` };
+  }
 
   await db()
     .update(schema.profiles)
@@ -228,18 +354,43 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
 }
 
 /**
- * Soft-delete — removes this person from the active roster/role list but
- * keeps the profile row so it isn't orphaned by FKs (stage events, uploads).
- * Note: this does not revoke their Supabase Auth sign-in; it only clears
- * their app role. Restorable via restoreProfile.
+ * Soft-delete — removes this person from the active roster and takes their
+ * access away. The profile row stays so nothing that names them is orphaned
+ * (stage events, uploads); their sign-in is blocked, and the app refuses an
+ * archived roster row even on a session that is already open. Restorable via
+ * restoreProfile.
  */
 export async function deleteProfile(id: string): Promise<ActionResult> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth;
+  if (id === auth.profile.id) return { ok: false, error: "You can't remove yourself" };
+
+  const err = await setSignInBlocked(id, true);
+  if (err) return { ok: false, error: `Couldn't block their sign-in: ${err}` };
   await db().update(schema.profiles).set({ archivedAt: new Date() }).where(eq(schema.profiles.id, id));
   revalidateUsers();
   return { ok: true };
 }
 
 export async function restoreProfile(id: string): Promise<ActionResult> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth;
+
+  // Restoring next to an active row with the same email would break the
+  // one-active-row-per-email index rather than say why.
+  const row = await db().query.profiles.findFirst({
+    where: eq(schema.profiles.id, id),
+    columns: { email: true },
+  });
+  if (!row) return { ok: false, error: "User not found" };
+  const clash = await db().query.profiles.findFirst({
+    where: and(eq(schema.profiles.email, row.email), isNull(schema.profiles.archivedAt)),
+    columns: { id: true },
+  });
+  if (clash) return { ok: false, error: `${row.email} is already an active user` };
+
+  const err = await setSignInBlocked(id, false);
+  if (err) return { ok: false, error: `Couldn't unblock their sign-in: ${err}` };
   await db().update(schema.profiles).set({ archivedAt: null }).where(eq(schema.profiles.id, id));
   revalidateUsers();
   return { ok: true };

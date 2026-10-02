@@ -35,38 +35,23 @@ export async function signIn(formData: FormData): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
   if (!data.user) return { ok: false, error: "Sign in failed" };
 
-  await ensureProfile(data.user.id, data.user.email ?? parsed.data.email, data.user.user_metadata?.full_name);
+  // Access is by invitation. A valid password on an account nobody invited —
+  // or one whose roster row was removed — is not a way in, so the session it
+  // just opened is closed again rather than left half-signed-in.
+  const profile = await ensureProfile(
+    data.user.id,
+    data.user.email ?? parsed.data.email,
+    data.user.user_metadata?.full_name,
+  );
+  if (!profile) {
+    await supabase.auth.signOut();
+    return {
+      ok: false,
+      error: "This account doesn't have access to Rockport. Ask an admin for an invite.",
+    };
+  }
   revalidatePath("/", "layout");
   return { ok: true };
-}
-
-export async function signUp(formData: FormData): Promise<ActionResult<{ needsConfirmation: boolean }>> {
-  const parsed = credsSchema.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const fullName = (formData.get("fullName") as string | null)?.trim() || undefined;
-
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email: parsed.data.email,
-    password: parsed.data.password,
-    options: {
-      data: fullName ? { full_name: fullName } : undefined,
-      emailRedirectTo: `${siteUrl()}/auth/callback`,
-    },
-  });
-  if (error) return { ok: false, error: error.message };
-  if (!data.user) return { ok: false, error: "Sign up failed" };
-
-  if (data.session) {
-    await ensureProfile(data.user.id, parsed.data.email, fullName);
-    revalidatePath("/", "layout");
-    return { ok: true, needsConfirmation: false };
-  }
-
-  return { ok: true, needsConfirmation: true };
 }
 
 const emailSchema = z.object({ email: z.string().trim().email("Enter a valid email") });

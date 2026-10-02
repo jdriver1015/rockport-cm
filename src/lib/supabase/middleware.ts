@@ -16,7 +16,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * bare "/bid" would also match a future "/bids" page and make it public without
  * anyone meaning to.
  */
-const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/forgot-password", "/auth", "/bid/"];
+const PUBLIC_PREFIXES = ["/sign-in", "/forgot-password", "/auth", "/bid/"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -55,7 +55,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && (request.nextUrl.pathname === "/sign-in" || request.nextUrl.pathname === "/sign-up")) {
+  if (user && request.nextUrl.pathname === "/sign-in") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
