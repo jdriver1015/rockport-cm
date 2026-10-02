@@ -5,7 +5,7 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ActionResult } from "@/lib/action-result";
-import { readBidContract } from "@/lib/contracts";
+import { readBidContract, readContracts } from "@/lib/contracts";
 import { propertyPath, propertyProjectPath } from "@/lib/property-path";
 import {
   applyCoverageVendors,
@@ -19,6 +19,7 @@ import {
   recomputeCommittedCost,
   syncProjectVendor,
 } from "@/lib/award-coverage";
+import { ScopeNotReadyError, confirmScopeInTx } from "@/lib/scope-confirm";
 
 async function revalidateBids(propertyId: number, projectId: number) {
   const [projPath, base] = await Promise.all([
@@ -147,6 +148,10 @@ export async function editBid(input: z.input<typeof editBidSchema>): Promise<Act
         submittedByContactId: d.contactId ?? null,
         receivedDate: d.receivedDate || null,
         note: d.note ?? null,
+        // A request still out with the vendor, given a received date by hand,
+        // is the vendor answering by phone or email — so it stops waiting on
+        // the portal, the same state a portal submission leaves behind.
+        ...(bid.status === "sent" && d.receivedDate ? { status: "received" } : {}),
       })
       .where(eq(schema.bids.id, d.id));
     await tx.delete(schema.bidLineItems).where(eq(schema.bidLineItems.bidId, d.id));
@@ -260,11 +265,30 @@ export async function setBidWinner(input: {
     return { ok: false, error: overlapMessage(holders, clashes) };
   }
 
+  // Replacing an award un-awards it, so the same rule clearBidWinner applies:
+  // an award somebody has a contract for cannot be taken back underneath it.
+  if (holders.length > 0) {
+    const contracts = await readContracts(input.projectId);
+    const papered = holders.find((h) => contracts.some((c) => c.bidId === h.bidId));
+    if (papered) {
+      return {
+        ok: false,
+        error: `Void ${papered.vendorName ?? "the current vendor"}'s contract before moving the award`,
+      };
+    }
+  }
+
   // All of it or none of it. These used to be five writes after the transaction
   // closed, so a failure part-way left a bid approved with the vendor stamped on
   // nobody's lines and a committed cost from the award it replaced — a state no
   // read path could explain and nothing would retry.
-  await db().transaction(async (tx) => {
+  try {
+    await db().transaction(async (tx) => {
+    // Awarding confirms the scope, as sending it out does. A bid that came in
+    // by hand never went through a send, so this is the only point its scope
+    // gets confirmed — and an unpriced scope is still refused, since the award
+    // is measured against what the lines add up to.
+    await confirmScopeInTx(tx, input.projectId);
     if (holders.length > 0) {
       await tx
         .update(schema.bids)
@@ -286,7 +310,11 @@ export async function setBidWinner(input: {
     await applyCoverageVendors(input.projectId, tx);
     await recomputeCommittedCost(input.projectId, tx);
     await syncProjectVendor(input.projectId, { exec: tx });
-  });
+    });
+  } catch (err) {
+    if (err instanceof ScopeNotReadyError) return { ok: false, error: err.message };
+    throw err;
+  }
 
   await revalidateBids(input.propertyId, input.projectId);
   return { ok: true };

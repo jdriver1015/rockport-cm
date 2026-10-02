@@ -82,7 +82,7 @@ function buildLines(
  * everything downstream treats a manual bid exactly like any other.
  *
  * Inline in the parent's dialog rather than a dialog of its own — same
- * reasoning as BidInviteWizard just above it in SelectBidDialog.
+ * reasoning as BidInviteWizard beside it in BidsPanel.
  */
 export function ManualBidPanel({
   propertyId,
@@ -118,7 +118,11 @@ export function ManualBidPanel({
       const detail = await getBidDetail(editingBidId);
       if (cancelled || !detail) return;
       setVendorId(detail.vendorId ? String(detail.vendorId) : "");
-      setReceivedDate(detail.receivedDate ?? "");
+      // A bid edited by hand with no received date is almost always a request
+      // whose prices came back by phone or email, so today is the likely
+      // answer — and without one, its prices stay "awaiting" and it cannot be
+      // awarded. Still editable, and clearable, in the field below.
+      setReceivedDate(detail.receivedDate ?? new Date().toLocaleDateString("en-CA"));
       setNote(detail.note ?? "");
       setLines(buildLines(scopeItems, detail.lines));
       setLoading(false);

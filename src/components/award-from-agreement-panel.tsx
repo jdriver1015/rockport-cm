@@ -137,7 +137,7 @@ export function AwardFromAgreementPanel({
         <p className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-gold">
           <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
           {/* One template-literal expression, not line-wrapped JSX text — see
-              define-scope-dialog.tsx for why a {ternary} followed by text
+              scope-panel.tsx for why a {ternary} followed by text
               that wraps to a new line can silently lose its leading space. */}
           {`${preview.uncoveredScopeItems.length} ${
             preview.uncoveredScopeItems.length === 1 ? "line isn't" : "lines aren't"

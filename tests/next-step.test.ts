@@ -39,6 +39,7 @@ const fresh = {
   contractsExecuted: 0,
   contractSignedAt: null,
   bidsOutstanding: 0,
+  bidsReturned: 0,
   hasActualStart: false,
   punchWalkStatus: null,
   punchWalkAuditId: null,
@@ -126,33 +127,43 @@ describe("pre-con walks its gates in order", () => {
 
   test("walked, no scope yet — write one", () => {
     const step = stepFrom("precon", { ...fresh, preWalkAuditStatus: "complete" });
-    expect(step).toMatchObject({ kind: "goto", gate: "scope", label: "Write scope" });
+    expect(step).toMatchObject({ kind: "goto", gate: "scope_bids", label: "Write scope" });
   });
 
-  test("scope drafted but unconfirmed — confirm it", () => {
+  test("scope drafted but unconfirmed — send it, which confirms it", () => {
     const step = stepFrom("precon", {
       ...fresh,
       preWalkAuditStatus: "complete",
       scopeLineCount: 5,
       approvedBudget: 60_000,
     });
-    // The long label is "Confirm Scope & Budget"; the column gets the short one.
-    expect(step).toMatchObject({ kind: "goto", gate: "scope", label: "Confirm scope" });
+    // No separate confirm step: the next thing to press is the send.
+    expect(step).toMatchObject({ kind: "goto", gate: "scope_bids", label: "Send for pricing" });
   });
 
-  test("scope confirmed — send the RFP", () => {
+  test("scope confirmed but not sent — still send it", () => {
     expect(stepFrom("precon", scoped)).toMatchObject({
       kind: "goto",
-      gate: "rfp",
-      label: "Send RFP",
+      gate: "scope_bids",
+      label: "Send for pricing",
     });
   });
 
-  test("out for bid — select one, and say how long the wait has been", () => {
+  test("out for bid, nothing back — the wait is the vendors'", () => {
     expect(stepFrom("precon", outForBid)).toEqual({
       kind: "goto",
+      label: "Awaiting bids",
+      gate: "scope_bids",
+      target: "workflow",
+      waitingDays: 6,
+    });
+  });
+
+  test("some bids back — select one, still saying how long the rest have been out", () => {
+    expect(stepFrom("precon", { ...outForBid, bidsReturned: 2 })).toEqual({
+      kind: "goto",
       label: "Select bid",
-      gate: "bid",
+      gate: "scope_bids",
       target: "workflow",
       waitingDays: 6,
     });
@@ -160,7 +171,7 @@ describe("pre-con walks its gates in order", () => {
 
   test("partially awarded — award the rest", () => {
     const step = stepFrom("precon", { ...awarded, scopeLinesAwarded: 2 });
-    expect(step).toMatchObject({ kind: "goto", gate: "bid", label: "Award the rest" });
+    expect(step).toMatchObject({ kind: "goto", gate: "scope_bids", label: "Award the rest" });
   });
 
   test("awarded, no contract — generate it", () => {
@@ -191,7 +202,7 @@ describe("pre-con walks its gates in order", () => {
     });
   });
 
-  test("all five met — the step is the advance itself", () => {
+  test("all three met — the step is the advance itself", () => {
     expect(stepFrom("precon", preconDone)).toEqual({
       kind: "advance",
       label: "Advance to In Process",

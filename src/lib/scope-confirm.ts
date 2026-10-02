@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { scopeLineTotal } from "@/lib/scope-total";
+import { scopeReadiness } from "@/lib/scope-readiness";
 import {
   applyAwardVendor,
   overlapMessage,
@@ -10,6 +10,7 @@ import {
   recomputeCommittedCost,
   syncProjectVendor,
   uncoveredLineIds,
+  type Executor,
 } from "@/lib/award-coverage";
 
 // ---------------------------------------------------------------------------
@@ -31,61 +32,8 @@ export type ConfirmResult = { ok: true } | { ok: false; error: string };
  * least one line, which let an unnamed, undescribed, unbudgeted draft go out.
  */
 export async function confirmScopeRows(projectId: number): Promise<ConfirmResult> {
-  const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, projectId),
-    columns: { kind: true },
-  });
-  if (!project) return { ok: false, error: "Project not found" };
-
-  const lines = await db()
-    .select({
-      id: schema.scopeItems.id,
-      item: schema.scopeItems.item,
-      description: schema.scopeItems.materialQuality,
-      quantity: schema.scopeItems.quantity,
-      unitPrice: schema.scopeItems.unitPrice,
-    })
-    .from(schema.scopeItems)
-    .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
-
-  if (lines.length === 0) return { ok: false, error: "There is no scope to confirm" };
-
-  // Named individually rather than counted: "3 lines need a description" sends
-  // you hunting, and the whole reason to confirm is that somebody read them.
-  // The budget IS the scope now, so "is there an approved budget" is not a
-  // question any more — the real one is whether anybody has priced the work.
-  // A vendor cannot quote a line with no price, and the sum is what gets
-  // committed against.
-  const unpriced = lines.filter((l) => scopeLineTotal(l) == null);
-  if (unpriced.length > 0) {
-    const names = unpriced.map((l) => l.item.trim()).slice(0, 3).join(", ");
-    const more = unpriced.length > 3 ? ` and ${unpriced.length - 3} more` : "";
-    return {
-      ok: false,
-      error: `${describeLines(unpriced.length)} still need a price: ${names}${more}`,
-    };
-  }
-
-  const unnamed = lines.filter((l) => !l.item?.trim());
-  if (unnamed.length > 0) {
-    return { ok: false, error: `${describeLines(unnamed.length)} still need a name` };
-  }
-
-  // Descriptions are required on common-area work, which goes out to vendors who
-  // price from a written scope. A unit turn's lines are generated from a budget
-  // group — the template item IS the specification, and there is no bid package
-  // to describe — so requiring prose there would block every turn in the
-  // portfolio on data the generator was never asked to write.
-  const undescribed =
-    project.kind === "unit" ? [] : lines.filter((l) => !l.description?.trim());
-  if (undescribed.length > 0) {
-    const names = undescribed.map((l) => l.item.trim()).slice(0, 3).join(", ");
-    const more = undescribed.length > 3 ? ` and ${undescribed.length - 3} more` : "";
-    return {
-      ok: false,
-      error: `${describeLines(undescribed.length)} still need a description: ${names}${more}`,
-    };
-  }
+  const blocker = await scopeConfirmBlocker(projectId);
+  if (blocker) return { ok: false, error: blocker };
 
   await db()
     .update(schema.projects)
@@ -94,17 +42,83 @@ export async function confirmScopeRows(projectId: number): Promise<ConfirmResult
   return { ok: true };
 }
 
-function describeLines(n: number): string {
-  return n === 1 ? "1 scope line" : `${n} scope lines`;
+/**
+ * The scope could not be confirmed as part of a larger write. Thrown inside the
+ * caller's transaction so the whole write rolls back; the caller catches it and
+ * returns the message as an ordinary refusal.
+ */
+export class ScopeNotReadyError extends Error {}
+
+/**
+ * Confirm the scope as part of a larger write — sending it out, or awarding it.
+ *
+ * Confirming used to be its own step in front of both, and it only ever meant
+ * "these are the lines to price", which is exactly what sending them or
+ * awarding them says. So those writes confirm it themselves now, checking the
+ * same rules confirmScopeRows applies — a scope that could not be confirmed by
+ * hand cannot slip through this way.
+ *
+ * The check and the stamp both run on the caller's transaction, and the project
+ * row is locked first so two writers cannot both pass the check against lines
+ * the other is changing. An unready scope throws ScopeNotReadyError, which rolls
+ * back everything the caller did in the same transaction. An already-confirmed
+ * scope is left alone and keeps its date.
+ */
+export async function confirmScopeInTx(tx: Executor, projectId: number): Promise<void> {
+  const [project] = await tx
+    .select({ scopeConfirmedAt: schema.projects.scopeConfirmedAt })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .for("update");
+  if (!project) throw new ScopeNotReadyError("Project not found");
+  if (project.scopeConfirmedAt) return;
+
+  const blocker = await scopeConfirmBlocker(projectId, tx);
+  if (blocker) throw new ScopeNotReadyError(blocker);
+
+  await tx
+    .update(schema.projects)
+    .set({ scopeConfirmedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+}
+
+/** Why this scope cannot be confirmed yet, or null when it can. */
+export async function scopeConfirmBlocker(
+  projectId: number,
+  exec: Executor = db(),
+): Promise<string | null> {
+  const project = await exec.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+    columns: { kind: true },
+  });
+  if (!project) return "Project not found";
+
+  const lines = await exec
+    .select({
+      item: schema.scopeItems.item,
+      description: schema.scopeItems.materialQuality,
+      quantity: schema.scopeItems.quantity,
+      unitPrice: schema.scopeItems.unitPrice,
+    })
+    .from(schema.scopeItems)
+    .where(and(eq(schema.scopeItems.projectId, projectId), isNull(schema.scopeItems.archivedAt)));
+
+  // Descriptions are required on common-area work only — see scopeReadiness.
+  return scopeReadiness(lines, project.kind !== "unit").blocker;
 }
 
 /**
- * Un-confirm, when nothing has gone out yet.
+ * Un-confirm, when nothing has gone out and nothing is awarded.
  *
  * Refused once an RFP is live: the way back from there is withdrawing the
  * requests, which un-confirms as part of the same act. Two routes to the same
  * state, one of which skips telling the vendors, is how the scope and the
  * quotes come apart.
+ *
+ * Refused while any award stands, too. Awarding confirms the scope, and the
+ * award's committed cost is measured against these lines — re-opening them
+ * underneath it would let them change while the award still points at the old
+ * ones. The award has to be taken back first.
  */
 export async function unconfirmScopeRows(projectId: number): Promise<ConfirmResult> {
   const { liveRfpCount } = await import("@/lib/scope-lock");
@@ -114,6 +128,17 @@ export async function unconfirmScopeRows(projectId: number): Promise<ConfirmResu
       ok: false,
       error: `${live} vendor${live === 1 ? " is" : "s are"} pricing this scope. Withdraw the requests instead.`,
     };
+  }
+  const award = await db().query.bids.findFirst({
+    where: and(
+      eq(schema.bids.projectId, projectId),
+      eq(schema.bids.approved, true),
+      isNull(schema.bids.archivedAt),
+    ),
+    columns: { id: true },
+  });
+  if (award) {
+    return { ok: false, error: "This scope is awarded. Take the award back before re-opening it." };
   }
   await db()
     .update(schema.projects)
@@ -228,19 +253,6 @@ export async function directAwardRows(
   });
   if (!vendor) return { ok: false, error: "That vendor is not active" };
 
-  // The same precondition sendBidPackageRows enforces. Without it a direct
-  // award met gate 3 while gate 2 was still open — work committed against a
-  // scope nobody had signed off, and against no approved budget, since the
-  // budget requirement lives on the confirm step.
-  const project = await db().query.projects.findFirst({
-    where: eq(schema.projects.id, projectId),
-    columns: { scopeConfirmedAt: true },
-  });
-  if (!project) return { ok: false, error: "Project not found" };
-  if (!project.scopeConfirmedAt) {
-    return { ok: false, error: "Confirm the scope and budget before awarding" };
-  }
-
   // Not "does this project already have an award" any more — several vendors
   // may hold different parts of the scope. What cannot happen is two of them
   // holding the same line.
@@ -293,7 +305,12 @@ export async function directAwardRows(
   if (items.length === 0) return { ok: false, error: "There is no scope to award" };
 
   let bidId = 0;
-  await db().transaction(async (tx) => {
+  try {
+    await db().transaction(async (tx) => {
+    // Awarding confirms the scope, the same way sending it out does — but only
+    // a scope that could be confirmed, or work would be committed against
+    // unpriced lines with no budget to measure the award against.
+    await confirmScopeInTx(tx, projectId);
     const [bid] = await tx
       .insert(schema.bids)
       .values({
@@ -321,8 +338,11 @@ export async function directAwardRows(
         sortOrder: n,
       })),
     );
-
-  });
+    });
+  } catch (err) {
+    if (err instanceof ScopeNotReadyError) return { ok: false, error: err.message };
+    throw err;
+  }
 
   // What setBidWinner does when a bid is awarded the normal way. Leaving it out
   // made a directly-awarded project read as $0 committed with no vendor — on

@@ -171,9 +171,9 @@ async function main() {
       openFindingCount: 0,
       postedGlTotal: 0,
     });
-    const bidCheck = gate.checks.find((c) => c.key === "bid")!;
-    check("bid gate met by full coverage", bidCheck.met, bidCheck.detail);
-    check("bid gate names both vendors", bidCheck.detail === "2 vendors awarded", bidCheck.detail);
+    const bidCheck = gate.checks.find((c) => c.key === "scope_bids")!;
+    check("scope & bids gate met by full coverage", bidCheck.met, bidCheck.detail);
+    check("scope & bids gate names both vendors", bidCheck.detail === "2 vendors awarded", bidCheck.detail);
 
     // ------------------------------------------------------------ contracts
     console.log("\ncontracts, one per award");

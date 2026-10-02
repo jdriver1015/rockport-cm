@@ -35,7 +35,7 @@ import { updateMilestone, archiveMilestone, restoreMilestone } from "@/lib/actio
 import type { GateResult, PreconGateKey } from "@/lib/phase-gates";
 import { phaseIndex, prevPhase } from "@/lib/stages";
 import { setProjectPhase } from "@/lib/actions/projects";
-import type { PreWalkFinding, ScopeLine } from "@/components/define-scope-dialog";
+import type { PreWalkFinding, ScopeLine } from "@/components/scope-panel";
 import type { ContractAward, ContractView } from "@/components/contract-dialog";
 import type { BidPackageOption } from "@/lib/bid-package";
 
@@ -44,11 +44,8 @@ import type { BidPackageOption } from "@/lib/bid-package";
 // out of the bundle every project page pays for on load, the same pattern
 // interior-budget-toolbar.tsx already uses for its own wizard dialog.
 const WalkDialog = dynamic(() => import("@/components/walk-dialog").then((m) => m.WalkDialog));
-const DefineScopeDialog = dynamic(() =>
-  import("@/components/define-scope-dialog").then((m) => m.DefineScopeDialog),
-);
-const SelectBidDialog = dynamic(() =>
-  import("@/components/select-bid-dialog").then((m) => m.SelectBidDialog),
+const ScopeBidsDialog = dynamic(() =>
+  import("@/components/scope-bids-dialog").then((m) => m.ScopeBidsDialog),
 );
 const ContractDialog = dynamic(() =>
   import("@/components/contract-dialog").then((m) => m.ContractDialog),
@@ -734,7 +731,7 @@ function GateRow({
       <div className="mt-2 rounded-card border border-border bg-muted/25">
       {/*
         One row per gate, not a row of chips. Pre-con carries most of the work,
-        and its five steps each have a state, a wait and a thing to press —
+        and its steps each have a state, a wait and a thing to press —
         which is more than a chip can say without becoming a paragraph.
       */}
       <div className="flex items-center gap-2.5 px-3 py-2">
@@ -865,12 +862,21 @@ function GateRow({
     </div>
 
       {context && (
-        <SelectBidDialog
-          open={openGate === "bid" || openGate === "rfp"}
+        <ScopeBidsDialog
+          // Remount when the scope changes, so the scope half reflects the lines
+          // it is about to send — its rows hold local edit state.
+          key={`scope-bids-${context.scopeLineCount}`}
+          open={openGate === "scope_bids"}
           onOpenChange={(o) => !o && setOpenGate(null)}
           propertyId={context.propertyId}
           projectId={projectId}
-          data={context.bidPackage}
+          lines={context.scopeLines}
+          requireDescriptions={context.requireDescriptions}
+          scopeConfirmedAt={context.scopeConfirmedAt}
+          scopeLocked={context.scopeLocked}
+          liveRfpCount={context.liveRfpCount}
+          findings={context.preWalkFindings}
+          bidPackage={context.bidPackage}
         />
       )}
 
@@ -885,27 +891,8 @@ function GateRow({
       )}
 
       {context && (
-        <DefineScopeDialog
-          // Remount when the scope changes, so the dialog reflects the lines it is
-          // about to confirm. It used to key on the approved budget, which no
-          // longer exists as a separate number.
-          key={`scope-${context.scopeLineCount}`}
-          open={openGate === "scope"}
-          onOpenChange={(o) => !o && setOpenGate(null)}
-          propertyId={context.propertyId}
-          projectId={projectId}
-          lines={context.scopeLines}
-          requireDescriptions={context.requireDescriptions}
-          scopeConfirmedAt={context.scopeConfirmedAt}
-          scopeLocked={context.scopeLocked}
-          liveRfpCount={context.liveRfpCount}
-          findings={context.preWalkFindings}
-        />
-      )}
-
-      {context && (
         <WalkDialog
-          // Remount when the booking changes, same reason as DefineScopeDialog
+          // Remount when the booking changes, same reason as ScopeBidsDialog
           // above: the dialog owns local date/time state, and without a fresh
           // instance saving a time the server rounds (or a router.refresh()
           // from anywhere else) left it showing what was typed, not what was

@@ -2,16 +2,16 @@ import type { ProjectPhaseKey } from "@/lib/stages";
 
 /**
  * The pre-con gates, in the order the work actually happens: walk the unit,
- * write the scope from what the walk found, then bid it.
+ * scope it and get it priced, then sign for it.
  *
  * These are the only gates with a key, because they are the only ones a person
  * resolves by clicking something. The later transitions check on-site progress,
  * which no dialog can fix.
  */
-export const PRECON_GATE_KEYS = ["pre_walk", "scope", "rfp", "bid", "contract"] as const;
+export const PRECON_GATE_KEYS = ["pre_walk", "scope_bids", "contract"] as const;
 
 /**
- * Every gate a person resolves by pressing something, pre-con's five plus the
+ * Every gate a person resolves by pressing something, pre-con's three plus the
  * punch walk. The name is historical: these were all pre-con until the punch
  * walk became a first-class walk with a dialog of its own.
  */
@@ -103,8 +103,10 @@ export type PreconGateState = {
   /** Non-voided contracts, and how many of them are executed. */
   contractsLive: number;
   contractsExecuted: number;
-  /** Bids sent and not yet returned — progress while none is approved. */
+  /** Live requests not yet decided — still with the vendor, or priced and back. */
   bidsOutstanding: number;
+  /** Of those, the ones the vendor has priced and returned. */
+  bidsReturned: number;
   /** projects.contract_signed_at */
   contractSignedAt: string | null;
 };
@@ -223,69 +225,6 @@ function punchWalkCheck(state: ProgressGateState): GateCheck {
   };
 }
 
-/**
- * The scope is no longer its own gate.
- *
- * You cannot send an RFP without scope — sendBidPackageRows refuses an empty
- * selection — so "RFP Sent" already implies it. Keeping both would have been two
- * rows for one fact, and the design's four are the four that move independently.
- */
-/**
- * The scope is agreed, and there is a budget to measure the bids against.
- *
- * Both, because they are one decision: a list of work nobody has priced a limit
- * for tells you nothing when the bids come back. A count of lines is also not
- * the same as somebody having looked at them, which is why this is a stamped
- * date and not `scopeLineCount > 0`. It is the gate that makes the scope lock
- * legible too: confirming is the last free edit.
- */
-function scopeCheck(state: PreconGateState): GateCheck {
-  const lines = `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"}`;
-  const money = `$${Math.round(state.approvedBudget).toLocaleString()}`;
-
-  if (state.scopeConfirmedAt) {
-    return { key: "scope", label: "Scope & Budget Set", met: true, detail: `${lines} · ${money}` };
-  }
-  if (state.scopeLineCount === 0) {
-    return {
-      key: "scope",
-      label: "Confirm Scope & Budget",
-      short: "Write scope",
-      met: false,
-      detail: "No scope yet",
-    };
-  }
-  return {
-    key: "scope",
-    label: "Confirm Scope & Budget",
-    short: "Confirm scope",
-    met: false,
-    detail: state.approvedBudget > 0 ? `${lines} drafted · ${money}` : `${lines} · no budget set`,
-  };
-}
-
-function rfpCheck(state: PreconGateState): GateCheck {
-  // A direct award never had a request, and never should have. The gate is met
-  // by the decision not to compete, not by pretending one went out.
-  if (state.directAward) {
-    return { key: "rfp", label: "Direct Award", met: true, detail: "No bid required" };
-  }
-  if (state.bidsSent > 0) {
-    return {
-      key: "rfp",
-      label: "RFP Sent",
-      met: true,
-      detail: `${state.bidsSent} vendor${state.bidsSent === 1 ? "" : "s"}`,
-    };
-  }
-  return {
-    key: "rfp",
-    label: "Send RFP",
-    short: "Send RFP",
-    met: false,
-    detail: state.scopeConfirmedAt ? "Not sent" : "Confirm the scope first",
-  };
-}
 
 function contractCheck(state: PreconGateState): GateCheck {
   if (state.contractSignedAt) {
@@ -348,7 +287,25 @@ function contractCheck(state: PreconGateState): GateCheck {
   };
 }
 
-function bidCheck(state: PreconGateState): GateCheck {
+/**
+ * Scope it, send it, pick a price — one gate, because it is one piece of work.
+ *
+ * These were three rows (Confirm Scope & Budget, Send RFP, Select Bid) that
+ * could only ever be done in that order and each meant nothing without the
+ * next. Confirming is not gone, it stopped being a separate click: sending the
+ * scope out, or awarding it directly, confirms it in the same write — see
+ * sendBidPackageRows and confirmScopeInTx. That keeps what the confirm step was
+ * for (a priced, described scope the bids are measured against, frozen once a
+ * vendor holds it) without a box to tick on the way.
+ *
+ * The label stays put and the detail carries the state, so the row reads as
+ * the same step moving forward rather than three things taking turns.
+ */
+const SCOPE_BIDS_LABEL = "Scope & Bids";
+
+function scopeBidsCheck(state: PreconGateState): GateCheck {
+  const base = { key: "scope_bids" as const, label: SCOPE_BIDS_LABEL };
+
   // Coverage, not "is anything awarded". A project may let siding to one sub and
   // roofing to another, so the gate is met when every line has somebody on it —
   // a partial award used to satisfy this and let a phase advance with work
@@ -356,10 +313,22 @@ function bidCheck(state: PreconGateState): GateCheck {
   const fullyAwarded =
     state.scopeLineCount > 0 && state.scopeLinesAwarded >= state.scopeLineCount;
 
+  // Coverage alone is not the gate: the scope behind the award has to be
+  // confirmed too, as the old Confirm Scope gate required. New awards confirm
+  // it themselves (confirmScopeInTx), so this only catches one awarded before
+  // that existed — it is asked for once, rather than let through to In Process
+  // with a scope still open to editing.
+  if (fullyAwarded && !state.scopeConfirmedAt) {
+    return {
+      ...base,
+      short: "Confirm scope",
+      met: false,
+      detail: "Awarded · scope not confirmed",
+    };
+  }
   if (fullyAwarded) {
     return {
-      key: "bid",
-      label: "Bid Selected",
+      ...base,
       met: true,
       detail:
         state.awardCount > 1
@@ -371,41 +340,66 @@ function bidCheck(state: PreconGateState): GateCheck {
   }
   if (state.scopeLinesAwarded > 0) {
     return {
-      key: "bid",
-      label: "Award the Rest",
+      ...base,
       short: "Award the rest",
       met: false,
       detail: `${state.scopeLinesAwarded} of ${state.scopeLineCount} lines awarded`,
     };
   }
   if (state.bidsOutstanding > 0) {
+    // Waiting on the vendors, not on us — for as long as any request is still
+    // with one. oldestSentDays only counts those, so it drops off once every
+    // vendor has answered and the wait is ours.
+    const waiting = state.oldestSentDays != null ? { waitingDays: state.oldestSentDays } : {};
+    if (state.bidsReturned > 0) {
+      return {
+        ...base,
+        short: "Select bid",
+        met: false,
+        detail: `${state.bidsReturned} of ${state.bidsOutstanding} back`,
+        ...waiting,
+      };
+    }
     return {
-      key: "bid",
-      label: "Select Bid",
-      short: "Select bid",
+      ...base,
+      short: "Awaiting bids",
       met: false,
       detail: `${state.bidsOutstanding} out for bid`,
-      // Waiting on the vendors, not on us.
-      ...(state.oldestSentDays != null ? { waitingDays: state.oldestSentDays } : {}),
+      ...waiting,
     };
   }
+  if (state.scopeLineCount === 0) {
+    return { ...base, short: "Write scope", met: false, detail: "No scope yet" };
+  }
+  // Everything that went out came back declined. The scope is still good;
+  // what it needs is somebody else to price it.
+  if (state.bidsSent > 0) {
+    return { ...base, short: "Get bids", met: false, detail: "No bids pending" };
+  }
+
+  const lines = `${state.scopeLineCount} line${state.scopeLineCount === 1 ? "" : "s"}`;
+  const money = `$${Math.round(state.approvedBudget).toLocaleString()}`;
   return {
-    key: "bid",
-    label: "Select Bid",
-    short: "Get bids",
+    ...base,
+    short: "Send for pricing",
     met: false,
-    detail: "Nothing out for bid",
+    detail:
+      state.approvedBudget <= 0
+        ? `${lines} · no budget set`
+        : state.scopeConfirmedAt
+          ? `${lines} confirmed · ${money}`
+          : `${lines} drafted · ${money}`,
   };
 }
 
 /**
  * Evaluate the gate checks for advancing from one phase to another.
  *
- * Pre-con's five are actionable and strictly ordered: walk the unit, write and
- * confirm the scope from what the walk found, send it out, pick a price, sign
- * for it. Each one is a thing a person resolves by clicking something, which is
- * what separates them from the later phases' checks — those watch on-site
- * progress that no dialog can fix.
+ * Pre-con's three are actionable and strictly ordered: walk the unit, scope it
+ * from what the walk found and get it priced, sign for it. Each one is a thing
+ * a person resolves by clicking something, which is what separates them from
+ * the later phases' checks — those watch on-site progress that no dialog can
+ * fix.
  */
 export function evaluateGates(
   fromPhase: ProjectPhaseKey,
@@ -415,13 +409,7 @@ export function evaluateGates(
   let checks: GateCheck[];
 
   if (fromPhase === "precon" && toPhase === "in_process") {
-    checks = [
-      preWalkCheck(data),
-      scopeCheck(data),
-      rfpCheck(data),
-      bidCheck(data),
-      contractCheck(data),
-    ];
+    checks = [preWalkCheck(data), scopeBidsCheck(data), contractCheck(data)];
   } else if (fromPhase === "in_process" && toPhase === "punch") {
     checks = [
       // "All scope lines started" used to sit here, off a per-line status field

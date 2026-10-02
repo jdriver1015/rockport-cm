@@ -25,6 +25,16 @@ export type PreconGateExtras = {
 
 export type FullGateState = PreconGateState & PreconGateExtras & ProgressGateState;
 
+/**
+ * A bid whose numbers are an answer: returned through the portal (it carries a
+ * received date), or recorded by hand ('draft') with at least one price on it.
+ * A portal request still 'sent' is not, whatever the vendor has saved so far —
+ * the same rule the bids table's `answered` applies.
+ */
+const ANSWERED = sql`(${schema.bids.receivedDate} is not null or (${schema.bids.status} = 'draft' and exists (
+  select 1 from ${schema.bidLineItems}
+  where ${schema.bidLineItems.bidId} = ${schema.bids.id} and ${schema.bidLineItems.amount} > 0)))`;
+
 /** Least-advanced first, so a project with one signed contract and one still
  *  out reports the one still out. */
 const CONTRACT_ORDER = ["draft", "out_for_signature", "vendor_signed", "executed"];
@@ -96,8 +106,20 @@ export async function readGateStates(
         // meant the gate forgot a bid the moment its own vendor priced it —
         // "Select Bid" read as "Nothing out for bid" right when there was
         // finally something to select.
+        //
+        // A bid recorded by hand never goes through "sent"/"received" — it is
+        // stored as 'draft' with whatever came in by phone or email — so it
+        // counts as soon as it is answered (ANSWERED, below), or two priced
+        // bids waiting on a decision read as "Send for pricing".
         outstanding: sql<number>`count(*) filter (
-          where ${schema.bids.status} in ('sent', 'received') and not ${schema.bids.approved})::int`,
+          where not ${schema.bids.approved}
+            and ${schema.bids.status} not in ('withdrawn', 'declined')
+            and (${schema.bids.status} in ('sent', 'received') or ${ANSWERED}))::int`,
+        // The answered half of `outstanding` — what there is to choose between.
+        returned: sql<number>`count(*) filter (
+          where not ${schema.bids.approved}
+            and ${schema.bids.status} not in ('withdrawn', 'declined')
+            and ${ANSWERED})::int`,
         // Sent and not taken back. A withdrawn request is one we pulled so the
         // scope could change, so it must not hold the gate open. Declined still
         // counts: it did go out, the vendor just said no.
@@ -287,6 +309,7 @@ export async function readGateStates(
       contractsLive: liveContracts.length,
       contractsExecuted: liveContracts.filter((c) => c.status === "executed").length,
       bidsOutstanding: bids?.outstanding ?? 0,
+      bidsReturned: bids?.returned ?? 0,
       contractSignedAt: project.contractSignedAt ?? null,
       scopeConfirmedAt: project.scopeConfirmedAt ?? null,
       approvedBudget: Number(project.budgetAmount ?? 0),
@@ -349,6 +372,7 @@ const EMPTY_STATE: FullGateState = {
   contractsLive: 0,
   contractsExecuted: 0,
   bidsOutstanding: 0,
+  bidsReturned: 0,
   contractSignedAt: null,
   hasActualStart: false,
   punchWalkStatus: null,

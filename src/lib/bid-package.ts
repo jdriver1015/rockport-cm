@@ -8,6 +8,8 @@ import {
   priceAgreementsForProject,
   type AgreementPreview,
 } from "@/lib/rate-agreements";
+import { ScopeNotReadyError, confirmScopeInTx } from "@/lib/scope-confirm";
+import { coverageOf } from "@/lib/award-coverage";
 
 // ---------------------------------------------------------------------------
 // Sending a scope out for pricing.
@@ -65,6 +67,13 @@ export type BidPackageOption = {
     attachments: { id: number; name: string; createdAt: Date }[];
     /** Removed but recoverable — see BidAttachments' "Show archived" toggle. */
     archivedAttachments: { id: number; name: string; createdAt: Date }[];
+    /**
+     * The scope lines this bid would hold if awarded — coverageOf, the rule
+     * setBidWinner checks overlap with. Sent rather than re-derived in the
+     * browser: every line on the bid counts, zero-priced ones included, and a
+     * lump-sum bid with no scoped lines covers the whole job.
+     */
+    coveredLineIds: number[];
   }[];
   /**
    * What each vendor put against each scope line.
@@ -228,6 +237,14 @@ export async function readBidPackage(
   // neither matched the contact the send actually writes to.
   const contactByVendor = await resolveVendorContacts(vendors.map((v) => v.id));
 
+  const liveLineIds = scopeItems.map((s) => s.id);
+  const bidLinesByBid = new Map<number, (number | null)[]>();
+  for (const r of lineRows) {
+    const list = bidLinesByBid.get(r.bidId) ?? [];
+    list.push(r.scopeItemId);
+    bidLinesByBid.set(r.bidId, list);
+  }
+
   void propertyId;
   return {
     scopeItems: scopeItems.map((s) => ({
@@ -249,6 +266,7 @@ export async function readBidPackage(
       progress: summarise(eventsByBid.get(b.id) ?? []),
       attachments: attachmentsByBid.get(b.id) ?? [],
       archivedAttachments: archivedAttachmentsByBid.get(b.id) ?? [],
+      coveredLineIds: coverageOf(liveLineIds, bidLinesByBid.get(b.id) ?? []),
     })),
     lineAmounts: lineRows
       .filter((r): r is typeof r & { scopeItemId: number } => r.scopeItemId != null)
@@ -296,15 +314,9 @@ export async function sendBidPackageRows(
 
   const project = await db().query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
-    columns: { id: true, scopeConfirmedAt: true },
+    columns: { id: true },
   });
   if (!project) return { ok: false, error: "Project not found" };
-  // Gate 2 before gate 3. Sending an unconfirmed scope is how a vendor ends up
-  // pricing a draft, and it is also what makes the scope lock meaningful —
-  // sending is the moment the scope stops being editable.
-  if (!project.scopeConfirmedAt) {
-    return { ok: false, error: "Confirm the scope before sending it out" };
-  }
 
   // Only this project's scope. Without the filter a caller could put another
   // project's lines into this package.
@@ -355,8 +367,14 @@ export async function sendBidPackageRows(
   const created: { bidId: number; vendorId: number }[] = [];
 
   // One transaction: a half-sent package would leave a vendor holding a request
-  // with no lines to price.
-  await db().transaction(async (tx) => {
+  // with no lines to price, or a scope confirmed for a send that never happened.
+  try {
+    await db().transaction(async (tx) => {
+    // Sending confirms the scope — it is the moment the lines become what
+    // vendors price, and the scope lock takes over from there. A scope that
+    // could not be confirmed by hand is refused, so a vendor never prices a
+    // draft.
+    await confirmScopeInTx(tx, projectId);
     for (const [i, vendor] of targets.entries()) {
       const [bid] = await tx
         .insert(schema.bids)
@@ -381,7 +399,11 @@ export async function sendBidPackageRows(
         })),
       );
     }
-  });
+    });
+  } catch (err) {
+    if (err instanceof ScopeNotReadyError) return { ok: false, error: err.message };
+    throw err;
+  }
 
   return { ok: true, sent: targets.length, skipped, created };
 }

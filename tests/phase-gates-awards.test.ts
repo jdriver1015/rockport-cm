@@ -39,6 +39,7 @@ const base = {
   contractsExecuted: 0,
   contractSignedAt: null,
   bidsOutstanding: 2,
+  bidsReturned: 0,
   scopeNotStartedCount: 0,
   scopeCompleteCount: 0,
   scopeTotalCount: 5,
@@ -52,7 +53,7 @@ const base = {
 };
 
 /** One gate check out of the precon → in_process set. */
-function check(over: Partial<typeof base>, key: "bid" | "contract") {
+function check(over: Partial<typeof base>, key: "scope_bids" | "contract") {
   const result = evaluateGates("precon", "in_process", { ...base, ...over });
   return result.checks.find((c) => c.key === key)!;
 }
@@ -62,40 +63,100 @@ const fullyAwarded = { awardCount: 1, hasApprovedBid: true, scopeLinesAwarded: 5
 /** Everything let, split between two. */
 const splitAwarded = { awardCount: 2, hasApprovedBid: true, scopeLinesAwarded: 5 };
 
-describe("bidCheck", () => {
+describe("scopeBidsCheck", () => {
+  test("pre-con is three gates now, scope and bids being one", () => {
+    const result = evaluateGates("precon", "in_process", base);
+    expect(result.checks.map((c) => c.key)).toEqual(["pre_walk", "scope_bids", "contract"]);
+  });
+
+  test("keeps one label while the detail carries the state", () => {
+    expect(check({}, "scope_bids").label).toBe("Scope & Bids");
+    expect(check(fullyAwarded, "scope_bids").label).toBe("Scope & Bids");
+  });
+
   test("stays open while requests are out and nothing is awarded", () => {
-    const c = check({}, "bid");
+    const c = check({}, "scope_bids");
     expect(c.met).toBe(false);
     expect(c.detail).toBe("2 out for bid");
+    expect(c.waitingDays).toBe(3);
+  });
+
+  test("counts what has come back once anything has", () => {
+    const c = check({ bidsReturned: 1 }, "scope_bids");
+    expect(c.met).toBe(false);
+    expect(c.short).toBe("Select bid");
+    expect(c.detail).toBe("1 of 2 back");
+  });
+
+  test("an unsent, unconfirmed scope asks to be sent — there is no confirm step", () => {
+    const c = check(
+      { scopeConfirmedAt: null, bidsSent: 0, bidsOutstanding: 0, oldestSentDays: null },
+      "scope_bids",
+    );
+    expect(c.met).toBe(false);
+    expect(c.short).toBe("Send for pricing");
+    expect(c.detail).toBe("5 lines drafted · $60,000");
+  });
+
+  test("a scope with no lines asks for one", () => {
+    const c = check({ scopeLineCount: 0, bidsSent: 0, bidsOutstanding: 0 }, "scope_bids");
+    expect(c.short).toBe("Write scope");
+    expect(c.detail).toBe("No scope yet");
+  });
+
+  test("every request declined — get more bids", () => {
+    const c = check({ bidsOutstanding: 0, oldestSentDays: null }, "scope_bids");
+    expect(c.short).toBe("Get bids");
+    expect(c.detail).toBe("No bids pending");
   });
 
   test("a partial award does not meet the gate", () => {
-    const c = check({ awardCount: 1, hasApprovedBid: true, scopeLinesAwarded: 3 }, "bid");
+    const c = check({ awardCount: 1, hasApprovedBid: true, scopeLinesAwarded: 3 }, "scope_bids");
     expect(c.met).toBe(false);
-    expect(c.label).toBe("Award the Rest");
+    expect(c.short).toBe("Award the rest");
     expect(c.detail).toBe("3 of 5 lines awarded");
   });
 
   test("full coverage by one vendor meets it", () => {
-    const c = check(fullyAwarded, "bid");
+    const c = check(fullyAwarded, "scope_bids");
     expect(c.met).toBe(true);
     expect(c.detail).toBe("Awarded");
   });
 
   test("full coverage split across two vendors meets it and says so", () => {
-    const c = check(splitAwarded, "bid");
+    const c = check(splitAwarded, "scope_bids");
     expect(c.met).toBe(true);
     expect(c.detail).toBe("2 vendors awarded");
   });
 
-  test("a direct award covering everything still reads as assigned directly", () => {
-    const c = check({ ...fullyAwarded, directAward: true }, "bid");
+  test("a direct award covering everything meets it with no RFP ever sent", () => {
+    const c = check(
+      { ...fullyAwarded, directAward: true, bidsSent: 0, bidsOutstanding: 0 },
+      "scope_bids",
+    );
     expect(c.met).toBe(true);
     expect(c.detail).toBe("Assigned directly");
   });
 
   test("an empty scope cannot be fully awarded", () => {
-    expect(check({ scopeLineCount: 0, scopeLinesAwarded: 0 }, "bid").met).toBe(false);
+    expect(check({ scopeLineCount: 0, scopeLinesAwarded: 0 }, "scope_bids").met).toBe(false);
+  });
+
+  test("full coverage without a confirmed scope is not met — it asks for the confirm", () => {
+    // Awards confirm the scope now, so this is an award from before that did;
+    // letting it through would advance a project whose scope is still open.
+    const c = check({ ...fullyAwarded, scopeConfirmedAt: null }, "scope_bids");
+    expect(c.met).toBe(false);
+    expect(c.short).toBe("Confirm scope");
+    expect(c.detail).toBe("Awarded · scope not confirmed");
+  });
+
+  test("hand-recorded bids that are back read as something to pick", () => {
+    // They never go out through the portal, so nothing was "sent".
+    const c = check({ bidsSent: 0, oldestSentDays: null, bidsOutstanding: 2, bidsReturned: 2 }, "scope_bids");
+    expect(c.short).toBe("Select bid");
+    expect(c.detail).toBe("2 of 2 back");
+    expect(c.waitingDays).toBeUndefined();
   });
 });
 

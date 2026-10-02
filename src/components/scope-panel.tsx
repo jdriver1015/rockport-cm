@@ -4,13 +4,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AlertTriangleIcon, CheckCircle2Icon, LockIcon, Trash2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +12,7 @@ import { importFindingsToScope } from "@/lib/actions/walks";
 import { deleteScopeItem, updateScopeItem } from "@/lib/actions/scope";
 import { confirmScope, unconfirmScope } from "@/lib/actions/scope-confirm";
 import { scopeLineTotal } from "@/lib/scope-total";
+import { scopeReadiness } from "@/lib/scope-readiness";
 import { BudgetCategoryLabel, DescriptionEditor } from "@/components/scope-inline-editors";
 
 export type PreWalkFinding = {
@@ -50,7 +44,24 @@ export type ScopeLine = {
 const SCOPE_GRID = "grid grid-cols-[20px_minmax(0,1fr)_60px_112px_104px_28px] gap-3.5";
 
 /**
- * Resolve the Confirm Scope and Budget gate.
+ * These lines measured against the server's own confirm rules — one definition
+ * in scope-readiness.ts, so the panel can never call ready a scope the send
+ * would refuse.
+ */
+export function readinessOf(lines: ScopeLine[], requireDescriptions: boolean) {
+  return scopeReadiness(
+    lines.map((l) => ({
+      item: l.item,
+      description: l.materialQuality,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+    })),
+    requireDescriptions,
+  );
+}
+
+/**
+ * The scope half of the Scope & Bids step.
  *
  * One table, because the scope and the budget are one thing: the budget is what
  * the scope costs. They were two stacked sections asking you to reconcile a
@@ -69,9 +80,7 @@ const SCOPE_GRID = "grid grid-cols-[20px_minmax(0,1fr)_60px_112px_104px_28px] ga
  * reconcile later — but unlike a description, there's no single field this
  * dialog could offer that would fix it (it's a search, not a sentence).
  */
-export function DefineScopeDialog({
-  open,
-  onOpenChange,
+export function ScopePanel({
   propertyId,
   projectId,
   lines,
@@ -80,44 +89,44 @@ export function DefineScopeDialog({
   scopeLocked,
   liveRfpCount,
   findings,
+  hasAward,
+  onContinue,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   propertyId: number;
   projectId: number;
   lines: ScopeLine[];
   /** Unit-turn scope is generated from a budget template with nothing to write
    *  prose about; common-area scope goes out to vendors who price from it. */
   requireDescriptions: boolean;
-  /** Set once the scope is agreed as ready to price — pre-con gate 2. */
+  /** Set once the scope has gone out (or been awarded), or confirmed by hand. */
   scopeConfirmedAt: string | null;
   /** True once an RFP is out: vendors are pricing these lines, so they are frozen. */
   scopeLocked: boolean;
   /** How many vendors are pricing the live RFP, for the frozen-line note. */
   liveRfpCount: number;
   findings: PreWalkFinding[];
+  /**
+   * Some of this scope is already awarded. Awarding confirms the scope, so an
+   * awarded scope cannot be re-opened — and one awarded before that rule existed
+   * is the one case left that still needs confirming by hand.
+   */
+  hasAward: boolean;
+  /** Move on to the bids half, where sending the scope out confirms it. */
+  onContinue: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   const scopeLineCount = lines.length;
   const missingCode = lines.filter((l) => !l.costCodeName).length;
-  // Mirrors confirmScopeRows: a unit turn's lines come from a budget template
-  // with no prose to write, so only common-area scope is held to this.
-  const missingDescription = requireDescriptions
-    ? lines.filter((l) => !l.materialQuality?.trim()).length
-    : 0;
+  const { unpricedCount, missingDescription, blocker } = readinessOf(lines, requireDescriptions);
+  const ready = blocker === null;
 
   // What the lines actually add up to. Null lines contribute nothing, so an
   // uncosted scope totals zero rather than guessing at a number.
   const costed = lines.map(scopeLineTotal).filter((n): n is number => n != null);
   const scopeTotal = costed.reduce((a, b) => a + b, 0);
   const uncostedCount = lines.length - costed.length;
-
-  // Confirming is gated on the scope being priced now, not on a number typed
-  // beside it — the budget is derived from these very lines.
-  const unpricedCount = lines.filter((l) => !l.quantity || !l.unitPrice).length;
-  const budgetOk = unpricedCount === 0 && missingDescription === 0;
 
   const importable = findings.filter((f) => !f.inScope);
   // Default to all, as with every other bulk action here.
@@ -142,15 +151,12 @@ export function DefineScopeDialog({
 
   function confirm() {
     startTransition(async () => {
-      // There is no budget to save alongside this any more — it is derived from
-      // the lines being confirmed, so confirming them settles it.
       const res = await confirmScope({ projectId });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success("Scope confirmed — ready to send out for pricing");
-      onOpenChange(false);
+      toast.success("Scope confirmed");
       router.refresh();
     });
   }
@@ -168,16 +174,6 @@ export function DefineScopeDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Scope and budget</DialogTitle>
-          <DialogDescription>
-            What the vendors will price, and what you have approved to spend on it. The line items
-            are not costed — pricing comes back from the bids.
-          </DialogDescription>
-        </DialogHeader>
-
         <div className="space-y-4">
           <div className="space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -390,50 +386,51 @@ export function DefineScopeDialog({
           )}
 
           {/*
-            Confirming is gate 2, and it is also the last free edit: sending the
-            scope out is what locks it, so this is where a person should be told
-            that before they press anything.
+            No confirm button in the normal flow: sending the scope out (or
+            awarding it) confirms it and locks it. That makes this the last free
+            edit, so this is where a person should be told that before they move
+            on. The one exception is a scope awarded before awards confirmed it,
+            which has nothing left to send and so is confirmed here.
           */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-muted/30 px-3.5 py-3">
             {scopeConfirmedAt ? (
-              <>
-                <p className="min-w-0 flex-1 text-[12.5px] text-ink-600">
-                  <CheckCircle2Icon className="mr-1.5 inline size-3.5 -translate-y-px text-positive" />
-                  Confirmed {fmtDate(scopeConfirmedAt)}.{" "}
-                  {scopeLocked
-                    ? "Out for pricing — withdraw the requests to change anything."
-                    : "Both stay editable until you send it out for pricing."}
-                </p>
-                {!scopeLocked && (
-                  <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
-                    Re-open
-                  </Button>
-                )}
-              </>
+              <p className="min-w-0 flex-1 text-[12.5px] text-ink-600">
+                <CheckCircle2Icon className="mr-1.5 inline size-3.5 -translate-y-px text-positive" />
+                Confirmed {fmtDate(scopeConfirmedAt)}.{" "}
+                {scopeLocked
+                  ? "Out for pricing — withdraw the requests to change anything."
+                  : hasAward
+                    ? "Awarded — take the award back to change it."
+                    : "Still editable until it goes out for pricing."}
+              </p>
             ) : (
-              <>
-                <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
-                  {scopeLineCount === 0
-                    ? "Add at least one line before confirming."
-                    : unpricedCount > 0
-                      ? "Every line needs a price before this can go out — that sum is what the bids get measured against."
-                      : missingDescription > 0
-                        ? "Every line needs a description before this can go out — a vendor prices from what is written."
-                        : "Confirm when these lines are what you want priced."}
-                </p>
-                <Button
-                  size="sm"
-                  disabled={pending || scopeLineCount === 0 || !budgetOk}
-                  onClick={confirm}
-                >
-                  Confirm scope and budget
-                </Button>
-              </>
+              <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
+                {scopeLineCount === 0
+                  ? "Add at least one line before sending this out."
+                  : blocker
+                    ? // A line name can end in its own period.
+                      `${blocker.replace(/[.\s]+$/, "")}.`
+                    : hasAward
+                      ? "Awarded before the scope was confirmed — confirm it to finish this step."
+                      : "Sending it out confirms the scope and locks it while vendors price it."}
+              </p>
+            )}
+            {scopeConfirmedAt && !scopeLocked && !hasAward && (
+              <Button variant="ghost" size="sm" disabled={pending} onClick={unconfirm}>
+                Re-open
+              </Button>
+            )}
+            {!scopeConfirmedAt && hasAward ? (
+              <Button size="sm" disabled={pending || !ready} onClick={confirm}>
+                Confirm scope
+              </Button>
+            ) : (
+              <Button size="sm" disabled={pending || !ready} onClick={onContinue}>
+                Next: bids
+              </Button>
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
