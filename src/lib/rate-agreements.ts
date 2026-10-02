@@ -146,6 +146,8 @@ export async function listActiveAgreementsForProject(
 }
 
 export type AgreementPreviewLine = {
+  /** The project scope line this prices. */
+  scopeItemId: number;
   costCodeId: number;
   item: string;
   unitPrice: number;
@@ -267,7 +269,14 @@ function priceAgreementAgainstContext(
     const quantity = Number(item.quantity);
     const unitPrice = Number(line.unitPrice);
     const lineTotal = roundMoney(quantity * unitPrice);
-    perLine.push({ costCodeId: line.costCodeId, item: item.item, unitPrice, quantity, total: lineTotal });
+    perLine.push({
+      scopeItemId: item.id,
+      costCodeId: line.costCodeId,
+      item: item.item,
+      unitPrice,
+      quantity,
+      total: lineTotal,
+    });
     scopeItemIds.push(item.id);
     total += lineTotal;
   }
@@ -373,6 +382,8 @@ export async function awardProjectFromAgreementRows(
     preview.total.toFixed(2),
     reason,
     preview.scopeItemIds,
+    // The agreement priced every line, so the award keeps that breakdown.
+    new Map(preview.perLine.map((l) => [l.scopeItemId, l.total])),
   );
 }
 

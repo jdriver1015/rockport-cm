@@ -242,6 +242,12 @@ export async function directAwardRows(
    * did — and the remainder once part of the job is let.
    */
   scopeItemIds?: readonly number[],
+  /**
+   * What each covered line costs, when that is actually known — a standing
+   * rate agreement prices every line. Without it the whole amount lands on the
+   * first line (see below), because a hand-typed direct award is one number.
+   */
+  lineAmounts?: ReadonlyMap<number, number>,
 ): Promise<DirectAwardResult> {
   if (!reason.trim()) return { ok: false, error: "Say why this is not going out for bid" };
   const value = Number(amount);
@@ -326,15 +332,21 @@ export async function directAwardRows(
       .returning({ id: schema.bids.id });
     bidId = bid.id;
 
-    // The whole amount lands on the first line rather than being split evenly
-    // across the scope. A direct award is one agreed number, and inventing a
-    // per-line breakdown nobody quoted would look like data.
+    // A typed direct award is one agreed number, so it lands on the first line
+    // rather than being split evenly — inventing a per-line breakdown nobody
+    // quoted would look like data. Where the breakdown is real (an agreement's
+    // rates), each line carries its own price, so the bid compares line by
+    // line like any other.
     await tx.insert(schema.bidLineItems).values(
       items.map((it, n) => ({
         bidId: bid.id,
         scopeItemId: it.id,
         description: it.item,
-        amount: n === 0 ? value.toFixed(2) : "0.00",
+        amount: lineAmounts
+          ? (lineAmounts.get(it.id) ?? 0).toFixed(2)
+          : n === 0
+            ? value.toFixed(2)
+            : "0.00",
         sortOrder: n,
       })),
     );

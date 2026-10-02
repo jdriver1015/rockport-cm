@@ -24,15 +24,20 @@ export function AwardFromAgreementPanel({
   propertyId,
   projectId,
   agreements,
+  initialAgreementId,
   onClose,
 }: {
   propertyId: number;
   projectId: number;
   agreements: BidPackageOption["rateAgreements"];
+  /** The agreement whose column the Award was pressed in. */
+  initialAgreementId?: number;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [agreementId, setAgreementId] = useState(() => String(agreements[0]?.id ?? ""));
+  const [agreementId, setAgreementId] = useState(() =>
+    String(initialAgreementId ?? agreements[0]?.id ?? ""),
+  );
   const [busy, setBusy] = useState(false);
 
   const chosen = agreements.find((a) => String(a.id) === agreementId) ?? agreements[0];
@@ -80,8 +85,8 @@ export function AwardFromAgreementPanel({
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-muted-foreground">
-        Priced from {chosen.vendorName}&apos;s standing rate agreement against this unit&apos;s already-confirmed
-        scope — review the numbers, then confirm.
+        Priced from {chosen.vendorName}&apos;s standing rate agreement against this unit&apos;s scope —
+        review the numbers, then confirm. Awarding confirms the scope.
       </p>
 
       {agreements.length > 1 && (
@@ -111,7 +116,7 @@ export function AwardFromAgreementPanel({
         ) : (
           <div className="divide-y divide-hairline rounded-card border border-border">
             {preview.perLine.map((l) => (
-              <div key={l.costCodeId} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+              <div key={l.scopeItemId} className="flex items-center gap-3 px-3 py-2 text-[13px]">
                 <span className="min-w-0 flex-1 truncate text-ink-700">{l.item}</span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
                   {l.quantity.toLocaleString()} × {moneyExact(l.unitPrice)}

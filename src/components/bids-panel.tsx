@@ -62,6 +62,8 @@ export function BidsPanel({
   // Set when "Edit bid" is chosen on an existing bid; undefined means the manual
   // panel is recording a new one.
   const [editingBidId, setEditingBidId] = useState<number | undefined>(undefined);
+  // The agreement whose column's Award was pressed — the panel opens on it.
+  const [agreementId, setAgreementId] = useState<number | undefined>(undefined);
 
   function openManual(bidId?: number) {
     setEditingBidId(bidId);
@@ -127,12 +129,23 @@ export function BidsPanel({
         propertyId={propertyId}
         projectId={projectId}
         agreements={data.rateAgreements}
+        initialAgreementId={agreementId}
         onClose={() => setMode("compare")}
       />
     );
   }
 
   const columns = data.bids.filter((b) => b.status !== "withdrawn");
+  // A standing rate agreement on this unit's renovation type is a bid that is
+  // already in: its price for this scope is known before anyone is asked. Shown
+  // as a column beside the real bids, so it is compared like one. Left out once
+  // its vendor holds an award here — that award is then its own column — and
+  // when it prices none of this scope.
+  const standing = data.rateAgreements.filter(
+    (a) =>
+      a.preview.perLine.length > 0 &&
+      !data.bids.some((b) => b.approved && b.vendorId === a.preview.vendorId),
+  );
 
   return (
     <div className="space-y-4">
@@ -148,18 +161,6 @@ export function BidsPanel({
       )}
 
       <div className="flex justify-end gap-2">
-        {/* Only when this unit's tier has a standing vendor rate sheet — the
-            fast path past a fresh RFP or a hand-typed direct award. */}
-        {data.rateAgreements.length > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!!scopeBlocker}
-            onClick={() => setMode("agreement")}
-          >
-            Award under agreement
-          </Button>
-        )}
         {/* For a bid that came in by phone or email instead of the portal. */}
         <Button size="sm" variant="outline" onClick={() => openManual()}>
           Record a bid manually
@@ -169,10 +170,10 @@ export function BidsPanel({
         </Button>
       </div>
 
-      {/* Only when there are no bids. A scope emptied after bids came back still
-          shows them — an award there still holds committed cost and has to
-          stay reachable to take back. */}
-      {columns.length === 0 ? (
+      {/* Only when there are no bids and no standing price. A scope emptied
+          after bids came back still shows them — an award there still holds
+          committed cost and has to stay reachable to take back. */}
+      {columns.length === 0 && standing.length === 0 ? (
         <p className="rounded-card border border-dashed border-border px-4 py-8 text-center text-[13px] text-muted-foreground">
           Nothing out for pricing yet. Send the scope to vendors, or record a bid that came in by
           phone or email.
@@ -183,8 +184,15 @@ export function BidsPanel({
           projectId={projectId}
           data={data}
           columns={columns}
+          agreements={standing}
+          // Awarding confirms the scope, so it waits on the scope like a send.
+          agreementAwardBlocked={!!scopeBlocker}
           pending={pending}
           onAward={award}
+          onAwardAgreement={(id) => {
+            setAgreementId(id);
+            setMode("agreement");
+          }}
           onTakeBack={takeBack}
           onEdit={openManual}
         />
@@ -192,6 +200,8 @@ export function BidsPanel({
     </div>
   );
 }
+
+type Standing = BidPackageOption["rateAgreements"][number];
 
 /** What one cell has to say. Never-asked and not-yet-answered are different facts. */
 type Cell =
@@ -213,8 +223,11 @@ function BidMatrix({
   projectId,
   data,
   columns,
+  agreements,
+  agreementAwardBlocked,
   pending,
   onAward,
+  onAwardAgreement,
   onTakeBack,
   onEdit,
 }: {
@@ -222,9 +235,15 @@ function BidMatrix({
   projectId: number;
   data: BidPackageOption;
   columns: Bid[];
+  /** Standing rate agreements to show as pre-set bids, ahead of the real ones. */
+  agreements: Standing[];
+  /** The scope is not ready to be confirmed, which an award would do. */
+  agreementAwardBlocked: boolean;
   pending: boolean;
   /** Awarding is the parent's job — it owns the transition and the refresh. */
   onAward: (bidId: number, vendorName: string, replace?: boolean) => void;
+  /** Opens the agreement award, which shows the breakdown and takes a reason. */
+  onAwardAgreement: (agreementId: number) => void;
   onTakeBack: (bidId: number, vendorName: string) => void;
   onEdit: (bidId: number) => void;
 }) {
@@ -287,16 +306,30 @@ function BidMatrix({
     return [...out.values()];
   };
 
+  // An agreement's price for one line, or null when the agreement does not
+  // cover it — a code it has no rate for, or a line already let to somebody.
+  const agreementPrice = (a: Standing, lineId: number): number | null =>
+    a.preview.perLine.find((l) => l.scopeItemId === lineId)?.total ?? null;
+
   // The cheapest total is only meaningful among vendors who priced the WHOLE
   // scope. A vendor asked for one line will always look cheapest, and marking
-  // it would be recommending less work rather than a better price.
-  const fullCoverage =
-    data.scopeItems.length === 0
+  // it would be recommending less work rather than a better price. A standing
+  // agreement competes on the same terms as a bid.
+  const everyLine = data.scopeItems.length;
+  const contenders =
+    everyLine === 0
       ? []
-      : columns.filter((b) => answered(b) && linesPricedBy(b) === data.scopeItems.length);
-  const bestBidId =
-    fullCoverage.length > 1
-      ? fullCoverage.reduce((best, b) => (totalFor(b) < totalFor(best) ? b : best)).id
+      : [
+          ...columns
+            .filter((b) => answered(b) && linesPricedBy(b) === everyLine)
+            .map((b) => ({ key: `bid:${b.id}`, total: totalFor(b) })),
+          ...agreements
+            .filter((a) => a.preview.perLine.length === everyLine)
+            .map((a) => ({ key: `agreement:${a.id}`, total: a.preview.total })),
+        ];
+  const bestKey =
+    contenders.length > 1
+      ? contenders.reduce((best, c) => (c.total < best.total ? c : best)).key
       : null;
 
   // Sticky so the line names stay in view however many vendors are compared.
@@ -313,6 +346,35 @@ function BidMatrix({
                 Scope · {data.scopeItems.length} line{data.scopeItems.length === 1 ? "" : "s"}
               </th>
               <th className={cn(LABEL, "px-3 py-2.5 text-right align-bottom")}>Budget</th>
+              {agreements.map((a) => (
+                <th
+                  key={`agreement-${a.id}`}
+                  className={cn(VENDOR_COL, "border-t-[3px] border-t-link/50 py-2.5 text-left align-top font-normal")}
+                >
+                  <div className="min-w-0 truncate text-[13px] font-semibold text-navy">
+                    {a.vendorName}
+                  </div>
+                  <div className="mt-1 flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span
+                      className="text-[11px] font-medium text-link"
+                      title={`${a.vendorName}'s standing rates for ${a.preview.tierName}, applied to this unit's scope`}
+                    >
+                      Standing rate
+                    </span>
+                    {a.preview.total > 0 && (
+                      <Button
+                        size="xs"
+                        variant={bestKey === `agreement:${a.id}` ? "default" : "outline"}
+                        disabled={pending || agreementAwardBlocked}
+                        title={agreementAwardBlocked ? "Finish the scope first — awarding confirms it" : undefined}
+                        onClick={() => onAwardAgreement(a.id)}
+                      >
+                        Award
+                      </Button>
+                    )}
+                  </div>
+                </th>
+              ))}
               {columns.map((b) => (
                 <th
                   key={b.id}
@@ -338,7 +400,7 @@ function BidMatrix({
                       bid={b}
                       canAward={answered(b) && linesPricedBy(b) > 0}
                       overlaps={overlapping(b)}
-                      primary={b.id === bestBidId}
+                      primary={bestKey === `bid:${b.id}`}
                       pending={pending}
                       confirming={confirmingId === b.id}
                       onConfirming={(on) => setConfirmingId(on ? b.id : null)}
@@ -353,9 +415,15 @@ function BidMatrix({
 
           <tbody>
             {data.scopeItems.map((line) => {
-              const prices = columns
-                .map((b) => cellOf(b, line.id))
-                .flatMap((c) => (c.kind === "price" ? [c.amount] : []));
+              const prices = [
+                ...agreements.flatMap((a) => {
+                  const p = agreementPrice(a, line.id);
+                  return p != null && p > 0 ? [p] : [];
+                }),
+                ...columns
+                  .map((b) => cellOf(b, line.id))
+                  .flatMap((c) => (c.kind === "price" ? [c.amount] : [])),
+              ];
               const low = prices.length > 1 ? Math.min(...prices) : null;
 
               return (
@@ -373,6 +441,24 @@ function BidMatrix({
                   <td className="px-3 py-2.5 text-right tabular-nums text-ink-400">
                     {line.budgeted != null ? money(line.budgeted) : "—"}
                   </td>
+                  {agreements.map((a) => {
+                    const p = agreementPrice(a, line.id);
+                    return (
+                      <td key={`agreement-${a.id}`} className={cn(VENDOR_COL, "py-2.5 text-right tabular-nums")}>
+                        {p == null ? (
+                          <span className="text-ink-200" title="Not priced by this agreement">
+                            —
+                          </span>
+                        ) : (
+                          <PriceCell
+                            cell={p > 0 ? { kind: "price", amount: p } : { kind: "no_bid" }}
+                            budget={line.budgeted}
+                            low={low}
+                          />
+                        )}
+                      </td>
+                    );
+                  })}
                   {columns.map((b) => (
                     <td
                       key={b.id}
@@ -399,52 +485,40 @@ function BidMatrix({
               <td className="px-3 py-3 text-right text-[13px] font-bold tabular-nums text-ink-900">
                 {estimateTotal > 0 ? money(estimateTotal) : "—"}
               </td>
-              {columns.map((b) => {
-                const total = totalFor(b);
-                const covered = linesPricedBy(b);
-                const isBest = b.id === bestBidId;
-                const vsBudget =
-                  answered(b) && estimateTotal > 0 && total > 0
-                    ? Math.round(((total - estimateTotal) / estimateTotal) * 100)
-                    : null;
-                const versus =
-                  covered < data.scopeItems.length
-                    ? `${covered} of ${data.scopeItems.length} lines`
-                    : vsBudget == null || vsBudget === 0
-                      ? "on budget"
-                      : `${vsBudget > 0 ? "+" : ""}${vsBudget}% vs budget`;
-                return (
-                  <td key={b.id} className={cn(VENDOR_COL, "py-3 text-right align-top")}>
-                    {answered(b) ? (
-                      <>
-                        <div
-                          className={cn(
-                            "text-[14px] font-bold tabular-nums",
-                            isBest ? "text-positive" : "text-ink-900",
-                          )}
-                        >
-                          {total > 0 ? money(total) : "—"}
-                        </div>
-                        <div
-                          className={cn(
-                            "mt-0.5 text-[10.5px]",
-                            isBest ? "font-semibold text-positive" : "text-ink-400",
-                          )}
-                        >
-                          {isBest ? `Best price · ${versus}` : versus}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-[12px] italic text-ink-300">Awaiting response</div>
-                    )}
-                  </td>
-                );
-              })}
+              {agreements.map((a) => (
+                <td key={`agreement-${a.id}`} className={cn(VENDOR_COL, "py-3 text-right align-top")}>
+                  <TotalFigure
+                    total={a.preview.total}
+                    covered={a.preview.perLine.length}
+                    lines={everyLine}
+                    budget={estimateTotal}
+                    isBest={bestKey === `agreement:${a.id}`}
+                  />
+                </td>
+              ))}
+              {columns.map((b) => (
+                <td key={b.id} className={cn(VENDOR_COL, "py-3 text-right align-top")}>
+                  {answered(b) ? (
+                    <TotalFigure
+                      total={totalFor(b)}
+                      covered={linesPricedBy(b)}
+                      lines={everyLine}
+                      budget={estimateTotal}
+                      isBest={bestKey === `bid:${b.id}`}
+                    />
+                  ) : (
+                    <div className="text-[12px] italic text-ink-300">Awaiting response</div>
+                  )}
+                </td>
+              ))}
             </tr>
 
             <tr className="border-t border-hairline">
               <td className={cn(STICKY, LABEL, "px-3 py-2.5 align-top")}>Files</td>
               <td />
+              {agreements.map((a) => (
+                <td key={`agreement-${a.id}`} className={cn(VENDOR_COL, "py-2 align-top")} />
+              ))}
               {columns.map((b) => (
                 <td key={b.id} className={cn(VENDOR_COL, "py-2 align-top")}>
                   <BidAttachments
@@ -563,6 +637,39 @@ function AwardControl({
   );
 }
 
+/** A column's total, how much of the scope it covers, and how it sits against budget. */
+function TotalFigure({
+  total,
+  covered,
+  lines,
+  budget,
+  isBest,
+}: {
+  total: number;
+  covered: number;
+  lines: number;
+  budget: number;
+  isBest: boolean;
+}) {
+  const vsBudget = budget > 0 && total > 0 ? Math.round(((total - budget) / budget) * 100) : null;
+  const versus =
+    covered < lines
+      ? `${covered} of ${lines} lines`
+      : vsBudget == null || vsBudget === 0
+        ? "on budget"
+        : `${vsBudget > 0 ? "+" : ""}${vsBudget}% vs budget`;
+  return (
+    <>
+      <div className={cn("text-[14px] font-bold tabular-nums", isBest ? "text-positive" : "text-ink-900")}>
+        {total > 0 ? money(total) : "—"}
+      </div>
+      <div className={cn("mt-0.5 text-[10.5px]", isBest ? "font-semibold text-positive" : "text-ink-400")}>
+        {isBest ? `Best price · ${versus}` : versus}
+      </div>
+    </>
+  );
+}
+
 /** One price, highlighted when it is the lowest on its line, with its distance from budget. */
 function PriceCell({
   cell,
@@ -601,7 +708,8 @@ function PriceCell({
       <span className={cn("block text-[13px]", isLow ? "font-bold text-positive" : "text-ink-700")}>
         {money(cell.amount)}
       </span>
-      {delta != null && delta !== 0 && (
+      {/* Rounded, because a rate a few cents off budget reads as "+$0". */}
+      {delta != null && Math.round(delta) !== 0 && (
         <span className={cn("block text-[10px]", delta > 0 ? "text-alert" : "text-positive")}>
           {delta > 0 ? "+" : "−"}
           {money(Math.abs(delta))}
