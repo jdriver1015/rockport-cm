@@ -11,6 +11,9 @@ import { fetchBudgetLockEvents } from "@/lib/property-budget-lock";
 // context of their own — the same reason those files stay "use server"-free.
 // ---------------------------------------------------------------------------
 
+/** Either a transaction context or the bare db() handle — same shape property-budget-lock.ts uses. */
+export type LogExecutor = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0] | ReturnType<typeof db>;
+
 export type BudgetLineFieldChange = {
   /** Stable machine key, e.g. "uwAmount", "note", "archivedAt" */
   field: string;
@@ -55,10 +58,16 @@ export async function logBudgetLineChanges(params: {
   userId: string | null;
   changes: BudgetLineFieldChange[];
   note?: string | null;
+  /**
+   * Pass the caller's transaction when the line being logged was written in
+   * it and hasn't committed yet — a log row on a separate connection can't
+   * see that line, so its foreign key to budget_lines fails.
+   */
+  executor?: LogExecutor;
 }) {
   const rows = toRows(params.budgetLineId, params.changes, params);
   if (rows.length === 0) return;
-  await db().insert(schema.budgetLineActivityLog).values(rows);
+  await (params.executor ?? db()).insert(schema.budgetLineActivityLog).values(rows);
 }
 
 /**
@@ -72,10 +81,12 @@ export async function logBudgetLineChangesForLines(params: {
   userId: string | null;
   note?: string | null;
   entries: { budgetLineId: number; changes: BudgetLineFieldChange[] }[];
+  /** See logBudgetLineChanges's executor. */
+  executor?: LogExecutor;
 }) {
   const rows = params.entries.flatMap((e) => toRows(e.budgetLineId, e.changes, params));
   if (rows.length === 0) return;
-  await db().insert(schema.budgetLineActivityLog).values(rows);
+  await (params.executor ?? db()).insert(schema.budgetLineActivityLog).values(rows);
 }
 
 /** Single-field convenience wrapper around logBudgetLineChanges. */

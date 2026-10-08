@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import type { BudgetImportRow } from "@/lib/budget-import";
 import { computePropertyBudget } from "@/lib/property-budget";
 import { logBudgetLineChangesForLines, type BudgetLineFieldChange } from "@/lib/budget-activity-log";
-import { money } from "@/lib/format";
+import { moneyExact } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // Reconciling an uploaded budget against what the property already has.
@@ -306,8 +306,8 @@ export async function applyBudgetImport(
         {
           field: "uwAmount",
           fieldLabel: `${line.name} — Budgeted amount`,
-          from: line.from != null ? money(line.from) : null,
-          to: money(line.to),
+          from: line.from != null ? moneyExact(line.from) : null,
+          to: moneyExact(line.to),
           // reconcileBudgetImport already excludes anything within half a
           // cent of its prior value (see "unchanged" below), so every
           // matched line is a real change by construction — forced rather
@@ -346,5 +346,7 @@ export async function applyBudgetImport(
     userId,
     note: "Budget workbook uploaded",
     entries: logEntries,
+    // The lines above were written in `tx` and may not be committed yet.
+    executor: tx,
   });
 }

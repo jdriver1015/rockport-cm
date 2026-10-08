@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import { assertBudgetUnlockedForUpdate } from "@/lib/property-budget-lock";
 import { propertyPath } from "@/lib/property-path";
 import { logBudgetLineChanges, type BudgetLineFieldChange } from "@/lib/budget-activity-log";
-import { money } from "@/lib/format";
+import { moneyExact } from "@/lib/format";
 import type { ActionResult } from "@/lib/action-result";
 
 // ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ export async function createBudgetLineCore(input: {
           field: "uwAmount",
           fieldLabel: `${costCode.name} — Budgeted amount`,
           from: null,
-          to: money(uwAmount),
+          to: moneyExact(uwAmount),
         },
       ],
     });
@@ -175,15 +175,15 @@ export async function updateBudgetLineCore(input: {
       {
         field: "uwAmount",
         fieldLabel: `${line.costCodeName} — Budgeted amount`,
-        from: money(Number(line.uwAmount)),
-        to: money(uwAmount),
+        from: moneyExact(Number(line.uwAmount)),
+        to: moneyExact(uwAmount),
         changed: line.uwAmount !== uwAmount.toFixed(2),
       },
       {
         field: "perUnitAmount",
         fieldLabel: `${line.costCodeName} — Per unit amount`,
-        from: line.perUnitAmount !== null ? money(Number(line.perUnitAmount)) : null,
-        to: newPerUnitAmount !== null ? money(perUnitAmount!) : null,
+        from: line.perUnitAmount !== null ? moneyExact(Number(line.perUnitAmount)) : null,
+        to: newPerUnitAmount !== null ? moneyExact(perUnitAmount!) : null,
         changed: line.perUnitAmount !== newPerUnitAmount,
       },
       {
