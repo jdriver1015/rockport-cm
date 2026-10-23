@@ -6,6 +6,8 @@
  * carries the user's role and id, ready for downstream `canWriteProperty(role)`
  * style checks.
  *
+ * SANDBOX: sign-in has been removed; see src/lib/sandbox-user.ts.
+ *
  * Why this isn't enforced at the DB layer: the app uses the Supabase
  * service-role client (createAdminClient) to bypass RLS for the storage
  * admin operations. That made auth a layer-zero concern that never landed.
@@ -17,8 +19,7 @@
  * place to tighten that. The matrix is intentionally written so a future
  * per-property membership table can swap in without touching action call sites.
  */
-import { createClient } from "@/lib/supabase/server";
-import { ensureProfile } from "@/lib/ensure-profile";
+import { SANDBOX_USER } from "@/lib/sandbox-user";
 import type { AuthRole } from "@/lib/auth-rules";
 
 export type LoadedProfile = {
@@ -35,44 +36,15 @@ export class AuthError extends Error {
 }
 
 /**
- * Resolve the active session user to a `profiles` row, returning either the
- * loaded profile or an `ActionResult`-shaped error suitable for immediate
- * short-circuit.
- *
- * Two failure modes:
- *  1. No active session (visitor hit a server action directly) — `no_session`
- *  2. Session resolved but no ACTIVE `profiles` row — `no_profile`. Access is by
- *     invitation, so an auth user nobody invited, or one whose roster row was
- *     removed, has a valid session and still no access. An archived row used
- *     to be returned here like any other, so "Remove" did not take anything
- *     away from a person who could still sign in.
+ * Sandbox build: there is no session to resolve. Everyone is the fixed
+ * sandbox admin, so this always succeeds.
  */
 export async function loadActiveProfile(): Promise<
   { ok: true; profile: LoadedProfile } | { ok: false; error: string; code: AuthError["code"] }
 > {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !user.email) return { ok: false, code: "no_session", error: "Not signed in" };
-
-  // One read in the normal case; adopts a roster row added before invitations
-  // existed, and creates nothing.
-  const afterEnsure = await ensureProfile(user.id, user.email, user.user_metadata?.full_name ?? null);
-  if (!afterEnsure) {
-    return {
-      ok: false,
-      code: "no_profile",
-      error: "This account doesn't have access to Rockport. Ask an admin for an invite.",
-    };
-  }
   return {
     ok: true,
-    profile: {
-      id: afterEnsure.id,
-      email: afterEnsure.email,
-      role: afterEnsure.role as AuthRole,
-    },
+    profile: { id: SANDBOX_USER.id, email: SANDBOX_USER.email, role: SANDBOX_USER.role },
   };
 }
 

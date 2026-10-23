@@ -1,13 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Source_Serif_4, Inter, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
-import { and, eq, isNull } from "drizzle-orm";
 import { Toaster } from "@/components/ui/sonner";
 import { TopNavLink } from "@/components/top-nav-link";
 import { MobileNav } from "@/components/mobile-nav";
-import { createClient } from "@/lib/supabase/server";
-import { db, schema } from "@/db";
-import { signOut } from "@/lib/actions/auth";
 import "./globals.css";
 
 // Display serif — wordmark, page titles, and card titles only. Fraunces read
@@ -57,51 +53,18 @@ export const metadata: Metadata = {
   description: "Portfolio construction tracking: budgets, ledger, unit turns",
 };
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Admin",
-  cm: "Construction Manager",
-  site: "Site staff",
-  viewer: "Viewer",
-};
-
 export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Archived profiles fall back to plain email display — removed from the
-  // roster means their role no longer applies, even if their Supabase Auth
-  // session is still valid.
-  const profile = user
-    ? await db().query.profiles.findFirst({
-        where: and(eq(schema.profiles.id, user.id), isNull(schema.profiles.archivedAt)),
-      })
-    : null;
-
   const navLinks = [
     { href: "/", label: "Portfolio" },
     { href: "/schedule", label: "Schedule" },
     { href: "/vendors", label: "Vendors" },
     { href: "/settings", label: "Settings" },
   ];
-  const who = user
-    ? `${profile?.fullName ?? user.email}${profile?.role ? ` · ${ROLE_LABEL[profile.role] ?? profile.role}` : ""}`
-    : null;
-  const signOutButton = (
-    <form action={signOut}>
-      <button
-        type="submit"
-        className="rounded-control bg-gold px-4 py-2 text-xs font-bold tracking-[0.03em] text-navy transition-colors hover:bg-gold-soft"
-      >
-        SIGN OUT
-      </button>
-    </form>
-  );
+  const who = "Sandbox · demo data";
 
   return (
     <html
@@ -119,60 +82,28 @@ export default async function RootLayout({
                 construction manager
               </span>
             </Link>
-            {user && !profile ? (
-              <nav className="ml-auto flex items-center">{signOutButton}</nav>
-            ) : user ? (
-              <>
-                {/* Four links, a name and a sign-out button do not fit in one
-                    64px row until well past tablet width — an iPad in
-                    portrait (768px) or even landscape (1024px) is still
-                    narrower than that, so this switches at `lg`, not `sm`.
-                    `min-w-0 truncate` on the name is the backstop: on the
-                    rare screen where it's still tight, or a name is simply
-                    longer than most, it clips with an ellipsis instead of
-                    wrapping to a second line and blowing out the header's
-                    fixed height. */}
-                <nav className="ml-auto hidden items-center gap-6 text-sm text-on-navy-muted lg:flex">
-                  {navLinks.map((l) => (
-                    <TopNavLink key={l.href} href={l.href}>
-                      {l.label}
-                    </TopNavLink>
-                  ))}
-                  <span className="min-w-0 max-w-[200px] truncate text-xs text-on-navy-muted">{who}</span>
-                  {signOutButton}
-                </nav>
-                <div className="ml-auto lg:hidden">
-                  <MobileNav links={navLinks} who={who} signOut={signOutButton} />
-                </div>
-              </>
-            ) : (
-              <nav className="ml-auto flex items-center gap-6 text-sm text-on-navy-muted">
-                <Link href="/sign-in" className="transition-colors hover:text-white">
-                  Sign in
-                </Link>
-              </nav>
-            )}
+            {/* Four links and a label do not fit in one 64px row until well past
+                tablet width, so this switches at `lg`, not `sm`. `min-w-0 truncate`
+                on the label is the backstop for narrow screens. */}
+            <nav className="ml-auto hidden items-center gap-6 text-sm text-on-navy-muted lg:flex">
+              {navLinks.map((l) => (
+                <TopNavLink key={l.href} href={l.href}>
+                  {l.label}
+                </TopNavLink>
+              ))}
+              <span className="min-w-0 max-w-[200px] truncate rounded-control bg-gold px-3 py-1 text-xs font-bold tracking-[0.03em] text-navy">
+                {who}
+              </span>
+            </nav>
+            <div className="ml-auto lg:hidden">
+              <MobileNav links={navLinks} who={who} />
+            </div>
           </div>
         </header>
         {/* Print drops the app chrome and the reading gutter: a printed page is
             the document, not a screenshot of the app. */}
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8 print:max-w-none print:p-0">
-          {/* A session is not access. Pages read the database directly, so a
-              signed-in account with no active roster row — never invited, or
-              removed — would otherwise see the whole portfolio. The profile is
-              already loaded above for the header, so this costs nothing. */}
-          {user && !profile ? (
-            <div className="mx-auto flex min-h-[60vh] max-w-sm flex-col justify-center gap-4 text-center">
-              <h1 className="font-serif text-xl font-semibold text-navy">No access</h1>
-              <p className="text-sm text-muted-foreground">
-                {user.email} doesn&apos;t have access to Rockport. Ask an admin to send you an
-                invite.
-              </p>
-              <div className="flex justify-center">{signOutButton}</div>
-            </div>
-          ) : (
-            children
-          )}
+          {children}
         </main>
         <Toaster />
       </body>

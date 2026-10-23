@@ -1,29 +1,20 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { SANDBOX_USER } from "@/lib/sandbox-user";
 
-/** Server-side Supabase client for Server Components, Server Actions, and Route Handlers. */
+/**
+ * Sandbox stand-in for the cookie-bound Supabase client.
+ *
+ * Authentication has been removed: every caller is the fixed sandbox admin, so
+ * the `auth.getUser()` checks scattered through actions and route handlers keep
+ * working unchanged and always succeed. Storage goes through `createAdminClient`
+ * (admin.ts), which never depended on a session.
+ */
 export async function createClient() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options),
-            );
-          } catch {
-            // Called from a Server Component render — middleware refreshes the
-            // session on the next request, so this can be safely ignored.
-          }
-        },
-      },
+  return {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: SANDBOX_USER.id, email: SANDBOX_USER.email } },
+        error: null,
+      }),
     },
-  );
+  };
 }

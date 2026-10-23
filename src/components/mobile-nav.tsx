@@ -22,13 +22,10 @@ import { cn } from "@/lib/utils";
 export function MobileNav({
   links,
   who,
-  signOut,
 }: {
   links: { href: string; label: string }[];
   /** Name and role, shown at the foot of the sheet. */
   who: string | null;
-  /** The sign-out form, rendered by the server so the action stays server-side. */
-  signOut: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -96,7 +93,6 @@ export function MobileNav({
 
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 px-5 py-4">
             {who && <span className="min-w-0 truncate text-xs text-on-navy-muted">{who}</span>}
-            {signOut}
           </div>
         </div>
       )}

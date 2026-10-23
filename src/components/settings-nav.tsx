@@ -8,13 +8,12 @@ const tabs = [
   { href: "/settings/chart-of-accounts", label: "Chart of Accounts" },
   { href: "/settings/renovation-types", label: "Renovation Types" },
   { href: "/settings/contract-template", label: "Contract Template" },
-  { href: "/settings/users", label: "Users" },
 ];
 
 export function SettingsNav() {
   const pathname = usePathname();
   return (
-    // Four tabs at their natural width run past a phone's screen with nothing
+    // Three tabs at their natural width run past a phone's screen with nothing
     // to wrap onto — scrolling, not wrapping, keeps every tab a single line
     // and reachable, the same call PropertyNav makes for its own row.
     <nav className="flex gap-1 overflow-x-auto border-b [&::-webkit-scrollbar]:hidden">
